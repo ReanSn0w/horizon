@@ -7,9 +7,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"path/filepath"
 	"time"
 
+	"github.com/ReanSn0w/horizon/internal/decision"
 	"github.com/ReanSn0w/horizon/internal/instructions"
 	"github.com/ReanSn0w/horizon/internal/session"
 )
@@ -23,6 +23,9 @@ type Executor struct {
 	tools        map[string]registeredTool
 	skills       *instructions.Catalog
 	home         string
+	access       string
+	userRequest  string
+	reviewer     decision.Reviewer
 }
 
 type environment struct {
@@ -31,6 +34,7 @@ type environment struct {
 	callID       string
 	skills       *instructions.Catalog
 	home         string
+	access       string
 }
 
 func (e *Executor) SetSkillCatalog(catalog *instructions.Catalog) {
@@ -38,6 +42,10 @@ func (e *Executor) SetSkillCatalog(catalog *instructions.Catalog) {
 }
 
 func (e *Executor) SetHome(home string) { e.home = home }
+
+func (e *Executor) SetCommandReview(access, userRequest string, reviewer decision.Reviewer) {
+	e.access, e.userRequest, e.reviewer = access, userRequest, reviewer
+}
 
 func NewExecutor(workspace, artifactsDir string, locked *session.LockedSession, turnID string) *Executor {
 	registered := registry()
@@ -80,7 +88,32 @@ func (e *Executor) Execute(ctx context.Context, callID, name string, arguments j
 	} else if validationError := validateArguments(name, arguments); validationError != nil {
 		result = outcome{Error: validationError}
 	} else {
-		result = registered.handler(ctx, arguments, environment{workspace: e.workspace, artifactsDir: e.artifactsDir, callID: callID, skills: e.skills, home: e.home})
+		if name == ShellExec {
+			if e.reviewer == nil {
+				result = outcome{Error: &ToolError{Code: "decision_unavailable", Message: "Jev command review is unavailable"}}
+			} else {
+				var args shellExecArgs
+				if err := json.Unmarshal(arguments, &args); err != nil {
+					result = outcome{Error: invalid(err.Error())}
+				} else {
+					verdict, err := e.reviewer.Review(ctx, decision.Command{UserRequest: e.userRequest, Text: args.Command, Workspace: e.workspace, Home: e.home, Access: e.access})
+					switch {
+					case err != nil:
+						result = outcome{Error: &ToolError{Code: "decision_unavailable", Message: "Jev command review failed"}}
+					case !verdict.Allowed:
+						result = outcome{Error: &ToolError{Code: "decision_denied", Message: verdict.Reason, Details: map[string]any{"decision_id": verdict.ID}}}
+					default:
+						result = registered.handler(ctx, arguments, environment{workspace: e.workspace, artifactsDir: e.artifactsDir, callID: callID, skills: e.skills, home: e.home, access: e.access})
+						if data, ok := result.Data.(shellExecData); ok {
+							data.DecisionID = verdict.ID
+							result.Data = data
+						}
+					}
+				}
+			}
+		} else {
+			result = registered.handler(ctx, arguments, environment{workspace: e.workspace, artifactsDir: e.artifactsDir, callID: callID, skills: e.skills, home: e.home})
+		}
 	}
 	encoded, err := marshalResponse(result)
 	if err != nil {
@@ -110,14 +143,4 @@ func decodeStrict(arguments json.RawMessage, target any) *ToolError {
 		return invalid(err.Error())
 	}
 	return nil
-}
-
-func resolvePath(workspace, value string) (string, *ToolError) {
-	if value == "" {
-		return "", invalid("path must not be empty")
-	}
-	if filepath.IsAbs(value) {
-		return filepath.Clean(value), nil
-	}
-	return filepath.Clean(filepath.Join(workspace, value)), nil
 }

@@ -13,6 +13,7 @@ import (
 
 	"github.com/ReanSn0w/horizon/internal/agent"
 	"github.com/ReanSn0w/horizon/internal/bootstrap"
+	"github.com/ReanSn0w/horizon/internal/decision"
 	"github.com/ReanSn0w/horizon/internal/eventstream"
 	"github.com/ReanSn0w/horizon/internal/instructions"
 	"github.com/ReanSn0w/horizon/internal/responses"
@@ -42,7 +43,7 @@ func (command *initCommand) Execute(args []string) error {
 	fmt.Fprintf(command.app.out, "Horizon home: %s\n", home)
 	configPath := filepath.Join(home, "config.yaml")
 	if result.ConfigCreated {
-		fmt.Fprintf(command.app.out, "Отредактируйте %s: задайте provider.url, provider.key и models.chatting.model; проверьте models.chatting.compact_threshold.\n", configPath)
+		fmt.Fprintf(command.app.out, "Отредактируйте %s: задайте provider.url, provider.key, models.chatting.model и decision.provider.key; проверьте decision.provider.url, decision.model и models.chatting.compact_threshold.\n", configPath)
 	} else {
 		fmt.Fprintf(command.app.out, "Существующая конфигурация сохранена: %s.\n", configPath)
 	}
@@ -107,6 +108,7 @@ type resumeCommand struct {
 	Session string         `long:"session" description:"session ID; defaults to the most recently accessed session in this workspace"`
 	Mode    string         `short:"o" long:"mode" default:"text" choice:"text" choice:"plain" choice:"jsonl" description:"text: tool status and answer; plain: answer only (-m or stdin); jsonl: all events"`
 	Model   string         `long:"model" description:"named model profile; defaults to default_model"`
+	Access  string         `long:"access" choice:"read" choice:"write" choice:"full" description:"command review mode (default: write)"`
 	Message optionalString `short:"m" long:"message" description:"message; otherwise read redirected stdin or open the interactive editor"`
 }
 
@@ -119,6 +121,13 @@ func (command *resumeCommand) Execute(args []string) error {
 		return err
 	}
 	profileName, profile, err := cfg.SelectModel(command.Model)
+	if err != nil {
+		return usage(err.Error(), err)
+	}
+	if err := cfg.RequireDecision(); err != nil {
+		return usage(err.Error(), err)
+	}
+	access, err := effectiveAccess(command.Access)
 	if err != nil {
 		return usage(err.Error(), err)
 	}
@@ -147,10 +156,17 @@ func (command *resumeCommand) Execute(args []string) error {
 	if err != nil {
 		return failure(err.Error(), err)
 	}
+	decisionURL, err := cfg.DecisionEndpoint()
+	if err != nil {
+		return usage(err.Error(), err)
+	}
+	reviewer := &decision.CommandPolicy{Client: &decision.Client{Endpoint: decisionURL, APIKey: cfg.Decision.Provider.Key, Model: cfg.Decision.Model, HTTPClient: http.DefaultClient}, Secrets: []string{cfg.Provider.Key, cfg.Decision.Provider.Key}}
 	runtime := &agent.Runtime{
 		Client: &responses.Client{ResponsesURL: responsesURL, CompactURL: compactURL, APIKey: cfg.Provider.Key, HTTPClient: http.DefaultClient},
 		Locked: locked, Store: store, Workspace: workspace, Session: value,
 		ProfileName:  profileName,
+		Access:       access,
+		Reviewer:     reviewer,
 		Profile:      session.ModelProfile{Name: profileName, Model: profile.Model, Reasoning: profile.Reasoning, CompactThreshold: profile.CompactThreshold},
 		Instructions: snapshot,
 		MaxRequests:  cfg.Limits.MaxModelRequests,

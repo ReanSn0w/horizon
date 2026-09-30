@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/ReanSn0w/horizon/internal/agenttool"
+	"github.com/ReanSn0w/horizon/internal/decision"
 	"github.com/ReanSn0w/horizon/internal/eventstream"
 	"github.com/ReanSn0w/horizon/internal/instructions"
 	"github.com/ReanSn0w/horizon/internal/responses"
@@ -27,6 +28,8 @@ type Runtime struct {
 	Workspace    session.Workspace
 	Session      *session.Session
 	ProfileName  string
+	Access       string
+	Reviewer     decision.Reviewer
 	Profile      session.ModelProfile
 	Instructions *instructions.Snapshot
 	MaxRequests  int
@@ -92,6 +95,7 @@ func (r *Runtime) Run(ctx context.Context, message string) (Result, error) {
 	executor := agenttool.NewExecutor(r.Workspace.Dir, r.Store.ArtifactsDir(r.Workspace, r.Session.SessionID), r.Locked, turnID)
 	executor.SetSkillCatalog(r.Instructions.Skills)
 	executor.SetHome(r.Store.Home)
+	executor.SetCommandReview(r.Access, message, r.Reviewer)
 	var automaticCompact *session.Compaction
 	requests := 0
 	beforeAttempt := func() error {
