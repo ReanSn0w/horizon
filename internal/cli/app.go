@@ -58,6 +58,11 @@ func (a *App) Run(args []string) int {
 		if err := rejectArgs(remaining); err != nil {
 			return err
 		}
+		if validator, ok := command.(interface{ ValidateArgs() error }); ok {
+			if err := validator.ValidateArgs(); err != nil {
+				return err
+			}
+		}
 		home, err := config.ResolveHome(options.Home)
 		if err != nil {
 			return usage(err.Error(), err)
@@ -69,7 +74,7 @@ func (a *App) Run(args []string) int {
 		options.Home = home
 		if prepared.ConfigCreated {
 			switch command.(type) {
-			case *sessionsListCommand, *sessionsCreateCommand, *sessionsReadCommand, *sessionsDeleteCommand:
+			case *sessionsListCommand, *sessionsCreateCommand, *sessionsReadCommand, *sessionsDeleteCommand, *skillsListCommand, *skillsValidateCommand, *skillsStateCommand:
 				fmt.Fprintf(a.errOut, "Horizon: создан %s/config.yaml; заполните provider.url, provider.key и models.<профиль>.model, проверьте compact_threshold перед обращением к провайдеру.\n", home)
 			}
 		}

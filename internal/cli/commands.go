@@ -309,6 +309,9 @@ func (command *sessionsCompactCommand) Execute(args []string) error {
 }
 
 func (a *App) addCommands(parser *flags.Parser, global *globalOptions) error {
+	if err := a.addSkillCommands(parser, global); err != nil {
+		return err
+	}
 	commands := []struct {
 		name, short, long string
 		data              any
