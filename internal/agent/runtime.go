@@ -91,6 +91,7 @@ func (r *Runtime) Run(ctx context.Context, message string) (Result, error) {
 	input = append(input, responses.UserMessage(message))
 	executor := agenttool.NewExecutor(r.Workspace.Dir, r.Store.ArtifactsDir(r.Workspace, r.Session.SessionID), r.Locked, turnID)
 	executor.SetSkillCatalog(r.Instructions.Skills)
+	executor.SetHome(r.Store.Home)
 	var automaticCompact *session.Compaction
 	requests := 0
 	beforeAttempt := func() error {

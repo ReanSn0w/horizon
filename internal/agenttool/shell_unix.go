@@ -70,7 +70,19 @@ func shellExecHandler(ctx context.Context, arguments json.RawMessage, env enviro
 	byteBudget := maxChars * utf8.UTFMax
 	stdoutEdge := newEdgeBuffer(byteBudget)
 	stderrEdge := newEdgeBuffer(byteBudget)
-	command := exec.Command(shellExecutable, "-c", args.Command)
+	commandText := args.Command
+	command := exec.Command(shellExecutable, "-c", commandText)
+	if env.home != "" {
+		executable, err := os.Executable()
+		if err != nil {
+			cleanup()
+			return outcome{Error: &ToolError{Code: "process_start_failed", Message: fmt.Sprintf("locate Horizon executable: %v", err)}}
+		}
+		// A shell function exposes the running binary as `horizon` even when it
+		// was launched from a custom path and is absent from PATH.
+		command.Args[2] = "horizon() { \"$HORIZON_EXECUTABLE\" \"$@\"; }\n" + commandText
+		command.Env = append(os.Environ(), "HORIZON_HOME="+env.home, "HORIZON_EXECUTABLE="+executable)
+	}
 	command.Dir = env.workspace
 	command.Stdin = nil
 	command.Stdout = io.MultiWriter(stdoutFile, stdoutEdge)

@@ -92,18 +92,11 @@ func TestBuiltBinarySkillManagementWorkflow(t *testing.T) {
 			return false, nil
 		}
 		shell := func(callID, operation string) []json.RawMessage {
-			// Use the command supplied to the model, including executable/home quoting.
-			suffix := " skills " + operation + " --id 'SKILL_ID'"
-			command := ""
-			for _, line := range strings.Split(request.Instructions, "\n") {
-				if strings.HasSuffix(line, suffix) {
-					command = strings.TrimSuffix(line, "'SKILL_ID'") + "'" + id + "'"
-					break
-				}
-			}
-			if command == "" {
+			// The model uses the ordinary CLI form, regardless of PATH or home path.
+			if !strings.Contains(request.Instructions, "horizon skills "+operation+" --id ID") {
 				t.Errorf("missing %s management instruction", operation)
 			}
+			command := "horizon skills " + operation + " --id '" + id + "'"
 			return call(callID, "shell_exec", map[string]any{"command": command, "timeout_ms": 10000, "max_output_chars": 16000})
 		}
 		checkShell := func(id string, wantExit float64) {

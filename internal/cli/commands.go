@@ -355,9 +355,5 @@ func rejectArgs(args []string) error {
 }
 
 func buildInstructions(home, workspace string, disabled []string) (*instructions.Snapshot, error) {
-	executable, err := os.Executable()
-	if err != nil {
-		return nil, fmt.Errorf("locate Horizon executable: %w", err)
-	}
-	return instructions.Build(home, workspace, agent.Introduction, instructions.Options{DisabledSkills: disabled, Executable: executable})
+	return instructions.Build(home, workspace, agent.Introduction, instructions.Options{DisabledSkills: disabled})
 }

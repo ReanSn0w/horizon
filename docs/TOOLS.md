@@ -104,9 +104,10 @@
 со следующего хода; текущий снимок остаётся неизменным.
 
 Для работы со свежими файлами модель может вызвать через `shell_exec` команды
-`skills list`, `skills validate --id ID`, `skills enable --id ID` и
-`skills disable --id ID`. Абсолютный путь к бинарнику и выбранный `--home`
-передаются в служебных инструкциях. ID — имя каталога навыка; `skill_read`
+`horizon skills list`, `horizon skills validate --id ID`,
+`horizon skills enable --id ID` и `horizon skills disable --id ID`.
+Horizon передаёт выбранный home через `HORIZON_HOME` и делает команду `horizon`
+доступной в shell. ID — имя каталога навыка; `skill_read`
 продолжает принимать поле `name` из YAML. Проверка формата не исполняет скрипты
 и не обращается к API.
 

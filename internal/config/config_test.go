@@ -124,6 +124,20 @@ func TestResolveHome(t *testing.T) {
 	}
 }
 
+func TestResolveHomeFromEnvironment(t *testing.T) {
+	environmentHome := filepath.Join(t.TempDir(), "from-env")
+	t.Setenv("HORIZON_HOME", environmentHome)
+	got, err := ResolveHome("")
+	if err != nil || got != environmentHome {
+		t.Fatalf("ResolveHome() = %q, %v; want %q", got, err, environmentHome)
+	}
+	explicitHome := filepath.Join(t.TempDir(), "explicit")
+	got, err = ResolveHome(explicitHome)
+	if err != nil || got != explicitHome {
+		t.Fatalf("ResolveHome(explicit) = %q, %v; want %q", got, err, explicitHome)
+	}
+}
+
 func writeConfig(t *testing.T, contents string) string {
 	t.Helper()
 	home := t.TempDir()

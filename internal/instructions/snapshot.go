@@ -19,7 +19,6 @@ type Snapshot struct {
 
 type Options struct {
 	DisabledSkills []string
-	Executable     string
 }
 
 func Build(home, workspace, introduction string, options ...Options) (*Snapshot, error) {
@@ -49,9 +48,7 @@ func Build(home, workspace, introduction string, options ...Options) (*Snapshot,
 		blocks = append(blocks, global)
 	}
 	blocks = append(blocks, renderCatalog(catalog.Summaries()))
-	if opts.Executable != "" {
-		blocks = append(blocks, skillManagementInstructions(opts.Executable, home))
-	}
+	blocks = append(blocks, skillManagementInstructions())
 	if local != "" {
 		blocks = append(blocks, local)
 	}
@@ -79,16 +76,10 @@ func renderCatalog(skills []SkillSummary) string {
 	return builder.String()
 }
 
-func skillManagementInstructions(executable, home string) string {
-	quote := func(value string) string { return "'" + strings.ReplaceAll(value, "'", "'\"'\"'") + "'" }
-	prefix := quote(executable) + " --home " + quote(home) + " skills "
+func skillManagementInstructions() string {
 	return "## Skill management\n" +
-		"Use shell_exec to run these local commands; they do not contact the provider. Use the exact executable and home paths below.\n" +
-		prefix + "list\n" +
-		prefix + "validate --id 'SKILL_ID'\n" +
-		prefix + "enable --id 'SKILL_ID'\n" +
-		prefix + "disable --id 'SKILL_ID'\n" +
-		"Replace SKILL_ID with the skill directory ID shown by skills list. skill_read takes the YAML name, not the directory ID.\n" +
-		"After creating or editing a skill, validate its current file with this command, fix reported formatting problems, and validate again.\n" +
-		"Enable or disable skills when the user's task calls for it. Changes apply to the next turn; the current skill snapshot stays unchanged. Disabling does not delete files."
+		"Run `horizon skills list` through shell_exec to see skill IDs and status. " +
+		"After creating or editing a skill, run `horizon skills validate --id ID` and fix reported errors. " +
+		"Use `horizon skills enable --id ID` or `horizon skills disable --id ID` when requested. " +
+		"ID is the directory name; skill_read uses the YAML name. Changes apply from the next turn."
 }

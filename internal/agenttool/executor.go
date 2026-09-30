@@ -22,6 +22,7 @@ type Executor struct {
 	now          func() time.Time
 	tools        map[string]registeredTool
 	skills       *instructions.Catalog
+	home         string
 }
 
 type environment struct {
@@ -29,11 +30,14 @@ type environment struct {
 	artifactsDir string
 	callID       string
 	skills       *instructions.Catalog
+	home         string
 }
 
 func (e *Executor) SetSkillCatalog(catalog *instructions.Catalog) {
 	e.skills = catalog
 }
+
+func (e *Executor) SetHome(home string) { e.home = home }
 
 func NewExecutor(workspace, artifactsDir string, locked *session.LockedSession, turnID string) *Executor {
 	registered := registry()
@@ -76,7 +80,7 @@ func (e *Executor) Execute(ctx context.Context, callID, name string, arguments j
 	} else if validationError := validateArguments(name, arguments); validationError != nil {
 		result = outcome{Error: validationError}
 	} else {
-		result = registered.handler(ctx, arguments, environment{workspace: e.workspace, artifactsDir: e.artifactsDir, callID: callID, skills: e.skills})
+		result = registered.handler(ctx, arguments, environment{workspace: e.workspace, artifactsDir: e.artifactsDir, callID: callID, skills: e.skills, home: e.home})
 	}
 	encoded, err := marshalResponse(result)
 	if err != nil {

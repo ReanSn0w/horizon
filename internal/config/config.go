@@ -65,6 +65,9 @@ type rawLimits struct {
 
 func ResolveHome(value string) (string, error) {
 	if value == "" {
+		value = os.Getenv("HORIZON_HOME")
+	}
+	if value == "" {
 		home, err := os.UserHomeDir()
 		if err != nil {
 			return "", fmt.Errorf("resolve user home: %w", err)

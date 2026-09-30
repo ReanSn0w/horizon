@@ -17,7 +17,7 @@ func TestDisabledSkillsAndManagementSnapshot(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte("broken"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	opts := Options{DisabledSkills: []string{"broken"}, Executable: "/tmp/a ' b/horizon"}
+	opts := Options{DisabledSkills: []string{"broken"}}
 	snapshot, err := Build(home, workspace, "INTRO", opts)
 	if err != nil {
 		t.Fatal(err)
@@ -28,7 +28,7 @@ func TestDisabledSkillsAndManagementSnapshot(t *testing.T) {
 	if _, err := snapshot.Skills.Read("broken"); err == nil {
 		t.Fatal("read disabled skill")
 	}
-	for _, want := range []string{"skills validate --id", "--home '" + home + "'", `'/tmp/a '"'"' b/horizon'`} {
+	for _, want := range []string{"horizon skills list", "horizon skills validate --id ID"} {
 		if !strings.Contains(snapshot.Prompt, want) {
 			t.Fatalf("missing %q in %s", want, snapshot.Prompt)
 		}
