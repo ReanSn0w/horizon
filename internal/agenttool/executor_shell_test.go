@@ -27,6 +27,57 @@ func (r reviewStub) Review(context.Context, decision.Command) (decision.Verdict,
 	return r.verdict, r.err
 }
 
+type forbiddenReviewer struct{ calls int }
+
+func (r *forbiddenReviewer) Review(context.Context, decision.Command) (decision.Verdict, error) {
+	r.calls++
+	return decision.Verdict{}, errors.New("full mode must not call Jev")
+}
+
+func TestExecutorFullRunsWithoutJev(t *testing.T) {
+	store := session.NewStore(t.TempDir())
+	workspace, err := store.ResolveWorkspace(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	created, err := store.Create(workspace)
+	if err != nil {
+		t.Fatal(err)
+	}
+	locked, err := store.LockSession(workspace, created.SessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer locked.Close()
+	turnID := strings.Repeat("c", 32)
+	if err := locked.StartTurn(session.Turn{ID: turnID, Status: session.StatusActive, StartedAt: time.Now().UTC(), Model: session.ModelProfile{Name: "test", Model: "test", CompactThreshold: 1000}}); err != nil {
+		t.Fatal(err)
+	}
+	reviewer := &forbiddenReviewer{}
+	for index, candidate := range []decision.Reviewer{reviewer, nil} {
+		executor := NewExecutor(workspace.Dir, store.ArtifactsDir(workspace, created.SessionID), locked, turnID)
+		executor.SetHome(store.Home)
+		executor.SetCommandReview("full", candidate)
+		output, err := executor.Execute(context.Background(), "full-"+strconv.Itoa(index), ShellExec, json.RawMessage(`{"command":"printf full-mode","timeout_ms":null,"max_output_chars":null}`))
+		if err != nil {
+			t.Fatal(err)
+		}
+		var response struct {
+			OK   bool `json:"ok"`
+			Data struct {
+				Stdout     string `json:"stdout"`
+				DecisionID string `json:"decision_id"`
+			} `json:"data"`
+		}
+		if err := json.Unmarshal(output, &response); err != nil || !response.OK || response.Data.Stdout != "full-mode" || response.Data.DecisionID != "" {
+			t.Fatalf("result=%s err=%v", output, err)
+		}
+	}
+	if reviewer.calls != 0 {
+		t.Fatalf("Jev reviewer called %d times", reviewer.calls)
+	}
+}
+
 func TestExecutorDoesNotRunDeniedOrUnavailableCommand(t *testing.T) {
 	store := session.NewStore(t.TempDir())
 	workspace, err := store.ResolveWorkspace(t.TempDir())
@@ -58,7 +109,7 @@ func TestExecutorDoesNotRunDeniedOrUnavailableCommand(t *testing.T) {
 	} {
 		executor := NewExecutor(workspace.Dir, store.ArtifactsDir(workspace, created.SessionID), locked, turnID)
 		executor.SetHome(store.Home)
-		executor.SetCommandReview("write", "task", test.reviewer)
+		executor.SetCommandReview("write", test.reviewer)
 		output, err := executor.Execute(context.Background(), test.name, ShellExec, command)
 		if err != nil {
 			t.Fatal(err)

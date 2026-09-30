@@ -184,8 +184,8 @@ func validate(raw rawConfig) (Config, error) {
 }
 
 // RequireDecision validates the separately configured decision provider before
-// an agent turn is created. Local administration commands can still read an
-// older config without Jev settings.
+// a read or write agent turn is created. Full access and local administration
+// commands can run without Jev settings.
 func (c Config) RequireDecision() error {
 	var missing []string
 	if strings.TrimSpace(c.Decision.Provider.URL) == "" {

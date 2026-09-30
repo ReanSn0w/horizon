@@ -296,7 +296,7 @@ func writeConfig(t *testing.T, home, endpoint string) {
 		}
 		answers := map[string]any{}
 		for id := range request.Questions {
-			answers[id] = map[string]any{"type": "noul", "noul": 0.99}
+			answers[id] = map[string]any{"type": "noul", "noul": 0.01}
 		}
 		json.NewEncoder(w).Encode(map[string]any{"id": "e2e-decision", "answers": answers})
 	}))

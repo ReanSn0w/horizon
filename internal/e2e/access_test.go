@@ -53,7 +53,7 @@ func TestBuiltBinaryAccessAndJevGate(t *testing.T) {
 				if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
 					t.Error(err)
 				}
-				if request.State["access"] != tc.access || request.State["command"] != commandText || request.State["horizon_home"] != home || request.State["workspace"] != resolvedWorkspace {
+				if len(request.State) != 3 || request.State["command"] != commandText || request.State["horizon_home"] != home || request.State["workspace"] != resolvedWorkspace || len(request.Questions) != 2 {
 					t.Errorf("review context = %+v", request.State)
 				}
 				if tc.decision == "error" {
@@ -62,14 +62,14 @@ func TestBuiltBinaryAccessAndJevGate(t *testing.T) {
 				}
 				answers := map[string]any{}
 				for id := range request.Questions {
-					probability := 0.99
-					if tc.decision == "deny" && id == "mode_fit" {
-						probability = 0.1
+					probability := 0.01
+					if tc.decision == "deny" && (tc.access == "read" && id == "file_write" || tc.access == "write" && id == "outside_write") {
+						probability = 0.99
 					}
 					answers[id] = map[string]any{"type": "noul", "noul": probability}
 				}
 				if tc.decision == "incomplete" {
-					delete(answers, "mode_fit")
+					delete(answers, "outside_write")
 				}
 				_ = json.NewEncoder(w).Encode(map[string]any{"id": "test-decision", "answers": answers})
 			}))
@@ -113,11 +113,18 @@ func TestBuiltBinaryAccessAndJevGate(t *testing.T) {
 				command.Env = append(command.Env, "HORIZON_INHERITED_ACCESS="+tc.inherited)
 			}
 			output, err := command.CombinedOutput()
-			if err != nil || strings.TrimSpace(string(output)) != "done" || decisionCalls != 1 || responseCalls != 2 {
+			wantDecisions := 1
+			if tc.access == "full" {
+				wantDecisions = 0
+			}
+			if err != nil || strings.TrimSpace(string(output)) != "done" || decisionCalls != wantDecisions || responseCalls != 2 {
 				t.Fatalf("CLI output=%q err=%v decisions=%d responses=%d", output, err, decisionCalls, responseCalls)
 			}
 			if tc.allowed && !strings.Contains(toolOutput, `"ok":true`) || !tc.allowed && !strings.Contains(toolOutput, `"ok":false`) {
 				t.Fatalf("tool output = %s", toolOutput)
+			}
+			if tc.access == "full" && strings.Contains(toolOutput, `"decision_id"`) {
+				t.Fatalf("full access reported Jev decision: %s", toolOutput)
 			}
 			if _, err := os.Stat(filepath.Join(workspace, "marker")); err == nil && !tc.allowed {
 				t.Fatal("rejected command created marker")
@@ -172,11 +179,11 @@ func testNestedHorizonInheritsAccess(t *testing.T, childFlag string) {
 			t.Error(err)
 		}
 		mu.Lock()
-		reviewed = append(reviewed, request.State["access"]+":"+request.State["command"])
+		reviewed = append(reviewed, request.State["command"])
 		mu.Unlock()
 		answers := map[string]any{}
 		for id := range request.Questions {
-			answers[id] = map[string]any{"type": "noul", "noul": 0.99}
+			answers[id] = map[string]any{"type": "noul", "noul": 0.01}
 		}
 		_ = json.NewEncoder(w).Encode(map[string]any{"id": "nested-decision", "answers": answers})
 	}))
@@ -228,7 +235,7 @@ func testNestedHorizonInheritsAccess(t *testing.T, childFlag string) {
 	output, err := command.CombinedOutput()
 	mu.Lock()
 	defer mu.Unlock()
-	if err != nil || strings.TrimSpace(string(output)) != "parent done" || calls != 4 || len(reviewed) != 2 || !strings.HasPrefix(reviewed[0], "write:") || reviewed[1] != "write:printf '%s' \"$HORIZON_INHERITED_ACCESS\"" || !strings.Contains(childResult, `"stdout":"write"`) {
+	if err != nil || strings.TrimSpace(string(output)) != "parent done" || calls != 4 || len(reviewed) != 2 || !strings.HasPrefix(reviewed[0], "cd sub && horizon resume") || reviewed[1] != "printf '%s' \"$HORIZON_INHERITED_ACCESS\"" || !strings.Contains(childResult, `"stdout":"write"`) {
 		t.Fatalf("nested result: output=%q err=%v calls=%d reviewed=%q child=%s", output, err, calls, reviewed, childResult)
 	}
 }

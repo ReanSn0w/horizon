@@ -3,6 +3,7 @@ package decision
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"regexp"
 	"strings"
@@ -14,11 +15,10 @@ type Reviewer interface {
 }
 
 type Command struct {
-	UserRequest string
-	Text        string
-	Workspace   string
-	Home        string
-	Access      string
+	Text      string
+	Workspace string
+	Home      string
+	Access    string
 }
 
 type Verdict struct {
@@ -36,55 +36,59 @@ type CommandPolicy struct {
 	Secrets []string
 }
 
-// This is an initial conservative cutoff. The decision is advisory, never an
-// operating-system permission boundary.
-const commandApprovalThreshold = 0.92
+// These advisory model scores are not operating-system permission boundaries.
+const (
+	maxWriteProbabilityInRead    = 0.20
+	maxOutsideProbabilityInWrite = 0.20
+)
 
 var inlineSecret = regexp.MustCompile(`(?i)(bearer\s+\S+|(?:api[_-]?key|token|secret|password)\s*[:=]\s*\S+)`)
 
 func (p *CommandPolicy) Review(ctx context.Context, command Command) (Verdict, error) {
-	if p == nil || p.Client == nil {
-		return Verdict{}, errors.New("decision provider is unavailable")
-	}
 	if command.Text == "" || command.Workspace == "" || command.Home == "" || !validAccess(command.Access) {
 		return Verdict{}, errors.New("command review context is incomplete")
 	}
-	if containsSecret(command.Text, p.Secrets) || inlineSecret.MatchString(command.Text) || containsSecret(command.UserRequest, p.Secrets) || inlineSecret.MatchString(command.UserRequest) {
+	if command.Access == "full" {
+		return Verdict{Allowed: true}, nil
+	}
+	if p == nil || p.Client == nil {
+		return Verdict{}, errors.New("decision provider is unavailable")
+	}
+	if containsSecret(command.Text, p.Secrets) || inlineSecret.MatchString(command.Text) {
 		return Verdict{Reason: "review context contains credentials"}, nil
 	}
 	state := map[string]string{
-		"user_request": command.UserRequest,
 		"command":      command.Text,
 		"workspace":    command.Workspace,
 		"horizon_home": command.Home,
-		"access":       command.Access,
 	}
 	questions := map[string]Question{
-		"task_fit": {
-			Type: "noul", Instructions: "Is executing this shell command reasonably necessary for the user's current task? Judge the command text and stated context, not imagined permission.",
-			Criteria: map[string]string{"true": "The command directly helps complete the user request.", "false": "The command is unrelated or exceeds the user's task."},
+		"file_write": {
+			Type: "noul", Instructions: "Does `command` apparently intend to create, modify, or delete local filesystem content? Count explicit writes through subprocesses, shell redirections, scripts, and clear cache or temporary writes. Do not infer a write from ordinary inspection, listing, or help commands. Judge intended local file effects, not remote effects.",
+			Criteria: map[string]string{"true": "The command apparently writes, modifies, or deletes local filesystem content.", "false": "The command is read-only or has no apparent local file write."},
 		},
-		"mode_fit": {
-			Type: "noul", Instructions: "Does the command's apparent file access fit access mode? read allows file reads but no intended writes. write allows intended writes only within workspace or horizon_home. full has no path limit. Account for compound commands, subprocesses, redirections and obvious cache or temporary writes.",
-			Criteria: map[string]string{"true": "The command appears to stay within the mode's intended file changes.", "false": "The command appears to write where the mode does not allow it."},
-		},
-		"safe_action": {
-			Type: "noul", Instructions: "Is it reasonable to run this command autonomously? Reject credential disclosure and effects unrelated to the user request; treat irreversible actions, publishing and deployment as acceptable only when the user explicitly requested them.",
-			Criteria: map[string]string{"true": "No unrequested destructive, publishing, remote or credential-disclosing action.", "false": "The command may cause an unrequested harmful or credential-disclosing effect."},
+		"outside_write": {
+			Type: "noul", Instructions: "Does `command` apparently intend to write, modify, or delete local filesystem content outside both `workspace` and `horizon_home`? Relative paths start in `workspace`. Include explicit subprocesses, redirections, and clear cache or temporary writes. A read-only command has no outside write. Judge local file paths only, not remote effects.",
+			Criteria: map[string]string{"true": "The command apparently writes outside both allowed directory trees.", "false": "All apparent local file writes remain within the allowed directory trees, or there is no apparent local file write."},
 		},
 	}
 	response, err := p.Client.Decide(ctx, Request{State: state, Questions: questions})
 	if err != nil {
 		return Verdict{}, err
 	}
-	for _, id := range []string{"task_fit", "mode_fit", "safe_action"} {
+	for _, id := range []string{"file_write", "outside_write"} {
 		answer, ok := response.Answers[id]
 		if !ok || answer.Noul == nil || !validProbability(*answer.Noul) {
 			return Verdict{}, errors.New("decision response is incomplete")
 		}
-		if *answer.Noul < commandApprovalThreshold {
-			return Verdict{ID: response.ID, Reason: "command did not pass Jev review"}, nil
-		}
+	}
+	fileWrite := *response.Answers["file_write"].Noul
+	outsideWrite := *response.Answers["outside_write"].Noul
+	if command.Access == "read" && fileWrite > maxWriteProbabilityInRead {
+		return Verdict{ID: response.ID, Reason: fmt.Sprintf("read mode: possible file write (Jev score %.2f)", fileWrite)}, nil
+	}
+	if command.Access == "write" && outsideWrite > maxOutsideProbabilityInWrite {
+		return Verdict{ID: response.ID, Reason: fmt.Sprintf("write mode: possible file write outside workspace or Horizon home (Jev score %.2f)", outsideWrite)}, nil
 	}
 	return Verdict{Allowed: true, ID: response.ID}, nil
 }

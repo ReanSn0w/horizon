@@ -125,12 +125,14 @@ func (command *resumeCommand) Execute(args []string) error {
 	if err != nil {
 		return usage(err.Error(), err)
 	}
-	if err := cfg.RequireDecision(); err != nil {
-		return usage(err.Error(), err)
-	}
 	access, err := effectiveAccess(command.Access)
 	if err != nil {
 		return usage(err.Error(), err)
+	}
+	if access != "full" {
+		if err := cfg.RequireDecision(); err != nil {
+			return usage(err.Error(), err)
+		}
 	}
 	message, err := command.app.readMessageMode(command.Message, command.Mode)
 	if err != nil {
@@ -157,11 +159,14 @@ func (command *resumeCommand) Execute(args []string) error {
 	if err != nil {
 		return failure(err.Error(), err)
 	}
-	decisionURL, err := cfg.DecisionEndpoint()
-	if err != nil {
-		return usage(err.Error(), err)
+	var reviewer decision.Reviewer
+	if access != "full" {
+		decisionURL, err := cfg.DecisionEndpoint()
+		if err != nil {
+			return usage(err.Error(), err)
+		}
+		reviewer = &decision.CommandPolicy{Client: &decision.Client{Endpoint: decisionURL, APIKey: cfg.Decision.Provider.Key, Model: cfg.Decision.Model, HTTPClient: http.DefaultClient}, Secrets: []string{cfg.Provider.Key, cfg.Decision.Provider.Key}}
 	}
-	reviewer := &decision.CommandPolicy{Client: &decision.Client{Endpoint: decisionURL, APIKey: cfg.Decision.Provider.Key, Model: cfg.Decision.Model, HTTPClient: http.DefaultClient}, Secrets: []string{cfg.Provider.Key, cfg.Decision.Provider.Key}}
 	runtime := &agent.Runtime{
 		Client: &responses.Client{ResponsesURL: responsesURL, CompactURL: compactURL, APIKey: cfg.Provider.Key, HTTPClient: http.DefaultClient},
 		Locked: locked, Store: store, Workspace: workspace, Session: value,
