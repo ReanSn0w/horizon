@@ -25,7 +25,7 @@ func Ensure(home string) (Result, error) {
 		return result, err
 	}
 	result.ConfigCreated = created
-	if _, err := install(filepath.Join(home, "AGENTS.md"), nil); err != nil {
+	if _, err := install(filepath.Join(home, "AGENTS.md"), agentsTemplate); err != nil {
 		return result, err
 	}
 	if _, err := install(filepath.Join(home, "skills", "skill-creator", "SKILL.md"), skillTemplate); err != nil {

@@ -18,6 +18,7 @@ const (
 
 type Config struct {
 	DisabledSkills []string
+	SoulEnabled    bool
 	Mode           string
 	DefaultModel   string
 	Models         map[string]Model
@@ -50,6 +51,7 @@ type Limits struct {
 
 type rawConfig struct {
 	DisabledSkills disabledIDs         `yaml:"disabled_skills"`
+	SoulEnabled    bool                `yaml:"soul_enabled"`
 	Mode           string              `yaml:"mode"`
 	DefaultModel   string              `yaml:"default_model"`
 	Models         map[string]rawModel `yaml:"models"`
@@ -171,6 +173,7 @@ func validate(raw rawConfig) (Config, error) {
 	}
 	return Config{
 		DisabledSkills: append([]string(nil), raw.DisabledSkills...),
+		SoulEnabled:    raw.SoulEnabled,
 		Mode:           raw.Mode,
 		DefaultModel:   raw.DefaultModel,
 		Models:         models,

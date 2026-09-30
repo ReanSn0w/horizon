@@ -93,9 +93,6 @@ func TestBuiltBinarySkillManagementWorkflow(t *testing.T) {
 		}
 		shell := func(callID, operation string) []json.RawMessage {
 			// The model uses the ordinary CLI form, regardless of PATH or home path.
-			if !strings.Contains(request.Instructions, "horizon skills "+operation+" --id ID") {
-				t.Errorf("missing %s management instruction", operation)
-			}
 			command := "horizon skills " + operation + " --id '" + id + "'"
 			return call(callID, "shell_exec", map[string]any{"command": command, "timeout_ms": 10000, "max_output_chars": 16000})
 		}

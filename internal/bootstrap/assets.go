@@ -6,6 +6,9 @@ import _ "embed"
 //go:embed assets/config.yaml
 var configTemplate []byte
 
+//go:embed assets/AGENTS.md
+var agentsTemplate []byte
+
 //go:embed assets/skills/skill-creator/SKILL.md
 var skillTemplate []byte
 

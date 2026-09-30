@@ -13,12 +13,14 @@ type Snapshot struct {
 	Prompt string
 	Skills *Catalog
 	Global string
+	Soul   string
 	Local  string
 	Intro  string
 }
 
 type Options struct {
 	DisabledSkills []string
+	SoulEnabled    bool
 }
 
 func Build(home, workspace, introduction string, options ...Options) (*Snapshot, error) {
@@ -31,6 +33,18 @@ func Build(home, workspace, introduction string, options ...Options) (*Snapshot,
 	if err != nil {
 		return nil, err
 	}
+	var soul string
+	if opts.SoulEnabled {
+		path := filepath.Join(home, "SOUL.md")
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return nil, fmt.Errorf("soul_enabled is true: read SOUL.md %q: %w", path, err)
+		}
+		if strings.TrimSpace(string(data)) == "" {
+			return nil, fmt.Errorf("soul_enabled is true: SOUL.md %q is empty", path)
+		}
+		soul = string(data)
+	}
 	catalog, err := ScanSkills(home, opts.DisabledSkills...)
 	if err != nil {
 		return nil, err
@@ -39,7 +53,7 @@ func Build(home, workspace, introduction string, options ...Options) (*Snapshot,
 	if err != nil {
 		return nil, err
 	}
-	snapshot := &Snapshot{Skills: catalog, Global: global, Local: local, Intro: introduction}
+	snapshot := &Snapshot{Skills: catalog, Global: global, Soul: soul, Local: local, Intro: introduction}
 	var blocks []string
 	if introduction != "" {
 		blocks = append(blocks, introduction)
@@ -47,8 +61,10 @@ func Build(home, workspace, introduction string, options ...Options) (*Snapshot,
 	if global != "" {
 		blocks = append(blocks, global)
 	}
+	if soul != "" {
+		blocks = append(blocks, soul)
+	}
 	blocks = append(blocks, renderCatalog(catalog.Summaries()))
-	blocks = append(blocks, skillManagementInstructions())
 	if local != "" {
 		blocks = append(blocks, local)
 	}
@@ -74,12 +90,4 @@ func renderCatalog(skills []SkillSummary) string {
 		fmt.Fprintf(&builder, "\n- %s: %s [ID: %s]", skill.Name, skill.Description, skill.ID)
 	}
 	return builder.String()
-}
-
-func skillManagementInstructions() string {
-	return "## Skill management\n" +
-		"Run `horizon skills list` through shell_exec to see skill IDs and status. " +
-		"After creating or editing a skill, run `horizon skills validate --id ID` and fix reported errors. " +
-		"Use `horizon skills enable --id ID` or `horizon skills disable --id ID` when requested. " +
-		"ID is the directory name; skill_read uses the YAML name. Changes apply from the next turn."
 }

@@ -14,6 +14,9 @@ func TestEnsureCreatesAndPreservesHome(t *testing.T) {
 	if err != nil || !result.ConfigCreated {
 		t.Fatalf("result=%+v err=%v", result, err)
 	}
+	if data, err := os.ReadFile(filepath.Join(home, "AGENTS.md")); err != nil || !bytes.Equal(data, agentsTemplate) {
+		t.Fatalf("initial agent instructions differ from template: %v", err)
+	}
 	for _, name := range []string{"", "dialogs", "plugins", "skills", "skills/skill-creator", "skills/filesystem", "config.yaml", "AGENTS.md", "skills/skill-creator/SKILL.md", "skills/filesystem/SKILL.md"} {
 		info, err := os.Stat(filepath.Join(home, name))
 		if err != nil {
@@ -71,6 +74,37 @@ func TestEnsureCreatesAndPreservesHome(t *testing.T) {
 	}
 }
 
+func TestEnsureRestoresMissingAgentsAndPreservesEmptyFile(t *testing.T) {
+	for _, missing := range []bool{true, false} {
+		name := "empty"
+		if missing {
+			name = "missing"
+		}
+		t.Run(name, func(t *testing.T) {
+			home := t.TempDir()
+			if _, err := Ensure(home); err != nil {
+				t.Fatal(err)
+			}
+			path := filepath.Join(home, "AGENTS.md")
+			var want []byte
+			if missing {
+				if err := os.Remove(path); err != nil {
+					t.Fatal(err)
+				}
+				want = agentsTemplate
+			} else if err := os.WriteFile(path, nil, 0600); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := Ensure(home); err != nil {
+				t.Fatal(err)
+			}
+			if data, err := os.ReadFile(path); err != nil || !bytes.Equal(data, want) {
+				t.Fatalf("agent instructions: %v, match=%t", err, bytes.Equal(data, want))
+			}
+		})
+	}
+}
+
 func TestEnsureConcurrent(t *testing.T) {
 	home := filepath.Join(t.TempDir(), "home")
 	var wg sync.WaitGroup
@@ -95,7 +129,7 @@ func TestEnsureConcurrent(t *testing.T) {
 	if created != 1 {
 		t.Fatalf("config created %d times", created)
 	}
-	for name, want := range map[string][]byte{"config.yaml": configTemplate, "AGENTS.md": {}, "skills/skill-creator/SKILL.md": skillTemplate, "skills/filesystem/SKILL.md": filesystemSkillTemplate} {
+	for name, want := range map[string][]byte{"config.yaml": configTemplate, "AGENTS.md": agentsTemplate, "skills/skill-creator/SKILL.md": skillTemplate, "skills/filesystem/SKILL.md": filesystemSkillTemplate} {
 		data, err := os.ReadFile(filepath.Join(home, name))
 		if err != nil || !bytes.Equal(data, want) {
 			t.Fatalf("%s: %v, complete=%t", name, err, bytes.Equal(data, want))

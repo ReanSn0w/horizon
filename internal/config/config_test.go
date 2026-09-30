@@ -55,6 +55,32 @@ func TestLoadLimits(t *testing.T) {
 	}
 }
 
+func TestLoadSoulEnabled(t *testing.T) {
+	for _, tc := range []struct {
+		name, setting string
+		want          bool
+		wantError     bool
+	}{
+		{name: "omitted"},
+		{name: "disabled", setting: "soul_enabled: false\n"},
+		{name: "enabled", setting: "soul_enabled: true\n", want: true},
+		{name: "invalid", setting: "soul_enabled: maybe\n", wantError: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg, err := Load(writeConfig(t, validConfig+tc.setting))
+			if tc.wantError {
+				if err == nil || !strings.Contains(err.Error(), "cannot unmarshal") {
+					t.Fatalf("Load() error = %v", err)
+				}
+				return
+			}
+			if err != nil || cfg.SoulEnabled != tc.want {
+				t.Fatalf("Load() soul_enabled = %t, error = %v", cfg.SoulEnabled, err)
+			}
+		})
+	}
+}
+
 func TestLoadValidation(t *testing.T) {
 	tests := []struct {
 		name, contents, want string

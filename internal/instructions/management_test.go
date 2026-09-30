@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-func TestDisabledSkillsAndManagementSnapshot(t *testing.T) {
+func TestDisabledSkillsOmittedFromSnapshot(t *testing.T) {
 	home := t.TempDir()
 	workspace := t.TempDir()
 	dir := filepath.Join(home, "skills", "broken")
@@ -28,10 +28,8 @@ func TestDisabledSkillsAndManagementSnapshot(t *testing.T) {
 	if _, err := snapshot.Skills.Read("broken"); err == nil {
 		t.Fatal("read disabled skill")
 	}
-	for _, want := range []string{"horizon skills list", "horizon skills validate --id ID"} {
-		if !strings.Contains(snapshot.Prompt, want) {
-			t.Fatalf("missing %q in %s", want, snapshot.Prompt)
-		}
+	if strings.Contains(snapshot.Prompt, "## Skill management") || strings.Contains(snapshot.Prompt, "horizon skills") {
+		t.Fatalf("unexpected skill management instructions in %s", snapshot.Prompt)
 	}
 	if _, err := Build(home, workspace, "INTRO"); err == nil {
 		t.Fatal("accepted active broken skill")

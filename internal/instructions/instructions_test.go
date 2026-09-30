@@ -69,6 +69,61 @@ func TestBuildOrderDirectWorkspaceAndImmutableSnapshot(t *testing.T) {
 	}
 }
 
+func TestSoulEnabledControlsInstructionOrder(t *testing.T) {
+	home, workspace := t.TempDir(), t.TempDir()
+	for path, value := range map[string]string{
+		filepath.Join(home, "AGENTS.md"):      "GLOBAL_ONLY",
+		filepath.Join(home, "SOUL.md"):        "SOUL_ONLY",
+		filepath.Join(workspace, "AGENTS.md"): "LOCAL_ONLY",
+	} {
+		if err := os.WriteFile(path, []byte(value), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.MkdirAll(filepath.Join(home, "skills", "sample"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, "skills", "sample", "SKILL.md"), []byte("---\nname: sample\ndescription: SKILL_ONLY\n---\nBody\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	disabled, err := Build(home, workspace, "INTRO")
+	if err != nil || disabled.Soul != "" || strings.Contains(disabled.Prompt, "SOUL_ONLY") {
+		t.Fatalf("disabled snapshot: %+v, err=%v", disabled, err)
+	}
+	enabled, err := Build(home, workspace, "INTRO", Options{SoulEnabled: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	parts := []string{"INTRO", "GLOBAL_ONLY", "SOUL_ONLY", "SKILL_ONLY", "LOCAL_ONLY"}
+	previous := -1
+	for _, part := range parts {
+		index := strings.Index(enabled.Prompt, part)
+		if index <= previous {
+			t.Fatalf("instruction order for %q: %q", part, enabled.Prompt)
+		}
+		previous = index
+	}
+	if enabled.Soul != "SOUL_ONLY" || strings.Count(enabled.Prompt, "SOUL_ONLY") != 1 {
+		t.Fatalf("soul content: %+v", enabled)
+	}
+}
+
+func TestEnabledSoulMustExistAndHaveContent(t *testing.T) {
+	home, workspace := t.TempDir(), t.TempDir()
+	_, err := Build(home, workspace, "", Options{SoulEnabled: true})
+	if err == nil || !strings.Contains(err.Error(), "soul_enabled is true") || !strings.Contains(err.Error(), "SOUL.md") {
+		t.Fatalf("missing SOUL.md: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(home, "SOUL.md"), []byte(" \n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	_, err = Build(home, workspace, "", Options{SoulEnabled: true})
+	if err == nil || !strings.Contains(err.Error(), "is empty") {
+		t.Fatalf("empty SOUL.md: %v", err)
+	}
+}
+
 func TestSkillCatalogErrorsAndSorting(t *testing.T) {
 	home := t.TempDir()
 	for directory, metadata := range map[string]string{

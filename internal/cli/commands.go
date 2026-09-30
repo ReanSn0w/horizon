@@ -13,6 +13,7 @@ import (
 
 	"github.com/ReanSn0w/horizon/internal/agent"
 	"github.com/ReanSn0w/horizon/internal/bootstrap"
+	"github.com/ReanSn0w/horizon/internal/config"
 	"github.com/ReanSn0w/horizon/internal/decision"
 	"github.com/ReanSn0w/horizon/internal/eventstream"
 	"github.com/ReanSn0w/horizon/internal/instructions"
@@ -144,7 +145,7 @@ func (command *resumeCommand) Execute(args []string) error {
 		return failure(err.Error(), err)
 	}
 	defer locked.Close()
-	snapshot, err := buildInstructions(home, workspace.Dir, cfg.DisabledSkills)
+	snapshot, err := buildInstructions(home, workspace.Dir, cfg)
 	if err != nil {
 		return failure(err.Error(), err)
 	}
@@ -326,7 +327,7 @@ func (command *sessionsCompactCommand) Execute(args []string) error {
 	if err != nil {
 		return err
 	}
-	snapshot, err := buildInstructions(home, workspace.Dir, cfg.DisabledSkills)
+	snapshot, err := buildInstructions(home, workspace.Dir, cfg)
 	if err != nil {
 		return failure(err.Error(), err)
 	}
@@ -398,6 +399,6 @@ func rejectArgs(args []string) error {
 	return usage(fmt.Sprintf("unexpected arguments: %v", args), nil)
 }
 
-func buildInstructions(home, workspace string, disabled []string) (*instructions.Snapshot, error) {
-	return instructions.Build(home, workspace, agent.Introduction, instructions.Options{DisabledSkills: disabled})
+func buildInstructions(home, workspace string, cfg config.Config) (*instructions.Snapshot, error) {
+	return instructions.Build(home, workspace, agent.Introduction, instructions.Options{DisabledSkills: cfg.DisabledSkills, SoulEnabled: cfg.SoulEnabled})
 }

@@ -1,6 +1,9 @@
 # Horizon performs one agent turn per process.
 mode: unit
 
+# Include <home>/SOUL.md in agent instructions when explicitly enabled.
+soul_enabled: false
+
 # Profile selected when --model is omitted.
 default_model: chatting
 models:

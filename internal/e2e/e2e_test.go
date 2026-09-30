@@ -22,6 +22,12 @@ import (
 func TestBuiltBinaryRepositoryWorkflow(t *testing.T) {
 	binary := buildBinary(t)
 	workspace, home := t.TempDir(), t.TempDir()
+	if err := os.WriteFile(filepath.Join(home, "AGENTS.md"), []byte("GLOBAL_SENTINEL"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, "SOUL.md"), []byte("SOUL_SENTINEL"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.WriteFile(filepath.Join(workspace, "note.txt"), []byte("old\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -42,6 +48,10 @@ func TestBuiltBinaryRepositoryWorkflow(t *testing.T) {
 		mu.Lock()
 		defer mu.Unlock()
 		if request.URL.Path == "/responses/compact" {
+			var body responses.CompactRequest
+			if err := json.NewDecoder(request.Body).Decode(&body); err != nil || !strings.Contains(body.Instructions, "SOUL_SENTINEL") {
+				t.Errorf("compact request lost SOUL.md: %v", err)
+			}
 			writer.Header().Set("Content-Type", "application/json")
 			fmt.Fprint(writer, `{"id":"manual-response","object":"response.compaction","output":[{"role":"user","content":"retained"},{"type":"compaction","id":"manual-compact","encrypted_content":"opaque"}]}`)
 			return
@@ -54,6 +64,15 @@ func TestBuiltBinaryRepositoryWorkflow(t *testing.T) {
 		}
 		if !strings.Contains(body.Instructions, "LOCAL_SENTINEL") || !strings.Contains(body.Instructions, "SKILL_SENTINEL") {
 			t.Errorf("request %d lost instructions: %q", responseCalls, body.Instructions)
+		}
+		last := -1
+		for _, marker := range []string{"GLOBAL_SENTINEL", "SOUL_SENTINEL", "SKILL_SENTINEL", "LOCAL_SENTINEL"} {
+			index := strings.Index(body.Instructions, marker)
+			if index <= last {
+				t.Errorf("request %d has incorrect instruction order: %q", responseCalls, body.Instructions)
+				break
+			}
+			last = index
 		}
 		var output []json.RawMessage
 		switch responseCalls {
@@ -88,6 +107,16 @@ func TestBuiltBinaryRepositoryWorkflow(t *testing.T) {
 	}))
 	defer server.Close()
 	writeConfig(t, home, server.URL)
+	configFile, err := os.OpenFile(filepath.Join(home, "config.yaml"), os.O_APPEND|os.O_WRONLY, 0600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := configFile.WriteString("\nsoul_enabled: true\n"); err != nil {
+		t.Fatal(err)
+	}
+	if err := configFile.Close(); err != nil {
+		t.Fatal(err)
+	}
 
 	stdout, stderr, err := run(binary, workspace, "", "--home", home, "resume", "--model", "fast", "-m", "update note")
 	if err != nil || stdout != "done\n" || !strings.Contains(stderr, "shell_exec: cat note.txt") || !strings.Contains(stderr, "shell_exec: printf") {
@@ -398,6 +427,10 @@ func TestBuiltBinaryInitializationAndSkillCreation(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	agents, err := os.ReadFile(filepath.Join(home, "AGENTS.md"))
+	if err != nil || !strings.HasPrefix(string(agents), "# Global instructions for the Horizon agent\n") {
+		t.Fatalf("init did not install default agent instructions: %v", err)
+	}
 	entries, err := os.ReadDir(filepath.Join(home, "dialogs"))
 	if err != nil || len(entries) != 0 {
 		t.Fatalf("first launch created sessions: %v %v", entries, err)
@@ -418,6 +451,9 @@ func TestBuiltBinaryInitializationAndSkillCreation(t *testing.T) {
 		}
 		if !strings.Contains(request.Instructions, "- skill-creator:") {
 			t.Error("bundled skill absent from catalog")
+		}
+		if !strings.Contains(request.Instructions, string(agents)) {
+			t.Error("default agent instructions absent from request")
 		}
 		call := func(id, name string, args any) []json.RawMessage {
 			arguments, _ := json.Marshal(args)

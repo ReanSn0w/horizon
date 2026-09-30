@@ -16,6 +16,9 @@ func TestEmbeddedResources(t *testing.T) {
 	if !bytes.Equal(example, configTemplate) {
 		t.Fatal("example differs from bundled config")
 	}
+	if !bytes.HasPrefix(agentsTemplate, []byte("# Global instructions for the Horizon agent\n")) {
+		t.Fatal("bundled agent instructions are missing")
+	}
 	var config struct {
 		Mode     string                    `yaml:"mode"`
 		Provider struct{ URL, Key string } `yaml:"provider"`

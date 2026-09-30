@@ -15,7 +15,7 @@ import (
 	"github.com/ReanSn0w/horizon/internal/session"
 )
 
-const Introduction = "You are Horizon, an autonomous coding agent. Work carefully in the current workspace, use tools when needed, and continue until the user's task is complete."
+const Introduction = "You are an autonomous coding agent operating through Horizon. Work carefully in the current workspace, use tools when needed, and continue until the user's task is complete."
 
 type ResponseClient interface {
 	Stream(context.Context, responses.Request, func() error, func(responses.Event)) (*responses.Response, error)
