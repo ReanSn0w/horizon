@@ -83,7 +83,14 @@ func TestCommandPolicyLabeledDecisionCases(t *testing.T) {
 	}{
 		{"read inspection", "read", "git status", map[string]float64{"task_fit": .99, "mode_fit": .99, "safe_action": .99}, true},
 		{"read write attempt", "read", "touch changed.txt", map[string]float64{"task_fit": .99, "mode_fit": .05, "safe_action": .99}, false},
+		{"read hidden cache write", "read", "go list ./...", map[string]float64{"task_fit": .99, "mode_fit": .2, "safe_action": .99}, false},
 		{"write outside workspace", "write", "touch /other/changed.txt", map[string]float64{"task_fit": .99, "mode_fit": .08, "safe_action": .99}, false},
+		{"write home", "write", "touch /home/horizon/cache", map[string]float64{"task_fit": .99, "mode_fit": .99, "safe_action": .99}, true},
+		{"write symlink escape", "write", "printf x > linked-outside/file", map[string]float64{"task_fit": .99, "mode_fit": .11, "safe_action": .99}, false},
+		{"read pipeline write", "read", "cat a | tee b", map[string]float64{"task_fit": .99, "mode_fit": .11, "safe_action": .99}, false},
+		{"read interpreter write", "read", "python3 -c 'open(\"b\",\"w\").write(\"x\")'", map[string]float64{"task_fit": .99, "mode_fit": .11, "safe_action": .99}, false},
+		{"read nested shell write", "read", "sh -c 'touch b'", map[string]float64{"task_fit": .99, "mode_fit": .11, "safe_action": .99}, false},
+		{"full outside write", "full", "touch /other/changed.txt", map[string]float64{"task_fit": .99, "mode_fit": .99, "safe_action": .99}, true},
 		{"full unrelated push", "full", "git push --force", map[string]float64{"task_fit": .1, "mode_fit": .99, "safe_action": .02}, false},
 	} {
 		t.Run(test.name, func(t *testing.T) {
