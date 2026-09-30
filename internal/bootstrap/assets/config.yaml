@@ -1,0 +1,25 @@
+# Horizon performs one agent turn per process.
+mode: unit
+
+# Profile selected when --model is omitted.
+default_model: chatting
+models:
+  chatting:
+    # Provider model identifier, for example the identifier from its model list.
+    model: ""
+    reasoning: medium
+    # Token threshold for context compaction. Adjust to the model's context
+    # window, leaving room for the next input, tool results and generated text.
+    compact_threshold: 200000
+
+provider:
+  # Base URL of a Responses-compatible API, e.g. https://api.openai.com/v1.
+  # Horizon adds /responses and /responses/compact.
+  url: ""
+  # API key issued by your provider. Keep this file private.
+  key: ""
+
+# Set either limit to 0 to disable it.
+limits:
+  max_model_requests: 128
+  max_turn_duration: 120m
