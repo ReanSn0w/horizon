@@ -14,8 +14,64 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ReanSn0w/horizon/internal/decision"
 	"github.com/ReanSn0w/horizon/internal/session"
 )
+
+type reviewStub struct {
+	verdict decision.Verdict
+	err     error
+}
+
+func (r reviewStub) Review(context.Context, decision.Command) (decision.Verdict, error) {
+	return r.verdict, r.err
+}
+
+func TestExecutorDoesNotRunDeniedOrUnavailableCommand(t *testing.T) {
+	store := session.NewStore(t.TempDir())
+	workspace, err := store.ResolveWorkspace(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	created, err := store.Create(workspace)
+	if err != nil {
+		t.Fatal(err)
+	}
+	locked, err := store.LockSession(workspace, created.SessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer locked.Close()
+	turnID := strings.Repeat("d", 32)
+	if err := locked.StartTurn(session.Turn{ID: turnID, Status: session.StatusActive, StartedAt: time.Now().UTC(), Model: session.ModelProfile{Name: "test", Model: "test", CompactThreshold: 1000}}); err != nil {
+		t.Fatal(err)
+	}
+	command := json.RawMessage(`{"command":"touch blocked","timeout_ms":null,"max_output_chars":null}`)
+	for _, test := range []struct {
+		name     string
+		reviewer decision.Reviewer
+		code     string
+	}{
+		{"denied", reviewStub{verdict: decision.Verdict{Reason: "not allowed", ID: "decision-1"}}, "decision_denied"},
+		{"failed", reviewStub{err: errors.New("provider unavailable")}, "decision_unavailable"},
+		{"missing", nil, "decision_unavailable"},
+	} {
+		executor := NewExecutor(workspace.Dir, store.ArtifactsDir(workspace, created.SessionID), locked, turnID)
+		executor.SetHome(store.Home)
+		executor.SetCommandReview("write", "task", test.reviewer)
+		output, err := executor.Execute(context.Background(), test.name, ShellExec, command)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var response Response
+		if err := json.Unmarshal(output, &response); err != nil || response.OK || response.Error == nil || response.Error.Code != test.code {
+			t.Fatalf("%s: %s %v", test.name, output, err)
+		}
+		if _, err := os.Stat(filepath.Join(workspace.Dir, "blocked")); !os.IsNotExist(err) {
+			t.Fatalf("%s executed command: %v", test.name, err)
+		}
+	}
+}
 
 func TestExecutorPersistsValidationResultAndStopsBeforeUnrecordedEffect(t *testing.T) {
 	store := session.NewStore(t.TempDir())
@@ -129,6 +185,21 @@ func TestShellExecInheritsPATHAndProcessEnvironment(t *testing.T) {
 	data := result.Data.(shellExecData)
 	if data.ExitCode == nil || *data.ExitCode != 0 || data.Stdout != "swag-ready\ninherited\n"+home+"\n" {
 		t.Fatalf("shell result = %+v", data)
+	}
+}
+
+func TestShellExecReplacesInheritedAccessForNestedHorizon(t *testing.T) {
+	t.Setenv("HORIZON_INHERITED_ACCESS", "full")
+	workspace := t.TempDir()
+	home := t.TempDir()
+	result := shellExecHandler(context.Background(), shellArgs("printf '%s' \"$HORIZON_INHERITED_ACCESS:$HORIZON_HOME\"", nil, nil), environment{
+		workspace: workspace, artifactsDir: filepath.Join(t.TempDir(), "artifacts"), callID: "nested", home: home, access: "read",
+	})
+	if result.Error != nil {
+		t.Fatal(result.Error)
+	}
+	if got := result.Data.(shellExecData).Stdout; got != "read:"+home {
+		t.Fatalf("inherited access and home = %q", got)
 	}
 }
 

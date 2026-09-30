@@ -21,6 +21,7 @@ import (
 )
 
 type shellExecData struct {
+	DecisionID string  `json:"decision_id,omitempty"`
 	CWD        string  `json:"cwd"`
 	ExitCode   *int    `json:"exit_code"`
 	Signal     *string `json:"signal"`
@@ -81,7 +82,11 @@ func shellExecHandler(ctx context.Context, arguments json.RawMessage, env enviro
 		// A shell function exposes the running binary as `horizon` even when it
 		// was launched from a custom path and is absent from PATH.
 		command.Args[2] = "horizon() { \"$HORIZON_EXECUTABLE\" \"$@\"; }\n" + commandText
-		command.Env = append(os.Environ(), "HORIZON_HOME="+env.home, "HORIZON_EXECUTABLE="+executable)
+		variables := map[string]string{"HORIZON_HOME": env.home, "HORIZON_EXECUTABLE": executable}
+		if env.access != "" {
+			variables["HORIZON_INHERITED_ACCESS"] = env.access
+		}
+		command.Env = overrideShellEnvironment(os.Environ(), variables)
 	}
 	command.Dir = env.workspace
 	command.Stdin = nil
@@ -144,6 +149,25 @@ func shellExecHandler(ctx context.Context, arguments json.RawMessage, env enviro
 		}
 	}
 	return outcome{Data: data, Artifacts: artifacts}
+}
+
+func overrideShellEnvironment(base []string, values map[string]string) []string {
+	result := make([]string, 0, len(base)+len(values))
+	for _, item := range base {
+		name, _, ok := strings.Cut(item, "=")
+		if !ok || name == "HORIZON_INHERITED_ACCESS" {
+			continue
+		}
+		if _, replaced := values[name]; !replaced {
+			result = append(result, item)
+		}
+	}
+	for _, name := range []string{"HORIZON_HOME", "HORIZON_EXECUTABLE", "HORIZON_INHERITED_ACCESS"} {
+		if value, ok := values[name]; ok {
+			result = append(result, name+"="+value)
+		}
+	}
+	return result
 }
 
 func terminateProcessGroup(command *exec.Cmd, waitChannel <-chan error) error {

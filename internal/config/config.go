@@ -198,7 +198,7 @@ func (c Config) RequireDecision() error {
 		return &SetupError{Fields: missing}
 	}
 	u, err := url.Parse(c.Decision.Provider.URL)
-	if err != nil || u.Scheme == "" || u.Host == "" || (u.Scheme != "http" && u.Scheme != "https") || u.RawQuery != "" || u.Fragment != "" {
+	if err != nil || u.Scheme == "" || u.Host == "" || u.User != nil || (u.Scheme != "http" && u.Scheme != "https") || u.RawQuery != "" || u.Fragment != "" {
 		return errors.New("decision.provider.url must be an absolute HTTP(S) base URL without query or fragment")
 	}
 	return nil

@@ -13,6 +13,7 @@ import (
 
 	"github.com/ReanSn0w/horizon/internal/agent"
 	"github.com/ReanSn0w/horizon/internal/bootstrap"
+	"github.com/ReanSn0w/horizon/internal/decision"
 	"github.com/ReanSn0w/horizon/internal/eventstream"
 	"github.com/ReanSn0w/horizon/internal/instructions"
 	"github.com/ReanSn0w/horizon/internal/responses"
@@ -155,11 +156,17 @@ func (command *resumeCommand) Execute(args []string) error {
 	if err != nil {
 		return failure(err.Error(), err)
 	}
+	decisionURL, err := cfg.DecisionEndpoint()
+	if err != nil {
+		return usage(err.Error(), err)
+	}
+	reviewer := &decision.CommandPolicy{Client: &decision.Client{Endpoint: decisionURL, APIKey: cfg.Decision.Provider.Key, Model: cfg.Decision.Model, HTTPClient: http.DefaultClient}, Secrets: []string{cfg.Provider.Key, cfg.Decision.Provider.Key}}
 	runtime := &agent.Runtime{
 		Client: &responses.Client{ResponsesURL: responsesURL, CompactURL: compactURL, APIKey: cfg.Provider.Key, HTTPClient: http.DefaultClient},
 		Locked: locked, Store: store, Workspace: workspace, Session: value,
 		ProfileName:  profileName,
 		Access:       access,
+		Reviewer:     reviewer,
 		Profile:      session.ModelProfile{Name: profileName, Model: profile.Model, Reasoning: profile.Reasoning, CompactThreshold: profile.CompactThreshold},
 		Instructions: snapshot,
 		MaxRequests:  cfg.Limits.MaxModelRequests,

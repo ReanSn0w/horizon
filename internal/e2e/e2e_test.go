@@ -252,6 +252,26 @@ func buildBinary(t *testing.T) string {
 
 func writeConfig(t *testing.T, home, endpoint string) {
 	t.Helper()
+	decisionServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/alpha/decisions" {
+			http.NotFound(w, r)
+			return
+		}
+		var request struct {
+			Questions map[string]json.RawMessage `json:"questions"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Errorf("decode decision request: %v", err)
+			http.Error(w, "invalid request", http.StatusBadRequest)
+			return
+		}
+		answers := map[string]any{}
+		for id := range request.Questions {
+			answers[id] = map[string]any{"type": "noul", "noul": 0.99}
+		}
+		json.NewEncoder(w).Encode(map[string]any{"id": "e2e-decision", "answers": answers})
+	}))
+	t.Cleanup(decisionServer.Close)
 	config := fmt.Sprintf(`mode: unit
 default_model: coding
 models:
@@ -273,7 +293,7 @@ decision:
 limits:
   max_model_requests: 16
   max_turn_duration: 30s
-`, endpoint, endpoint)
+`, endpoint, decisionServer.URL)
 	if err := os.WriteFile(filepath.Join(home, "config.yaml"), []byte(config), 0o600); err != nil {
 		t.Fatal(err)
 	}
