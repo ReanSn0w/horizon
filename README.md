@@ -168,6 +168,27 @@ disabled_skills:
 
 Изменения файлов и последствия shell-команд автоматически не откатываются.
 
+## Подключаемые команды
+
+Исходники примера находятся в `plugins/example/`. Установленные плагины
+принадлежат выбранному home; Horizon не ищет их в репозитории или `PATH`.
+
+```sh
+go build -o /tmp/horizon-example ./plugins/example
+horizon --home /path/to/home init
+cp /tmp/horizon-example /path/to/home/plugins/horizon-example
+horizon --home /path/to/home --help
+horizon --home /path/to/home example --help
+horizon --home /path/to/home example greet Ada
+```
+
+`HORIZON_HOME` также выбирает home, а явный `--home` имеет приоритет.
+Плагин можно установить symlink на исполняемый файл; для удаления удалите
+`<home>/plugins/horizon-<имя>`. `init` создаёт каталог `plugins/`, но не
+устанавливает пример. Запрос метаданных для справки и перед запуском тоже
+исполняет сторонний код с вашими правами. Протокол, лимиты и коды завершения —
+в [docs/PLUGINS.md](docs/PLUGINS.md).
+
 ## Разработка
 
 ```sh

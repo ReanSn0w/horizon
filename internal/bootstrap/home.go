@@ -15,7 +15,7 @@ type Result struct {
 // Ensure creates missing initialization resources without replacing user files.
 func Ensure(home string) (Result, error) {
 	var result Result
-	for _, dir := range []string{home, filepath.Join(home, "dialogs"), filepath.Join(home, "skills", "skill-creator"), filepath.Join(home, "skills", "filesystem")} {
+	for _, dir := range []string{home, filepath.Join(home, "dialogs"), filepath.Join(home, "plugins"), filepath.Join(home, "skills", "skill-creator"), filepath.Join(home, "skills", "filesystem")} {
 		if err := os.MkdirAll(dir, 0700); err != nil {
 			return result, fmt.Errorf("initialize directory %q: %w", dir, err)
 		}

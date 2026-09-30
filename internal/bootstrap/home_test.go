@@ -14,7 +14,7 @@ func TestEnsureCreatesAndPreservesHome(t *testing.T) {
 	if err != nil || !result.ConfigCreated {
 		t.Fatalf("result=%+v err=%v", result, err)
 	}
-	for _, name := range []string{"", "dialogs", "skills", "skills/skill-creator", "skills/filesystem", "config.yaml", "AGENTS.md", "skills/skill-creator/SKILL.md", "skills/filesystem/SKILL.md"} {
+	for _, name := range []string{"", "dialogs", "plugins", "skills", "skills/skill-creator", "skills/filesystem", "config.yaml", "AGENTS.md", "skills/skill-creator/SKILL.md", "skills/filesystem/SKILL.md"} {
 		info, err := os.Stat(filepath.Join(home, name))
 		if err != nil {
 			t.Fatal(err)
@@ -28,6 +28,13 @@ func TestEnsureCreatesAndPreservesHome(t *testing.T) {
 		}
 	}
 	custom := []byte("user content")
+	pluginDir := filepath.Join(home, "plugins")
+	if err := os.WriteFile(filepath.Join(pluginDir, "horizon-personal"), custom, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(pluginDir, 0750); err != nil {
+		t.Fatal(err)
+	}
 	for _, name := range []string{"config.yaml", "AGENTS.md", "skills/skill-creator/SKILL.md", "skills/filesystem/SKILL.md"} {
 		if err := os.WriteFile(filepath.Join(home, name), custom, 0600); err != nil {
 			t.Fatal(err)
@@ -39,6 +46,12 @@ func TestEnsureCreatesAndPreservesHome(t *testing.T) {
 	result, err = Ensure(home)
 	if err != nil || result.ConfigCreated {
 		t.Fatalf("result=%+v err=%v", result, err)
+	}
+	if info, err := os.Stat(pluginDir); err != nil || info.Mode().Perm() != 0750 {
+		t.Fatalf("plugin directory permissions: %v %v", info, err)
+	}
+	if data, err := os.ReadFile(filepath.Join(pluginDir, "horizon-personal")); err != nil || !bytes.Equal(data, custom) {
+		t.Fatalf("installed plugin changed: %q %v", data, err)
 	}
 	for _, name := range []string{"config.yaml", "AGENTS.md", "skills/skill-creator/SKILL.md", "skills/filesystem/SKILL.md"} {
 		data, err := os.ReadFile(filepath.Join(home, name))

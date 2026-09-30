@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/ReanSn0w/horizon/internal/config"
+	"github.com/ReanSn0w/horizon/internal/plugins"
 	"github.com/ReanSn0w/horizon/internal/session"
 	flags "github.com/umputun/go-flags"
 )
@@ -79,6 +80,31 @@ func (a *App) Run(args []string) int {
 		fmt.Fprintf(a.errOut, "horizon: initialize CLI: %v\n", err)
 		return ExitFailure
 	}
+	reserved := commandNames(parser)
+	if index, homeFlag, ok := pluginCommandIndex(args); ok {
+		home, err := config.ResolveHome(homeFlag)
+		if err != nil {
+			fmt.Fprintf(a.errOut, "horizon: %v\n", err)
+			return ExitUsage
+		}
+		name := args[index]
+		if parser.Find(name) == nil {
+			entry := plugins.Inspect(home, name, reserved)
+			if entry.Err == nil || !os.IsNotExist(entry.Err) {
+				if entry.Err != nil {
+					fmt.Fprintf(a.errOut, "horizon: plugin %q unavailable: %v\n", name, entry.Err)
+					return ExitUsage
+				}
+				if !pluginHelp(args[index+1:]) {
+					if err := requireInitializedHome(home); err != nil {
+						fmt.Fprintf(a.errOut, "horizon: %v\n", err)
+						return exitCode(err)
+					}
+				}
+				return a.runPlugin(entry, args[index+1:], home)
+			}
+		}
+	}
 
 	_, err := parser.ParseArgs(defaultResumeArgs(args))
 	if err == nil {
@@ -88,6 +114,9 @@ func (a *App) Run(args []string) int {
 	if errors.As(err, &flagError) {
 		if flagError.Type == flags.ErrHelp {
 			fmt.Fprint(a.out, flagError.Message)
+			if rootHelp(args) {
+				a.printPluginHelp(options.Home, reserved)
+			}
 			return ExitOK
 		}
 		fmt.Fprintf(a.errOut, "horizon: %s\n", flagError.Message)
@@ -95,6 +124,69 @@ func (a *App) Run(args []string) int {
 	}
 	fmt.Fprintf(a.errOut, "horizon: %v\n", err)
 	return exitCode(err)
+}
+
+func pluginHelp(args []string) bool {
+	for _, arg := range args {
+		if arg == "--" {
+			return false
+		}
+		if arg == "--help" || arg == "-h" {
+			return true
+		}
+	}
+	return false
+}
+
+func commandNames(parser *flags.Parser) []string {
+	var names []string
+	for _, command := range parser.Commands() {
+		names = append(names, command.Name)
+		names = append(names, command.Aliases...)
+	}
+	return names
+}
+
+// pluginCommandIndex recognizes only supported global flags before a command.
+func pluginCommandIndex(args []string) (int, string, bool) {
+	var home string
+	for i := 0; i < len(args); i++ {
+		switch {
+		case args[i] == "--home":
+			if i+1 >= len(args) {
+				return 0, "", false
+			}
+			home = args[i+1]
+			i++
+		case strings.HasPrefix(args[i], "--home="):
+			home = strings.TrimPrefix(args[i], "--home=")
+		case args[i] == "--verbose" || args[i] == "-v":
+		case args[i] == "--help" || args[i] == "-h":
+			return 0, home, false
+		case strings.HasPrefix(args[i], "-"):
+			return 0, home, false
+		default:
+			return i, home, true
+		}
+	}
+	return 0, home, false
+}
+
+func rootHelp(args []string) bool {
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		if arg == "--help" || arg == "-h" {
+			return true
+		}
+		if arg == "--home" {
+			i++
+			continue
+		}
+		if !strings.HasPrefix(arg, "-") {
+			return false
+		}
+	}
+	return false
 }
 
 func requireInitializedHome(home string) error {
