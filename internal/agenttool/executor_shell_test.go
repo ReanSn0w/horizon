@@ -109,6 +109,29 @@ func TestShellExecLargeStreamsExitCodeAndRawArtifacts(t *testing.T) {
 	}
 }
 
+func TestShellExecInheritsPATHAndProcessEnvironment(t *testing.T) {
+	binDir := filepath.Join(t.TempDir(), "bin")
+	if err := os.Mkdir(binDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(binDir, "swag"), []byte("#!/bin/sh\nprintf 'swag-ready\\n'\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("PROJECT_TOOL_TEST", "inherited")
+	home := filepath.Join(t.TempDir(), "selected-home")
+	result := shellExecHandler(context.Background(), shellArgs("swag; printf '%s\\n' \"$PROJECT_TOOL_TEST\"; printf '%s\\n' \"$HORIZON_HOME\"", nil, intPointer(2000)), environment{
+		workspace: t.TempDir(), artifactsDir: filepath.Join(t.TempDir(), "artifacts"), callID: "inherited-env", home: home,
+	})
+	if result.Error != nil {
+		t.Fatal(result.Error)
+	}
+	data := result.Data.(shellExecData)
+	if data.ExitCode == nil || *data.ExitCode != 0 || data.Stdout != "swag-ready\ninherited\n"+home+"\n" {
+		t.Fatalf("shell result = %+v", data)
+	}
+}
+
 func TestShellStartFailureIsDifferentFromExitCode(t *testing.T) {
 	previous := shellExecutable
 	shellExecutable = filepath.Join(t.TempDir(), "missing-shell")
