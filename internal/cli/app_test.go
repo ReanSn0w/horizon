@@ -66,7 +66,7 @@ provider:
 	}{
 		{"help", "", []string{"--help"}, ExitOK, "Available commands"},
 		{"unknown command", "", []string{"unknown"}, ExitUsage, "Unknown command"},
-		{"removed access flag", "", []string{"--home", home, "resume", "-m", "x", "--access", "full"}, ExitUsage, "unknown flag"},
+		{"invalid access mode", "", []string{"--home", home, "resume", "-m", "x", "--access", "unsafe"}, ExitUsage, "Allowed values"},
 		{"removed fork command", "", []string{"sessions", "fork"}, ExitUsage, "Unknown command"},
 		{"required read ID", "", []string{"sessions", "read"}, ExitUsage, "id"},
 		{"bad compact mode", "", []string{"sessions", "compact", "--mode", "xml"}, ExitUsage, "Allowed values"},
@@ -281,6 +281,9 @@ func runAppAt(t *testing.T, workspace, stdin string, args ...string) (int, strin
 func testHome(t *testing.T, config string) string {
 	t.Helper()
 	home := t.TempDir()
+	if !strings.Contains(config, "\ndecision:") {
+		config += "\ndecision:\n  provider:\n    url: https://example.test/api\n    key: decision-secret\n  model: typesafe/jev-1.13\n"
+	}
 	if err := os.WriteFile(filepath.Join(home, "config.yaml"), []byte(config), 0o600); err != nil {
 		t.Fatal(err)
 	}

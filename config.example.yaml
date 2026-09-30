@@ -19,6 +19,13 @@ provider:
   # API key issued by your provider. Keep this file private.
   key: ""
 
+# Separate provider for command decisions (OpenRouter Decisions API).
+decision:
+  provider:
+    url: "https://openrouter.ai/api"
+    key: ""
+  model: "typesafe/jev-1.13"
+
 # Set either limit to 0 to disable it.
 limits:
   max_model_requests: 128

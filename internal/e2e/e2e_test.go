@@ -265,10 +265,15 @@ models:
 provider:
   url: %s
   key: secret
+decision:
+  provider:
+    url: %s
+    key: decision-secret
+  model: typesafe/jev-1.13
 limits:
   max_model_requests: 16
   max_turn_duration: 30s
-`, endpoint)
+`, endpoint, endpoint)
 	if err := os.WriteFile(filepath.Join(home, "config.yaml"), []byte(config), 0o600); err != nil {
 		t.Fatal(err)
 	}

@@ -12,6 +12,7 @@ func TestDefaultResumeArgs(t *testing.T) {
 		{[]string{"--home=/tmp/home", "-v", "-m", "models"}, []string{"--home=/tmp/home", "-v", "resume", "-m", "models"}},
 		{[]string{"--message=resume"}, []string{"resume", "--message=resume"}},
 		{[]string{"--model", "chatting"}, []string{"resume", "--model", "chatting"}},
+		{[]string{"--access", "read", "-m", "inspect"}, []string{"resume", "--access", "read", "-m", "inspect"}},
 		{[]string{"--", "resume"}, []string{"resume", "--", "resume"}},
 		{[]string{"--help"}, []string{"--help"}},
 		{[]string{"--home", "x", "--help"}, []string{"--home", "x", "--help"}},

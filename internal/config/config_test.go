@@ -99,6 +99,28 @@ func TestEndpointsAndModelSelection(t *testing.T) {
 	}
 }
 
+func TestDecisionProviderIsSeparateAndRequiredForAgent(t *testing.T) {
+	config := validConfig + "decision:\n  provider:\n    url: https://openrouter.ai/api\n    key: decision-secret\n  model: typesafe/jev-1.13\n"
+	cfg, err := Load(writeConfig(t, config))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := cfg.RequireDecision(); err != nil {
+		t.Fatal(err)
+	}
+	endpoint, err := cfg.DecisionEndpoint()
+	if err != nil || endpoint != "https://openrouter.ai/api/alpha/decisions" || cfg.Provider.Key != "super-secret" || cfg.Decision.Provider.Key != "decision-secret" {
+		t.Fatalf("decision endpoint=%q provider=%+v error=%v", endpoint, cfg.Decision.Provider, err)
+	}
+	old, err := Load(writeConfig(t, validConfig))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := old.RequireDecision(); err == nil || !strings.Contains(err.Error(), "decision.provider.key") {
+		t.Fatalf("old config decision error=%v", err)
+	}
+}
+
 func TestResolveHome(t *testing.T) {
 	got, err := ResolveHome("relative/home")
 	if err != nil {

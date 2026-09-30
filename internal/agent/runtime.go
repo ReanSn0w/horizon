@@ -27,6 +27,7 @@ type Runtime struct {
 	Workspace    session.Workspace
 	Session      *session.Session
 	ProfileName  string
+	Access       string
 	Profile      session.ModelProfile
 	Instructions *instructions.Snapshot
 	MaxRequests  int

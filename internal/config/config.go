@@ -22,6 +22,7 @@ type Config struct {
 	DefaultModel   string
 	Models         map[string]Model
 	Provider       Provider
+	Decision       Decision
 	Limits         Limits
 }
 
@@ -37,6 +38,11 @@ type Provider struct {
 	Key string
 }
 
+type Decision struct {
+	Provider Provider `yaml:"provider"`
+	Model    string   `yaml:"model"`
+}
+
 type Limits struct {
 	MaxModelRequests int
 	MaxTurnDuration  time.Duration
@@ -48,6 +54,7 @@ type rawConfig struct {
 	DefaultModel   string              `yaml:"default_model"`
 	Models         map[string]rawModel `yaml:"models"`
 	Provider       Provider            `yaml:"provider"`
+	Decision       Decision            `yaml:"decision"`
 	Limits         rawLimits           `yaml:"limits"`
 }
 
@@ -168,8 +175,40 @@ func validate(raw rawConfig) (Config, error) {
 		DefaultModel:   raw.DefaultModel,
 		Models:         models,
 		Provider:       raw.Provider,
+		Decision:       raw.Decision,
 		Limits:         limits,
 	}, nil
+}
+
+// RequireDecision validates the separately configured decision provider before
+// an agent turn is created. Local administration commands can still read an
+// older config without Jev settings.
+func (c Config) RequireDecision() error {
+	var missing []string
+	if strings.TrimSpace(c.Decision.Provider.URL) == "" {
+		missing = append(missing, "decision.provider.url")
+	}
+	if strings.TrimSpace(c.Decision.Provider.Key) == "" {
+		missing = append(missing, "decision.provider.key")
+	}
+	if strings.TrimSpace(c.Decision.Model) == "" {
+		missing = append(missing, "decision.model")
+	}
+	if len(missing) > 0 {
+		return &SetupError{Fields: missing}
+	}
+	u, err := url.Parse(c.Decision.Provider.URL)
+	if err != nil || u.Scheme == "" || u.Host == "" || (u.Scheme != "http" && u.Scheme != "https") || u.RawQuery != "" || u.Fragment != "" {
+		return errors.New("decision.provider.url must be an absolute HTTP(S) base URL without query or fragment")
+	}
+	return nil
+}
+
+func (c Config) DecisionEndpoint() (string, error) {
+	if err := c.RequireDecision(); err != nil {
+		return "", err
+	}
+	return url.JoinPath(c.Decision.Provider.URL, "alpha/decisions")
 }
 
 func parseLimits(raw rawLimits) (Limits, error) {
