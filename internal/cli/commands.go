@@ -350,10 +350,3 @@ func rejectArgs(args []string) error {
 	}
 	return usage(fmt.Sprintf("unexpected arguments: %v", args), nil)
 }
-
-func unimplemented(name string, args []string) error {
-	if err := rejectArgs(args); err != nil {
-		return err
-	}
-	return failure(name+" is not implemented yet", nil)
-}
