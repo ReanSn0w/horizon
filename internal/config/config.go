@@ -9,8 +9,6 @@ import (
 	"sort"
 	"strings"
 	"time"
-
-	"gopkg.in/yaml.v3"
 )
 
 const (
@@ -19,11 +17,12 @@ const (
 )
 
 type Config struct {
-	Mode         string
-	DefaultModel string
-	Models       map[string]Model
-	Provider     Provider
-	Limits       Limits
+	DisabledSkills []string
+	Mode           string
+	DefaultModel   string
+	Models         map[string]Model
+	Provider       Provider
+	Limits         Limits
 }
 
 type Model struct {
@@ -44,11 +43,12 @@ type Limits struct {
 }
 
 type rawConfig struct {
-	Mode         string              `yaml:"mode"`
-	DefaultModel string              `yaml:"default_model"`
-	Models       map[string]rawModel `yaml:"models"`
-	Provider     Provider            `yaml:"provider"`
-	Limits       rawLimits           `yaml:"limits"`
+	DisabledSkills disabledIDs         `yaml:"disabled_skills"`
+	Mode           string              `yaml:"mode"`
+	DefaultModel   string              `yaml:"default_model"`
+	Models         map[string]rawModel `yaml:"models"`
+	Provider       Provider            `yaml:"provider"`
+	Limits         rawLimits           `yaml:"limits"`
 }
 
 type rawModel struct {
@@ -80,16 +80,9 @@ func ResolveHome(value string) (string, error) {
 
 func Load(home string) (Config, error) {
 	path := filepath.Join(home, "config.yaml")
-	data, err := os.ReadFile(path)
+	raw, _, err := readConfig(path)
 	if err != nil {
-		return Config{}, fmt.Errorf("read configuration %q: %w", path, err)
-	}
-
-	var raw rawConfig
-	decoder := yaml.NewDecoder(strings.NewReader(string(data)))
-	decoder.KnownFields(true)
-	if err := decoder.Decode(&raw); err != nil {
-		return Config{}, fmt.Errorf("parse configuration %q: %w", path, err)
+		return Config{}, err
 	}
 	cfg, err := validate(raw)
 	if err != nil {
@@ -167,11 +160,12 @@ func validate(raw rawConfig) (Config, error) {
 		return Config{}, err
 	}
 	return Config{
-		Mode:         raw.Mode,
-		DefaultModel: raw.DefaultModel,
-		Models:       models,
-		Provider:     raw.Provider,
-		Limits:       limits,
+		DisabledSkills: append([]string(nil), raw.DisabledSkills...),
+		Mode:           raw.Mode,
+		DefaultModel:   raw.DefaultModel,
+		Models:         models,
+		Provider:       raw.Provider,
+		Limits:         limits,
 	}, nil
 }
 

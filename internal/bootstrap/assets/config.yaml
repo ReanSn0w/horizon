@@ -23,3 +23,6 @@ provider:
 limits:
   max_model_requests: 128
   max_turn_duration: 120m
+
+# Skill directory IDs excluded from the next agent turn.
+disabled_skills: []
