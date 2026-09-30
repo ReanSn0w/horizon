@@ -108,7 +108,8 @@ func TestBuiltBinarySkillManagementWorkflow(t *testing.T) {
 		var output []json.RawMessage
 		switch calls {
 		case 1:
-			output = call("create", "file_create", map[string]any{"path": target, "content": "---\nname: review-name\ndescription: 42\n---\nReview carefully.\n"})
+			command := "mkdir -p " + shellQuote(filepath.Dir(target)) + " && cat > " + shellQuote(target) + " <<'HORIZON_SKILL_EOF'\n---\nname: review-name\ndescription: 42\n---\nReview carefully.\nHORIZON_SKILL_EOF"
+			output = call("create", "shell_exec", map[string]any{"command": command, "timeout_ms": 10000, "max_output_chars": 16000})
 		case 2:
 			output = shell("invalid", "validate")
 		case 3:
@@ -117,7 +118,8 @@ func TestBuiltBinarySkillManagementWorkflow(t *testing.T) {
 			if !strings.Contains(fmt.Sprint(data["stderr"]), "line 3") {
 				t.Error("missing actionable validation diagnostic")
 			}
-			output = call("fix", "file_update", map[string]any{"path": target, "old_text": "description: 42", "new_text": "description: Review Go files"})
+			command := "cat > " + shellQuote(target) + " <<'HORIZON_SKILL_EOF'\n---\nname: review-name\ndescription: Review Go files\n---\nReview carefully.\nHORIZON_SKILL_EOF"
+			output = call("fix", "shell_exec", map[string]any{"command": command, "timeout_ms": 10000, "max_output_chars": 16000})
 		case 4:
 			output = shell("valid", "validate")
 		case 5:

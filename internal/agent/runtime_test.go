@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ReanSn0w/horizon/internal/decision"
 	"github.com/ReanSn0w/horizon/internal/eventstream"
 	"github.com/ReanSn0w/horizon/internal/instructions"
 	"github.com/ReanSn0w/horizon/internal/responses"
@@ -28,6 +29,12 @@ type fakeClient struct {
 type fakeCompactClient struct {
 	response *responses.Response
 	err      error
+}
+
+type allowCommands struct{}
+
+func (allowCommands) Review(context.Context, decision.Command) (decision.Verdict, error) {
+	return decision.Verdict{Allowed: true, ID: "test-decision"}, nil
 }
 
 func (f fakeCompactClient) Compact(_ context.Context, _ responses.CompactRequest, before func() error) (*responses.Response, error) {
@@ -66,7 +73,7 @@ func TestRequestBudgetAllowsFinalResponseAndStopsAfterTools(t *testing.T) {
 		t.Fatalf("last allowed final response: result=%+v err=%v", result, err)
 	}
 
-	call := json.RawMessage(`{"type":"function_call","call_id":"call-1","name":"dir_list","arguments":"{\"path\":\".\",\"offset\":0,\"limit\":1}"}`)
+	call := json.RawMessage(`{"type":"function_call","call_id":"call-1","name":"skill_read","arguments":"{\"name\":\"missing\"}"}`)
 	client := &fakeClient{outputs: [][]json.RawMessage{{call}}}
 	runtime, cleanup = testRuntime(t, client)
 	defer cleanup()
@@ -178,7 +185,7 @@ func TestRuntimeHTTPToolChainPersistsOpaqueItems(t *testing.T) {
 			t.Errorf("decode request: %v", err)
 			return
 		}
-		if body.ParallelToolCalls || len(body.Tools) != 7 || len(body.ContextManagement) != 1 {
+		if body.ParallelToolCalls || len(body.Tools) != 2 || len(body.ContextManagement) != 1 {
 			t.Errorf("runtime request contract: tools=%d parallel=%t context=%+v", len(body.Tools), body.ParallelToolCalls, body.ContextManagement)
 		}
 		writer.Header().Set("Content-Type", "text/event-stream")
@@ -186,8 +193,8 @@ func TestRuntimeHTTPToolChainPersistsOpaqueItems(t *testing.T) {
 		if requests == 1 {
 			output = []json.RawMessage{
 				json.RawMessage(`{"type":"reasoning","id":"reason-1","encrypted_content":"opaque","future":{"kept":true}}`),
-				json.RawMessage(`{"type":"function_call","call_id":"create-1","name":"file_create","arguments":"{\"path\":\"created.txt\",\"content\":\"hello\"}"}`),
-				json.RawMessage(`{"type":"function_call","call_id":"read-1","name":"file_read","arguments":"{\"path\":\"created.txt\",\"start_line\":1,\"line_count\":10}"}`),
+				json.RawMessage(`{"type":"function_call","call_id":"create-1","name":"shell_exec","arguments":"{\"command\":\"printf hello > created.txt\",\"timeout_ms\":null,\"max_output_chars\":null}"}`),
+				json.RawMessage(`{"type":"function_call","call_id":"read-1","name":"shell_exec","arguments":"{\"command\":\"cat created.txt\",\"timeout_ms\":null,\"max_output_chars\":null}"}`),
 			}
 		} else {
 			functionOutputs := 0
@@ -254,6 +261,26 @@ func TestBuildInputKeepsFailedHistoryWithoutInventingUnknownResult(t *testing.T)
 	}
 }
 
+func TestBuildInputRetainsCompletedLegacyFileToolCall(t *testing.T) {
+	now := time.Now().UTC()
+	call := json.RawMessage(`{"type":"function_call","call_id":"legacy-1","name":"file_read","arguments":"{\"path\":\"note.txt\"}"}`)
+	result := json.RawMessage(`{"ok":true,"data":{"content":"old"}}`)
+	value := &session.Session{Turns: []session.Turn{{
+		ID: "legacy", Status: session.StatusFailed, StartedAt: now, CompletedAt: &now,
+		Messages:  []session.Message{{Role: "user", Text: "read note"}},
+		APIItems:  []json.RawMessage{call},
+		ToolCalls: []session.ToolCall{{CallID: "legacy-1", Name: "file_read", Arguments: json.RawMessage(`{"path":"note.txt"}`), ResultState: session.ToolResultKnown, Result: result}},
+	}}}
+	input, err := BuildInput(value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	encoded, _ := json.Marshal(input)
+	if !bytes.Contains(encoded, []byte(`file_read`)) || !bytes.Contains(encoded, []byte(`function_call_output`)) || !bytes.Contains(encoded, []byte(`legacy-1`)) {
+		t.Fatalf("legacy history was lost: %s", encoded)
+	}
+}
+
 func TestBuildInputDoesNotPromoteCompactionFromFailedTurn(t *testing.T) {
 	now := time.Now().UTC()
 	value := &session.Session{Turns: []session.Turn{{
@@ -306,6 +333,7 @@ func testRuntime(t *testing.T, client ResponseClient) (*Runtime, func()) {
 	}
 	runtime := &Runtime{
 		Client: client, Locked: locked, Store: store, Workspace: workspace, Session: value,
+		Access: "write", Reviewer: allowCommands{},
 		ProfileName: "test", Profile: session.ModelProfile{Name: "test", Model: "test-model", CompactThreshold: 1000},
 		Instructions: snapshot,
 	}

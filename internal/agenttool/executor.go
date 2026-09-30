@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"path/filepath"
 	"time"
 
 	"github.com/ReanSn0w/horizon/internal/decision"
@@ -144,14 +143,4 @@ func decodeStrict(arguments json.RawMessage, target any) *ToolError {
 		return invalid(err.Error())
 	}
 	return nil
-}
-
-func resolvePath(workspace, value string) (string, *ToolError) {
-	if value == "" {
-		return "", invalid("path must not be empty")
-	}
-	if filepath.IsAbs(value) {
-		return filepath.Clean(value), nil
-	}
-	return filepath.Clean(filepath.Join(workspace, value)), nil
 }

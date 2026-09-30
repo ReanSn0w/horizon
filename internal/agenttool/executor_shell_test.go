@@ -93,7 +93,7 @@ func TestExecutorPersistsValidationResultAndStopsBeforeUnrecordedEffect(t *testi
 		t.Fatal(err)
 	}
 	executor := NewExecutor(workspace.Dir, store.ArtifactsDir(workspace, created.SessionID), locked, turnID)
-	result, err := executor.Execute(context.Background(), "bad-call", FileCreate, json.RawMessage(`{"path":"invalid.txt","content":"x","extra":true}`))
+	result, err := executor.Execute(context.Background(), "bad-call", ShellExec, json.RawMessage(`{"command":"touch invalid.txt","timeout_ms":null,"max_output_chars":null,"extra":true}`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -119,11 +119,44 @@ func TestExecutorPersistsValidationResultAndStopsBeforeUnrecordedEffect(t *testi
 	}
 
 	executor = NewExecutor(workspace.Dir, store.ArtifactsDir(workspace, created.SessionID), locked, turnID)
-	if _, err := executor.Execute(context.Background(), "unrecorded", FileCreate, json.RawMessage(`{"path":"never.txt","content":"x"}`)); err == nil || !strings.Contains(err.Error(), "record tool call") {
+	if _, err := executor.Execute(context.Background(), "unrecorded", ShellExec, json.RawMessage(`{"command":"touch never.txt","timeout_ms":null,"max_output_chars":null}`)); err == nil || !strings.Contains(err.Error(), "record tool call") {
 		t.Fatalf("execute with closed session lock error = %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(workspace.Dir, "never.txt")); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("unrecorded call changed filesystem: %v", err)
+	}
+}
+
+func TestExecutorRejectsRemovedFileTool(t *testing.T) {
+	store := session.NewStore(t.TempDir())
+	workspace, err := store.ResolveWorkspace(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	created, err := store.Create(workspace)
+	if err != nil {
+		t.Fatal(err)
+	}
+	locked, err := store.LockSession(workspace, created.SessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer locked.Close()
+	turnID := strings.Repeat("a", 32)
+	if err := locked.StartTurn(session.Turn{ID: turnID, Status: session.StatusActive, StartedAt: time.Now().UTC(), Model: session.ModelProfile{Name: "test", Model: "test", CompactThreshold: 1000}}); err != nil {
+		t.Fatal(err)
+	}
+	executor := NewExecutor(workspace.Dir, store.ArtifactsDir(workspace, created.SessionID), locked, turnID)
+	output, err := executor.Execute(context.Background(), "legacy", "file_create", json.RawMessage(`{"path":"marker","content":"x"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var response Response
+	if err := json.Unmarshal(output, &response); err != nil || response.OK || response.Error == nil || response.Error.Code != "unknown_tool" {
+		t.Fatalf("removed tool result = %s: %v", output, err)
+	}
+	if _, err := os.Stat(filepath.Join(workspace.Dir, "marker")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("removed tool changed filesystem: %v", err)
 	}
 }
 

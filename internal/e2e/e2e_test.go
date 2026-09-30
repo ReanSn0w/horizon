@@ -61,9 +61,9 @@ func TestBuiltBinaryRepositoryWorkflow(t *testing.T) {
 			if body.Model != "model-fast" {
 				t.Errorf("selected model = %q", body.Model)
 			}
-			output = []json.RawMessage{json.RawMessage(`{"type":"function_call","call_id":"read","name":"file_read","arguments":"{\"path\":\"note.txt\",\"start_line\":1,\"line_count\":20}"}`)}
+			output = []json.RawMessage{json.RawMessage(`{"type":"function_call","call_id":"read","name":"shell_exec","arguments":"{\"command\":\"cat note.txt\",\"timeout_ms\":null,\"max_output_chars\":null}"}`)}
 		case 2:
-			output = []json.RawMessage{json.RawMessage(`{"type":"function_call","call_id":"update","name":"file_update","arguments":"{\"path\":\"note.txt\",\"old_text\":\"old\\n\",\"new_text\":\"new\\n\"}"}`)}
+			output = []json.RawMessage{json.RawMessage(`{"type":"function_call","call_id":"update","name":"shell_exec","arguments":"{\"command\":\"printf 'new\\n' > note.txt\",\"timeout_ms\":null,\"max_output_chars\":null}"}`)}
 		case 3:
 			output = []json.RawMessage{json.RawMessage(`{"type":"function_call","call_id":"shell","name":"shell_exec","arguments":"{\"command\":\"cat note.txt\",\"timeout_ms\":10000,\"max_output_chars\":16000}"}`)}
 		case 4:
@@ -90,7 +90,7 @@ func TestBuiltBinaryRepositoryWorkflow(t *testing.T) {
 	writeConfig(t, home, server.URL)
 
 	stdout, stderr, err := run(binary, workspace, "", "--home", home, "resume", "--model", "fast", "-m", "update note")
-	if err != nil || stdout != "done\n" || !strings.Contains(stderr, "file_read: note.txt") || !strings.Contains(stderr, "shell_exec: cat note.txt") {
+	if err != nil || stdout != "done\n" || !strings.Contains(stderr, "shell_exec: cat note.txt") || !strings.Contains(stderr, "shell_exec: printf") {
 		t.Fatalf("first resume stdout=%q stderr=%q err=%v", stdout, stderr, err)
 	}
 	if data, err := os.ReadFile(filepath.Join(workspace, "note.txt")); err != nil || string(data) != "new\n" {
@@ -340,7 +340,7 @@ func TestBuiltBinaryOutputModes(t *testing.T) {
 					}
 					output := message("FINAL_SENTINEL")
 					if count == 1 {
-						output = []json.RawMessage{json.RawMessage(`{"type":"function_call","call_id":"read","name":"file_read","arguments":"{\"path\":\"note.txt\",\"start_line\":1,\"line_count\":20}"}`)}
+						output = []json.RawMessage{json.RawMessage(`{"type":"function_call","call_id":"read","name":"shell_exec","arguments":"{\"command\":\"cat note.txt\",\"timeout_ms\":null,\"max_output_chars\":null}"}`)}
 					}
 					response, _ := json.Marshal(responses.Response{ID: fmt.Sprint(count), Status: "completed", Output: output, Usage: json.RawMessage(`{"total_tokens":12}`)})
 					fmt.Fprintf(w, "data: {\"type\":\"response.completed\",\"response\":%s}\n\n", response)
@@ -368,7 +368,7 @@ func TestBuiltBinaryOutputModes(t *testing.T) {
 					if mode == "plain" && stderr != "" {
 						t.Fatalf("plain stderr=%q", stderr)
 					}
-					if mode == "text" && !strings.Contains(stderr, "✓ file_read") {
+					if mode == "text" && !strings.Contains(stderr, "✓ shell_exec") {
 						t.Fatalf("missing tools: %q", stderr)
 					}
 				}
@@ -457,7 +457,7 @@ func TestBuiltBinaryInitializationAndSkillCreation(t *testing.T) {
 			if data["base_dir"] != filepath.Join(home, "skills", "skill-creator") || data["content"] == "" {
 				t.Errorf("creator result=%v", data)
 			}
-			output = call("create-skill", "file_create", map[string]any{"path": target, "content": content})
+			output = call("create-skill", "shell_exec", map[string]any{"command": "mkdir -p " + shellQuote(filepath.Dir(target)) + " && cat > " + shellQuote(target) + " <<'HORIZON_SKILL_EOF'\n" + content + "HORIZON_SKILL_EOF", "timeout_ms": 10000, "max_output_chars": 16000})
 		case 3:
 			toolResult("create-skill")
 			if strings.Contains(request.Instructions, "- review-go:") {
@@ -499,4 +499,8 @@ func TestBuiltBinaryInitializationAndSkillCreation(t *testing.T) {
 	if calls != 5 {
 		t.Fatalf("requests=%d", calls)
 	}
+}
+
+func shellQuote(value string) string {
+	return "'" + strings.ReplaceAll(value, "'", "'\\''") + "'"
 }

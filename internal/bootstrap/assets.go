@@ -8,3 +8,6 @@ var configTemplate []byte
 
 //go:embed assets/skills/skill-creator/SKILL.md
 var skillTemplate []byte
+
+//go:embed assets/skills/filesystem/SKILL.md
+var filesystemSkillTemplate []byte

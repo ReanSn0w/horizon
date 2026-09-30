@@ -2,7 +2,9 @@ package agenttool
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io/fs"
 )
 
 type Definition struct {
@@ -33,6 +35,19 @@ func invalid(message string) *ToolError {
 
 func errorForPath(code, message, path string) *ToolError {
 	return &ToolError{Code: code, Message: message, Details: map[string]any{"path": path}}
+}
+
+func filesystemError(err error, path string) *ToolError {
+	code := "io_error"
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+		code = "not_found"
+	case errors.Is(err, fs.ErrPermission):
+		code = "permission_denied"
+	case errors.Is(err, fs.ErrExist):
+		code = "already_exists"
+	}
+	return errorForPath(code, err.Error(), path)
 }
 
 func marshalResponse(outcome outcome) (json.RawMessage, error) {
