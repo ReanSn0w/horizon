@@ -108,7 +108,7 @@ func (command *resumeCommand) Execute(args []string) error {
 		return failure(err.Error(), err)
 	}
 	defer locked.Close()
-	snapshot, err := instructions.Build(home, workspace.Dir, agent.Introduction)
+	snapshot, err := buildInstructions(home, workspace.Dir, cfg.DisabledSkills)
 	if err != nil {
 		return failure(err.Error(), err)
 	}
@@ -283,7 +283,7 @@ func (command *sessionsCompactCommand) Execute(args []string) error {
 	if err != nil {
 		return err
 	}
-	snapshot, err := instructions.Build(home, workspace.Dir, agent.Introduction)
+	snapshot, err := buildInstructions(home, workspace.Dir, cfg.DisabledSkills)
 	if err != nil {
 		return failure(err.Error(), err)
 	}
@@ -309,6 +309,9 @@ func (command *sessionsCompactCommand) Execute(args []string) error {
 }
 
 func (a *App) addCommands(parser *flags.Parser, global *globalOptions) error {
+	if err := a.addSkillCommands(parser, global); err != nil {
+		return err
+	}
 	commands := []struct {
 		name, short, long string
 		data              any
@@ -349,4 +352,12 @@ func rejectArgs(args []string) error {
 		return nil
 	}
 	return usage(fmt.Sprintf("unexpected arguments: %v", args), nil)
+}
+
+func buildInstructions(home, workspace string, disabled []string) (*instructions.Snapshot, error) {
+	executable, err := os.Executable()
+	if err != nil {
+		return nil, fmt.Errorf("locate Horizon executable: %w", err)
+	}
+	return instructions.Build(home, workspace, agent.Introduction, instructions.Options{DisabledSkills: disabled, Executable: executable})
 }
