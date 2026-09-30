@@ -78,3 +78,61 @@ func TestSkillArgumentErrorsDoNotBootstrap(t *testing.T) {
 		}
 	}
 }
+
+func TestSkillEnableConflictAndUnknownIDPreserveConfig(t *testing.T) {
+	home := t.TempDir()
+	if _, err := bootstrap.Ensure(home); err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{"first", "second"} {
+		writeSkill(t, home, id, "---\nname: duplicate\ndescription: valid\n---")
+	}
+	if code, _, errout := runSkillCLI(t, home, "disable", "--id", "second"); code != 0 {
+		t.Fatal(errout)
+	}
+	path := filepath.Join(home, "config.yaml")
+	before, _ := os.ReadFile(path)
+	for _, args := range [][]string{{"enable", "--id", "second"}, {"enable", "--id", "missing"}, {"disable", "--id", "missing"}} {
+		code, _, diagnostics := runSkillCLI(t, home, args...)
+		if code != 1 {
+			t.Fatalf("%v: code=%d diagnostics=%s", args, code, diagnostics)
+		}
+		after, _ := os.ReadFile(path)
+		if !bytes.Equal(before, after) {
+			t.Fatalf("%v modified config", args)
+		}
+	}
+	if code, _, errout := runSkillCLI(t, home, "validate", "--id", "second"); code != 0 {
+		t.Fatalf("format validator checked unrelated name conflict: %s", errout)
+	}
+}
+
+func TestSkillListEmptyAndMultiline(t *testing.T) {
+	home := t.TempDir()
+	if _, err := bootstrap.Ensure(home); err != nil {
+		t.Fatal(err)
+	}
+	// Exercise the listing handler directly because bootstrap restores skill-creator.
+	if err := os.RemoveAll(filepath.Join(home, "skills")); err != nil {
+		t.Fatal(err)
+	}
+	var out, diagnostics bytes.Buffer
+	command := &skillsListCommand{app: New(forbiddenReader{}, &out, &diagnostics), global: &globalOptions{Home: home}}
+	if err := command.Execute(nil); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Count(out.String(), "\n") != 1 {
+		t.Fatal(out.String())
+	}
+	writeSkill(t, home, "multiline", "---\nname: multiline\ndescription: |\n  first line\n  second line\n---\n")
+	out.Reset()
+	if err := command.Execute(nil); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Count(out.String(), "\n") != 2 || !strings.Contains(out.String(), "first line second line") {
+		t.Fatal(out.String())
+	}
+	if cell := tableCell("a\t\x1b\nb"); strings.ContainsAny(cell, "\t\x1b\n") {
+		t.Fatal(cell)
+	}
+}

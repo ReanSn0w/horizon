@@ -101,3 +101,57 @@ func TestConcurrentDisabledSkillUpdates(t *testing.T) {
 		t.Fatalf("%v %v", ids, err)
 	}
 }
+
+func TestConfigWriteFailureKeepsOriginal(t *testing.T) {
+	home := t.TempDir()
+	path := filepath.Join(home, "config.yaml")
+	original := []byte("mode: unit\n")
+	if err := os.WriteFile(path, original, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(home, 0500); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chmod(home, 0700)
+	// Check permissions are enforced in this environment before asserting the failure.
+	probe, err := os.CreateTemp(home, "probe-")
+	if err == nil {
+		probe.Close()
+		os.Remove(probe.Name())
+		t.Skip("directory permissions not enforced")
+	}
+	if err := writeConfigAtomic(path, []byte("changed"), 0600); err == nil {
+		t.Fatal("write unexpectedly succeeded")
+	}
+	after, err := os.ReadFile(path)
+	if err != nil || string(after) != string(original) {
+		t.Fatalf("original changed: %v", err)
+	}
+}
+
+func TestFullConfigAndUpdatePreserveValues(t *testing.T) {
+	home := t.TempDir()
+	path := filepath.Join(home, "config.yaml")
+	if err := os.WriteFile(path, []byte(validConfig+"\ndisabled_skills: [old]\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	before, err := Load(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := UpdateDisabledSkills(home, "new", true, nil); err != nil {
+		t.Fatal(err)
+	}
+	after, err := Load(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(after.DisabledSkills, []string{"old", "new"}) {
+		t.Fatal(after.DisabledSkills)
+	}
+	before.DisabledSkills = nil
+	after.DisabledSkills = nil
+	if !reflect.DeepEqual(before, after) {
+		t.Fatal("unrelated config values changed")
+	}
+}
