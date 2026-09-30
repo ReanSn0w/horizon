@@ -1,18 +1,13 @@
 package instructions
 
 import (
-	"bufio"
-	"bytes"
 	"errors"
 	"fmt"
-	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
-
-	"gopkg.in/yaml.v3"
 )
 
 var ErrSkillNotFound = errors.New("skill not found")
@@ -144,46 +139,6 @@ func ScanSkills(home string, disabled ...string) (*Catalog, error) {
 	}
 	sort.Strings(catalog.names)
 	return catalog, nil
-}
-
-func parseSkill(data []byte, base string) (Skill, error) {
-	reader := bufio.NewReader(bytes.NewReader(data))
-	first, err := reader.ReadString('\n')
-	if err != nil && !errors.Is(err, io.EOF) {
-		return Skill{}, err
-	}
-	if strings.TrimSpace(first) != "---" {
-		return Skill{}, errors.New("missing YAML frontmatter")
-	}
-	var header bytes.Buffer
-	for {
-		line, readErr := reader.ReadString('\n')
-		if strings.TrimSpace(line) == "---" {
-			break
-		}
-		header.WriteString(line)
-		if errors.Is(readErr, io.EOF) {
-			return Skill{}, errors.New("unterminated YAML frontmatter")
-		}
-		if readErr != nil {
-			return Skill{}, readErr
-		}
-	}
-	var metadata struct {
-		Name        string `yaml:"name"`
-		Description string `yaml:"description"`
-	}
-	if err := yaml.Unmarshal(header.Bytes(), &metadata); err != nil {
-		return Skill{}, err
-	}
-	if strings.TrimSpace(metadata.Name) == "" || strings.TrimSpace(metadata.Description) == "" {
-		return Skill{}, errors.New("name and description are required")
-	}
-	body, err := io.ReadAll(reader)
-	if err != nil {
-		return Skill{}, err
-	}
-	return Skill{Name: metadata.Name, Description: metadata.Description, Content: string(body), BaseDir: base}, nil
 }
 
 func (catalog *Catalog) Summaries() []SkillSummary {
