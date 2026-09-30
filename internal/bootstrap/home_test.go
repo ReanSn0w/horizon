@@ -14,7 +14,7 @@ func TestEnsureCreatesAndPreservesHome(t *testing.T) {
 	if err != nil || !result.ConfigCreated {
 		t.Fatalf("result=%+v err=%v", result, err)
 	}
-	for _, name := range []string{"", "dialogs", "skills", "skills/skill-creator", "config.yaml", "skills/skill-creator/SKILL.md"} {
+	for _, name := range []string{"", "dialogs", "skills", "skills/skill-creator", "config.yaml", "AGENTS.md", "skills/skill-creator/SKILL.md"} {
 		info, err := os.Stat(filepath.Join(home, name))
 		if err != nil {
 			t.Fatal(err)
@@ -82,7 +82,7 @@ func TestEnsureConcurrent(t *testing.T) {
 	if created != 1 {
 		t.Fatalf("config created %d times", created)
 	}
-	for name, want := range map[string][]byte{"config.yaml": configTemplate, "skills/skill-creator/SKILL.md": skillTemplate} {
+	for name, want := range map[string][]byte{"config.yaml": configTemplate, "AGENTS.md": {}, "skills/skill-creator/SKILL.md": skillTemplate} {
 		data, err := os.ReadFile(filepath.Join(home, name))
 		if err != nil || !bytes.Equal(data, want) {
 			t.Fatalf("%s: %v, complete=%t", name, err, bytes.Equal(data, want))
@@ -95,11 +95,11 @@ func TestEnsureConcurrent(t *testing.T) {
 }
 
 func TestEnsureRejectsConflicts(t *testing.T) {
-	for _, name := range []string{"dialogs", "skills", "config.yaml", "skills/skill-creator/SKILL.md"} {
+	for _, name := range []string{"dialogs", "skills", "config.yaml", "AGENTS.md", "skills/skill-creator/SKILL.md"} {
 		t.Run(name, func(t *testing.T) {
 			home := t.TempDir()
 			path := filepath.Join(home, name)
-			if name == "config.yaml" || name == "skills/skill-creator/SKILL.md" {
+			if name == "config.yaml" || name == "AGENTS.md" || name == "skills/skill-creator/SKILL.md" {
 				if err := os.MkdirAll(path, 0700); err != nil {
 					t.Fatal(err)
 				}

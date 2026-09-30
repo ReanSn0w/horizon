@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 
-	"github.com/ReanSn0w/horizon/internal/bootstrap"
 	"github.com/ReanSn0w/horizon/internal/config"
 	"github.com/ReanSn0w/horizon/internal/session"
 	flags "github.com/umputun/go-flags"
@@ -67,15 +67,10 @@ func (a *App) Run(args []string) int {
 		if err != nil {
 			return usage(err.Error(), err)
 		}
-		prepared, err := bootstrap.Ensure(home)
-		if err != nil {
-			return failure(err.Error(), err)
-		}
 		options.Home = home
-		if prepared.ConfigCreated {
-			switch command.(type) {
-			case *sessionsListCommand, *sessionsCreateCommand, *sessionsReadCommand, *sessionsDeleteCommand, *skillsListCommand, *skillsValidateCommand, *skillsStateCommand:
-				fmt.Fprintf(a.errOut, "Horizon: создан %s/config.yaml; заполните provider.url, provider.key и models.<профиль>.model, проверьте compact_threshold перед обращением к провайдеру.\n", home)
+		if _, ok := command.(*initCommand); !ok {
+			if err := requireInitializedHome(home); err != nil {
+				return err
 			}
 		}
 		return command.Execute(remaining)
@@ -100,6 +95,21 @@ func (a *App) Run(args []string) int {
 	}
 	fmt.Fprintf(a.errOut, "horizon: %v\n", err)
 	return exitCode(err)
+}
+
+func requireInitializedHome(home string) error {
+	path := filepath.Join(home, "config.yaml")
+	info, err := os.Stat(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return usage(fmt.Sprintf("Horizon home %q is not initialized; run 'horizon init' with the same --home or HORIZON_HOME", home), err)
+	}
+	if err != nil {
+		return failure(fmt.Sprintf("read Horizon home configuration %q: %v", path, err), err)
+	}
+	if !info.Mode().IsRegular() {
+		return usage(fmt.Sprintf("Horizon home configuration %q is not a regular file", path), nil)
+	}
+	return nil
 }
 
 func (a *App) loadConfig(options *globalOptions) (string, config.Config, error) {

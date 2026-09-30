@@ -91,20 +91,19 @@ func TestEmptyMessageDoesNotCreateState(t *testing.T) {
 	if code != ExitUsage {
 		t.Fatalf("empty message code = %d", code)
 	}
-	entries, err := os.ReadDir(filepath.Join(home, "dialogs"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(entries) != 0 {
-		t.Fatalf("empty message created state: %v", entries)
+	if _, err := os.Stat(filepath.Join(home, "dialogs")); !os.IsNotExist(err) {
+		t.Fatalf("empty message created state: %v", err)
 	}
 }
 
 func TestSessionCommands(t *testing.T) {
 	home := t.TempDir()
 	workspace := t.TempDir()
+	if code, _, stderr := runApp(t, "", "--home", home, "init"); code != ExitOK || stderr != "" {
+		t.Fatalf("init code=%d stderr=%q", code, stderr)
+	}
 	code, stdout, stderr := runAppAt(t, workspace, "", "--home", home, "sessions", "create")
-	if code != ExitOK || !strings.Contains(stderr, "provider.key") {
+	if code != ExitOK || stderr != "" {
 		t.Fatalf("sessions create code=%d stdout=%q stderr=%q", code, stdout, stderr)
 	}
 	id := strings.TrimSpace(stdout)

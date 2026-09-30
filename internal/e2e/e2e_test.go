@@ -358,10 +358,17 @@ func TestBuiltBinaryInitializationAndSkillCreation(t *testing.T) {
 	workspace := t.TempDir()
 	stdout, stderr, err := run(binary, workspace, "do not consume", "--home", home, "--mode", "plain")
 	exit, ok := err.(*exec.ExitError)
-	if !ok || exit.ExitCode() != 2 || stdout != "" || !strings.Contains(stderr, filepath.Join(home, "config.yaml")) || !strings.Contains(stderr, "provider.key") {
+	if !ok || exit.ExitCode() != 2 || stdout != "" || !strings.Contains(stderr, "horizon init") {
 		t.Fatalf("first launch: %q %q %v", stdout, stderr, err)
 	}
-	for _, path := range []string{"config.yaml", "dialogs", "skills/skill-creator/SKILL.md"} {
+	if _, err := os.Stat(home); !os.IsNotExist(err) {
+		t.Fatalf("first launch created home: %v", err)
+	}
+	stdout, stderr, err = run(binary, workspace, "", "--home", home, "init")
+	if err != nil || stderr != "" || !strings.Contains(stdout, filepath.Join(home, "config.yaml")) || !strings.Contains(stdout, filepath.Join(home, "AGENTS.md")) {
+		t.Fatalf("init: %q %q %v", stdout, stderr, err)
+	}
+	for _, path := range []string{"config.yaml", "AGENTS.md", "dialogs", "skills/skill-creator/SKILL.md"} {
 		if _, err := os.Stat(filepath.Join(home, path)); err != nil {
 			t.Fatal(err)
 		}
