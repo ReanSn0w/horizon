@@ -35,11 +35,17 @@ func (command *initCommand) Execute(args []string) error {
 		return err
 	}
 	home := command.global.Home
-	if _, err := bootstrap.Ensure(home); err != nil {
+	result, err := bootstrap.Ensure(home)
+	if err != nil {
 		return failure(err.Error(), err)
 	}
 	fmt.Fprintf(command.app.out, "Horizon home: %s\n", home)
-	fmt.Fprintf(command.app.out, "Отредактируйте %s: задайте provider.url, provider.key и models.chatting.model; проверьте models.chatting.compact_threshold.\n", filepath.Join(home, "config.yaml"))
+	configPath := filepath.Join(home, "config.yaml")
+	if result.ConfigCreated {
+		fmt.Fprintf(command.app.out, "Отредактируйте %s: задайте provider.url, provider.key и models.chatting.model; проверьте models.chatting.compact_threshold.\n", configPath)
+	} else {
+		fmt.Fprintf(command.app.out, "Существующая конфигурация сохранена: %s.\n", configPath)
+	}
 	fmt.Fprintf(command.app.out, "При необходимости добавьте инструкции агента в %s.\n", filepath.Join(home, "AGENTS.md"))
 	return nil
 }

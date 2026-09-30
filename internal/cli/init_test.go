@@ -33,15 +33,46 @@ func TestInitIsExplicitIdempotentAndUsesSelectedHome(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	code, _, diagnostics = runApp(t, "", "init")
-	if code != ExitOK || diagnostics != "" {
-		t.Fatalf("repeat init: code=%d err=%q", code, diagnostics)
+	code, out, diagnostics = runApp(t, "", "init")
+	if code != ExitOK || diagnostics != "" || !strings.Contains(out, "Существующая конфигурация сохранена") {
+		t.Fatalf("repeat init: code=%d out=%q err=%q", code, out, diagnostics)
 	}
 	for path, want := range map[string]string{configPath: "personal config", agentsPath: "personal instructions"} {
 		data, err := os.ReadFile(path)
 		if err != nil || string(data) != want {
 			t.Fatalf("%s: %q %v", path, data, err)
 		}
+	}
+}
+
+func TestInitAddsBundledSkillWithoutChangingExistingHome(t *testing.T) {
+	home := t.TempDir()
+	files := map[string]string{
+		"config.yaml":                    "mode: unit\ndefault_model: personal\nmodels:\n  personal:\n    model: chosen-model\n    compact_threshold: 12345\nprovider:\n  url: https://example.test/v1\n  key: personal-key\ndisabled_skills:\n  - personal-skill\n",
+		"AGENTS.md":                      "Custom agent instructions\n",
+		"skills/personal-skill/SKILL.md": "---\nname: personal-skill\ndescription: Personal skill\n---\nCustom instructions\n",
+	}
+	for name, content := range files {
+		path := filepath.Join(home, name)
+		if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(content), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	code, _, diagnostics := runApp(t, "", "--home", home, "init")
+	if code != ExitOK || diagnostics != "" {
+		t.Fatalf("init: code=%d err=%q", code, diagnostics)
+	}
+	for name, want := range files {
+		data, err := os.ReadFile(filepath.Join(home, name))
+		if err != nil || string(data) != want {
+			t.Fatalf("init changed %s: %q %v", name, data, err)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(home, "skills", "skill-creator", "SKILL.md")); err != nil {
+		t.Fatalf("init did not add bundled skill: %v", err)
 	}
 }
 
