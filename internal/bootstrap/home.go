@@ -12,7 +12,7 @@ type Result struct {
 	ConfigCreated bool
 }
 
-// Ensure restores missing first-run resources without replacing user files.
+// Ensure creates missing initialization resources without replacing user files.
 func Ensure(home string) (Result, error) {
 	var result Result
 	for _, dir := range []string{home, filepath.Join(home, "dialogs"), filepath.Join(home, "skills", "skill-creator")} {
@@ -25,6 +25,9 @@ func Ensure(home string) (Result, error) {
 		return result, err
 	}
 	result.ConfigCreated = created
+	if _, err := install(filepath.Join(home, "AGENTS.md"), nil); err != nil {
+		return result, err
+	}
 	_, err = install(filepath.Join(home, "skills", "skill-creator", "SKILL.md"), skillTemplate)
 	return result, err
 }

@@ -26,14 +26,13 @@ func TestFirstRunStopsBeforeInput(t *testing.T) {
 				if code != ExitUsage || out.Len() != 0 || editor.calls != 0 {
 					t.Fatalf("code=%d out=%q editor=%d err=%q", code, out.String(), editor.calls, diagnostics.String())
 				}
-				for _, want := range []string{filepath.Join(home, "config.yaml"), "provider.url", "provider.key", "models.chatting.model", "compact_threshold"} {
+				for _, want := range []string{home, "horizon init"} {
 					if !strings.Contains(diagnostics.String(), want) {
 						t.Fatalf("missing %q: %s", want, diagnostics.String())
 					}
 				}
-				entries, err := os.ReadDir(filepath.Join(home, "dialogs"))
-				if err != nil || len(entries) != 0 {
-					t.Fatalf("session state created: %v %v", entries, err)
+				if _, err := os.Stat(home); !os.IsNotExist(err) {
+					t.Fatalf("uninitialized command created home: %v", err)
 				}
 			})
 		}
@@ -41,7 +40,7 @@ func TestFirstRunStopsBeforeInput(t *testing.T) {
 }
 
 func TestHelpAndArgumentErrorsDoNotInitialize(t *testing.T) {
-	for _, args := range [][]string{{"--help"}, {"resume", "--help"}, {"sessions", "read", "--help"}, {"unknown"}, {"--bad"}, {"-m", "x", "extra"}, {"sessions", "read"}} {
+	for _, args := range [][]string{{"--help"}, {"init", "--help"}, {"resume", "--help"}, {"sessions", "read", "--help"}, {"unknown"}, {"--bad"}, {"-m", "x", "extra"}, {"sessions", "read"}} {
 		home := filepath.Join(t.TempDir(), "absent")
 		code, _, _ := runApp(t, "", append([]string{"--home", home}, args...)...)
 		if code != ExitUsage && code != ExitOK {

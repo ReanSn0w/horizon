@@ -7,10 +7,12 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"sort"
 	"text/tabwriter"
 
 	"github.com/ReanSn0w/horizon/internal/agent"
+	"github.com/ReanSn0w/horizon/internal/bootstrap"
 	"github.com/ReanSn0w/horizon/internal/eventstream"
 	"github.com/ReanSn0w/horizon/internal/instructions"
 	"github.com/ReanSn0w/horizon/internal/responses"
@@ -21,6 +23,25 @@ import (
 type optionalString struct {
 	Value string
 	Set   bool
+}
+
+type initCommand struct {
+	app    *App
+	global *globalOptions
+}
+
+func (command *initCommand) Execute(args []string) error {
+	if err := rejectArgs(args); err != nil {
+		return err
+	}
+	home := command.global.Home
+	if _, err := bootstrap.Ensure(home); err != nil {
+		return failure(err.Error(), err)
+	}
+	fmt.Fprintf(command.app.out, "Horizon home: %s\n", home)
+	fmt.Fprintf(command.app.out, "Отредактируйте %s: задайте provider.url, provider.key и models.chatting.model; проверьте models.chatting.compact_threshold.\n", filepath.Join(home, "config.yaml"))
+	fmt.Fprintf(command.app.out, "При необходимости добавьте инструкции агента в %s.\n", filepath.Join(home, "AGENTS.md"))
+	return nil
 }
 
 func (value *optionalString) UnmarshalFlag(text string) error {
@@ -316,6 +337,7 @@ func (a *App) addCommands(parser *flags.Parser, global *globalOptions) error {
 		name, short, long string
 		data              any
 	}{
+		{"init", "Initialize Horizon home", "Create missing home files and show what to configure.", &initCommand{app: a, global: global}},
 		{"models", "List model profiles", "Print configured model profiles without contacting the provider.", &modelsCommand{app: a, global: global}},
 		{"resume", "Run one agent turn", "Read a message and execute one turn.", &resumeCommand{app: a, global: global}},
 	}
