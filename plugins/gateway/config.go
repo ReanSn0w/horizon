@@ -59,6 +59,10 @@ func nodeValue(n *yaml.Node, key string) *yaml.Node {
 	return nil
 }
 func putNode(n *yaml.Node, key string, value *yaml.Node) {
+	// Empty mappings are encoded as {}. Once populated, use editable block YAML.
+	if len(n.Content) == 0 {
+		n.Style &^= yaml.FlowStyle
+	}
 	for i := 0; i < len(n.Content); i += 2 {
 		if n.Content[i].Value == key {
 			n.Content[i+1] = value
@@ -68,6 +72,21 @@ func putNode(n *yaml.Node, key string, value *yaml.Node) {
 	n.Content = append(n.Content, &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: key}, value)
 }
 func encodedNode(value any) *yaml.Node { var n yaml.Node; _ = n.Encode(value); return &n }
+
+func blockStyle(n *yaml.Node) bool {
+	changed := false
+	if (n.Kind == yaml.MappingNode || n.Kind == yaml.SequenceNode) && len(n.Content) > 0 && n.Style&yaml.FlowStyle != 0 {
+		n.Style &^= yaml.FlowStyle
+		changed = true
+	}
+	for _, child := range n.Content {
+		if blockStyle(child) {
+			changed = true
+		}
+	}
+	return changed
+}
+
 func mergeMissing(target, source *yaml.Node) bool {
 	changed := false
 	for i := 0; i < len(source.Content); i += 2 {
@@ -166,6 +185,8 @@ func initSettings(home string) (bool, error) {
 		if plugins.Kind != yaml.MappingNode {
 			return false, errors.New("plugins must be a mapping")
 		}
+		changed := plugins.Style&yaml.FlowStyle != 0
+		plugins.Style &^= yaml.FlowStyle
 		gateway := nodeValue(plugins, "gateway")
 		if gateway == nil {
 			putNode(plugins, "gateway", encodedNode(defaults(home)))
@@ -174,7 +195,13 @@ func initSettings(home string) (bool, error) {
 		if gateway.Kind != yaml.MappingNode {
 			return false, errors.New("plugins.gateway must be a mapping")
 		}
-		return mergeMissing(gateway, encodedNode(defaults(home))), nil
+		if mergeMissing(gateway, encodedNode(defaults(home))) {
+			changed = true
+		}
+		if blockStyle(gateway) {
+			changed = true
+		}
+		return changed, nil
 	})
 }
 func ensureGroup(home string, id int64) (groupSettings, error) {

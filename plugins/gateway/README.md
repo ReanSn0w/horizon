@@ -20,6 +20,10 @@ for conversation mode. Horizon's normal provider, model and shared `decision`
 settings must also be configured; the default read/write access modes require
 Jev for shell command evaluation. `gateway init` adds missing fields without
 requiring API keys and preserves existing values, comments and file permissions.
+Gateway settings are written as block YAML. Running `gateway init` again also
+expands an existing inline gateway section into readable YAML without changing
+its configured values. Empty `groups: {}` remains valid until a group is added.
+
 An alternative home must be used consistently:
 
 ```sh
