@@ -15,6 +15,8 @@ import (
 )
 
 type app struct {
+	telegram    *telegram
+	runner      runProcess
 	ctx         context.Context
 	home        string
 	out, errOut io.Writer

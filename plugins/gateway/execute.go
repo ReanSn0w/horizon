@@ -17,5 +17,8 @@ func execute(a *app, name string, value any) error {
 		fmt.Fprintf(a.out, "Gateway configuration: %s/config.yaml (updated: %t)\nSet plugins.gateway.telegram.bot_token and owner_user_id, then run horizon gateway start.\n", a.home, changed)
 		return nil
 	}
+	if name == "start" {
+		return startGateway(a)
+	}
 	return errors.New("gateway command is not configured")
 }
