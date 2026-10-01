@@ -16,7 +16,7 @@ import (
 	"time"
 )
 
-func TestBuiltGatewayTelegramWorkflow(t *testing.T) {
+func TestBuiltTelegramTelegramWorkflow(t *testing.T) {
 	binary := buildBinary(t)
 	home, cwd := t.TempDir(), t.TempDir()
 	var mu sync.Mutex
@@ -98,9 +98,9 @@ func TestBuiltGatewayTelegramWorkflow(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(home, "plugins"), 0700); err != nil {
 		t.Fatal(err)
 	}
-	for _, plugin := range []string{"decision", "gateway"} {
+	for _, plugin := range []string{"decision", "telegram"} {
 		args := []string{"build", "-o", filepath.Join(home, "plugins", "horizon-"+plugin)}
-		if plugin == "gateway" {
+		if plugin == "telegram" {
 			args = append(args, "-ldflags", "-X main.telegramEndpoint="+server.URL)
 		}
 		args = append(args, "./plugins/"+plugin)
@@ -110,7 +110,7 @@ func TestBuiltGatewayTelegramWorkflow(t *testing.T) {
 			t.Fatalf("build %s: %v %s", plugin, err, output)
 		}
 	}
-	for _, args := range [][]string{{"gateway", "--help"}, {"gateway", "send", "--help"}} {
+	for _, args := range [][]string{{"telegram", "--help"}, {"telegram", "send", "--help"}} {
 		out, diag, err := run(binary, cwd, "", append([]string{"--home", home}, args...)...)
 		if err != nil || diag != "" || !strings.Contains(out, "Usage:") {
 			t.Fatalf("help %v: %v %q %q", args, err, out, diag)
@@ -134,7 +134,7 @@ decision:
     key: local-key
   model: jev
 plugins:
-  gateway:
+  telegram:
     telegram:
       bot_token: test-token
       owner_user_id: 1
@@ -145,11 +145,11 @@ plugins:
 	if err := os.WriteFile(filepath.Join(home, "config.yaml"), []byte(cfg), 0600); err != nil {
 		t.Fatal(err)
 	}
-	if out, diag, err := run(binary, cwd, "", "--home", home, "gateway", "init"); err != nil {
-		t.Fatalf("gateway init %v %s %s", err, out, diag)
+	if out, diag, err := run(binary, cwd, "", "--home", home, "telegram", "init"); err != nil {
+		t.Fatalf("telegram init %v %s %s", err, out, diag)
 	}
 	start := func() func() {
-		cmd := exec.Command(binary, "--home", home, "gateway", "start")
+		cmd := exec.Command(binary, "--home", home, "telegram", "start")
 		cmd.Dir = cwd
 		cmd.Env = filteredEnv("HORIZON_INHERITED_ACCESS")
 		var diagnostics bytes.Buffer
@@ -169,12 +169,12 @@ plugins:
 			select {
 			case err := <-done:
 				if exit, ok := err.(*exec.ExitError); !ok || exit.ExitCode() != 143 {
-					t.Errorf("gateway shutdown: %v %s", err, diagnostics.String())
+					t.Errorf("telegram shutdown: %v %s", err, diagnostics.String())
 				}
 			case <-time.After(5 * time.Second):
 				_ = cmd.Process.Kill()
 				<-done
-				t.Errorf("gateway did not stop: %s", diagnostics.String())
+				t.Errorf("telegram did not stop: %s", diagnostics.String())
 			}
 		}
 		t.Cleanup(stop)
@@ -188,11 +188,11 @@ plugins:
 			}
 			time.Sleep(50 * time.Millisecond)
 		}
-		t.Fatal("gateway workflow timed out")
+		t.Fatal("telegram workflow timed out")
 	}
 	stop := start()
 	waitFor(func() bool { mu.Lock(); defer mu.Unlock(); return len(sent) == 3 })
-	out, diag, err := run(binary, cwd, "", "--home", home, "gateway", "list", "--json")
+	out, diag, err := run(binary, cwd, "", "--home", home, "telegram", "list", "--json")
 	var registry struct {
 		Chats []struct {
 			ID        string `json:"chat_id"`
@@ -208,7 +208,7 @@ plugins:
 		t.Fatalf("chat bindings: %+v", registry.Chats)
 	}
 	original, _ := json.Marshal(registry)
-	if out, diag, err := run(binary, cwd, "", "--home", home, "gateway", "send", "--chat", "-10", "-m", "manual-instruction", "--wait", "--json"); err != nil || !strings.Contains(out, `"status":"sent"`) {
+	if out, diag, err := run(binary, cwd, "", "--home", home, "telegram", "send", "--chat", "-10", "-m", "manual-instruction", "--wait", "--json"); err != nil || !strings.Contains(out, `"status":"sent"`) {
 		t.Fatalf("manual send: %v %s %s", err, out, diag)
 	}
 	mu.Lock()
@@ -216,7 +216,7 @@ plugins:
 		t.Errorf("calls: models=%d decisions=%d", modelCalls, decisionCalls)
 	}
 	mu.Unlock()
-	if out, diag, err := run(binary, cwd, "", "--home", home, "gateway", "start"); err == nil || !strings.Contains(diag, "already running") {
+	if out, diag, err := run(binary, cwd, "", "--home", home, "telegram", "start"); err == nil || !strings.Contains(diag, "already running") {
 		t.Fatalf("duplicate start: %v %s %s", err, out, diag)
 	}
 	stop()
@@ -225,7 +225,7 @@ plugins:
 	before := polls
 	mu.Unlock()
 	waitFor(func() bool { mu.Lock(); defer mu.Unlock(); return polls > before+1 })
-	out, diag, err = run(binary, cwd, "", "--home", home, "gateway", "list", "--json")
+	out, diag, err = run(binary, cwd, "", "--home", home, "telegram", "list", "--json")
 	if err != nil || json.Unmarshal([]byte(out), &registry) != nil {
 		t.Fatalf("restored list: %v %s %s", err, out, diag)
 	}

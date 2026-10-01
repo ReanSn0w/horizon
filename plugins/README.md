@@ -2,7 +2,7 @@
 
 Каждый плагин хранится в отдельном каталоге `plugins/<имя>/`. Этот каталог
 содержит исходники и не сканируется Horizon. Доступные плагины — `decision`
-и `gateway`.
+и `telegram`.
 
 Можно установить symlink на исполняемый файл. Для удаления достаточно удалить
 `<home>/plugins/horizon-<имя>`. `init` плагины автоматически не устанавливает.
@@ -39,24 +39,24 @@ decision:
 в файл; без этого флага JSON идёт в stdout. Плагин устанавливается вручную,
 не создаёт сессии и не запускает цикл агента.
 
-## Gateway
+## Telegram
 
 Telegram-бот с отдельным workspace и закреплённой сессией для каждого чата:
 
 ```sh
-make install-gateway HORIZON_HOME=/path/to/home
-horizon --home /path/to/home gateway init
-# Edit plugins.gateway.telegram in /path/to/home/config.yaml.
-horizon --home /path/to/home gateway start
+make install-telegram HORIZON_HOME=/path/to/home
+horizon --home /path/to/home telegram init
+# Edit plugins.telegram.telegram in /path/to/home/config.yaml.
+horizon --home /path/to/home telegram start
 ```
 
 Для режима собеседника также нужен установленный `decision`:
 `make install-decision HORIZON_HOME=/path/to/home`.
-[Настройки, правила групп, send и управление службами](gateway/README.md).
+[Настройки, правила групп, send и управление службами](telegram/README.md).
 
-`make install-plugins` по умолчанию устанавливает `decision` и `gateway`.
+`make install-plugins` по умолчанию устанавливает `decision` и `telegram`.
 Для отдельной установки используйте `make install-decision` или
-`make install-gateway`; `PLUGINS=decision` выбирает только decision.
+`make install-telegram`; `PLUGINS=decision` выбирает только decision.
 `HORIZON_HOME` берётся из окружения или равен `~/.horizon`.
 Бинарники устанавливаются с правами `0700`; ошибка сборки сохраняет
 ранее установленную версию. Конфигурация и сессии не изменяются.

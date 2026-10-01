@@ -54,7 +54,7 @@ func (c *listCommand) Execute(args []string) error { return c.call(c, args) }
 
 type sendCommand struct {
 	command
-	Chat    int64  `long:"chat" required:"true" description:"Decimal chat ID from gateway list"`
+	Chat    int64  `long:"chat" required:"true" description:"Decimal chat ID from telegram list"`
 	Message string `short:"m" long:"message" description:"Instruction for Horizon; default: continue the conversation"`
 	Thread  int64  `long:"thread" description:"Telegram forum topic ID"`
 	Wait    bool   `long:"wait" description:"Wait for delivery; interrupting the wait leaves the accepted job running"`
@@ -87,23 +87,23 @@ func main() {
 }
 func runCLI(ctx context.Context, args []string, out, errOut io.Writer) int {
 	if len(args) == 1 && args[0] == "horizon-plugin-metadata" {
-		if json.NewEncoder(out).Encode(map[string]any{"protocol_version": 1, "version": "1.0.0", "description": "Telegram gateway for Horizon"}) != nil {
+		if json.NewEncoder(out).Encode(map[string]any{"protocol_version": 1, "version": "1.0.0", "description": "Telegram integration for Horizon"}) != nil {
 			return 1
 		}
 		return 0
 	}
 	a := &app{ctx: ctx, out: out, errOut: errOut}
 	a.dispatch = func(name string, value any) error { return execute(a, name, value) }
-	parser := flags.NewNamedParser("horizon gateway", flags.HelpFlag|flags.PassDoubleDash)
-	parser.LongDescription = gatewayHelp
+	parser := flags.NewNamedParser("horizon telegram", flags.HelpFlag|flags.PassDoubleDash)
+	parser.LongDescription = telegramHelp
 	commands := []struct {
 		name, short, description string
 		value                    any
 	}{
-		{"init", "Add gateway configuration", "Add missing plugins.gateway defaults without overwriting existing values.", &initCommand{command: command{a, "init"}}},
-		{"start", "Run the Telegram gateway", "Run in the foreground with long polling. Only the owner is accepted in private chats.", &startCommand{command: command{a, "start"}}},
+		{"init", "Add telegram configuration", "Add missing plugins.telegram defaults without overwriting existing values.", &initCommand{command: command{a, "init"}}},
+		{"start", "Run the Telegram integration", "Run in the foreground with long polling. Only the owner is accepted in private chats.", &startCommand{command: command{a, "start"}}},
 		{"list", "List known chats", "Print CHAT ID beside human-readable NAME. JSON output is suitable for other plugins.", &listCommand{command: command{a, "list"}}},
-		{"send", "Generate and send a new message", "Enqueue a Horizon turn using the chat's history. Requires a running gateway. The message option is an instruction, not literal Telegram text.", &sendCommand{command: command{a, "send"}}},
+		{"send", "Generate and send a new message", "Enqueue a Horizon turn using the chat's history. Requires a running telegram. The message option is an instruction, not literal Telegram text.", &sendCommand{command: command{a, "send"}}},
 		{"service", "Manage a user service", "Manage a launchd LaunchAgent or systemd --user service. Install enables future autostart; start runs it now.", &serviceCommand{command: command{a, "service"}}},
 	}
 	for _, c := range commands {
@@ -123,7 +123,7 @@ func runCLI(ctx context.Context, args []string, out, errOut io.Writer) int {
 			return 0
 		}
 		if ctx.Err() != nil {
-			fmt.Fprintln(errOut, "gateway: cancelled")
+			fmt.Fprintln(errOut, "telegram: cancelled")
 			return 130
 		}
 		code := 1
@@ -133,7 +133,7 @@ func runCLI(ctx context.Context, args []string, out, errOut io.Writer) int {
 		} else if errors.As(err, &flagErr) {
 			code = 2
 		}
-		fmt.Fprintln(a.errOut, "gateway:", err)
+		fmt.Fprintln(a.errOut, "telegram:", err)
 		return code
 	}
 	return 0
@@ -142,7 +142,7 @@ func runCLI(ctx context.Context, args []string, out, errOut io.Writer) int {
 func writeHelp(parser *flags.Parser, out io.Writer) {
 	parser.WriteHelp(out)
 	if parser.Active == nil || parser.Active.Name == "init" || parser.Active.Name == "start" {
-		fmt.Fprint(out, gatewayConfigHelp)
+		fmt.Fprint(out, telegramConfigHelp)
 	}
 }
 

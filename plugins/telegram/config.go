@@ -120,12 +120,12 @@ func loadSettings(home string, ready bool) (settings, error) {
 	if len(document.Content) != 1 {
 		return settings{}, errors.New("invalid config.yaml")
 	}
-	section := nodeValue(nodeValue(document.Content[0], "plugins"), "gateway")
+	section := nodeValue(nodeValue(document.Content[0], "plugins"), "telegram")
 	if section == nil {
-		return settings{}, errors.New("plugins.gateway is missing; run 'horizon gateway init'")
+		return settings{}, errors.New("plugins.telegram is missing; run 'horizon telegram init'")
 	}
 	if section.Kind != yaml.MappingNode {
-		return settings{}, errors.New("plugins.gateway must be a mapping")
+		return settings{}, errors.New("plugins.telegram must be a mapping")
 	}
 	payload, err := yaml.Marshal(section)
 	if err != nil {
@@ -135,10 +135,10 @@ func loadSettings(home string, ready bool) (settings, error) {
 	dec = yaml.NewDecoder(bytes.NewReader(payload))
 	dec.KnownFields(true)
 	if err = dec.Decode(&s); err != nil {
-		return s, errors.New("invalid plugins.gateway; check field names and types")
+		return s, errors.New("invalid plugins.telegram; check field names and types")
 	}
 	if strings.TrimSpace(s.Workspace) == "" {
-		return s, errors.New("gateway workspace_dir must not be empty")
+		return s, errors.New("telegram workspace_dir must not be empty")
 	}
 	if !filepath.IsAbs(s.Workspace) {
 		s.Workspace = filepath.Join(home, s.Workspace)
@@ -155,10 +155,10 @@ func loadSettings(home string, ready bool) (settings, error) {
 func validAccess(s string) bool { return s == "read" || s == "write" || s == "full" }
 func (s settings) validate(ready bool) error {
 	if ready && (strings.TrimSpace(s.Telegram.Token) == "" || s.Telegram.Owner <= 0) {
-		return errors.New("set plugins.gateway.telegram.bot_token and a positive owner_user_id")
+		return errors.New("set plugins.telegram.telegram.bot_token and a positive owner_user_id")
 	}
 	if s.Telegram.Owner < 0 || !validAccess(s.PrivateAccess) || !validAccess(s.GroupAccess) || s.Workspace == "" || s.Parallel < 1 || s.Parallel > 32 || s.Conversation.History < 1 || s.Conversation.History > 100 || !(s.Conversation.Threshold >= 0 && s.Conversation.Threshold <= 1) {
-		return errors.New("invalid gateway access, workspace, owner or limits")
+		return errors.New("invalid telegram access, workspace, owner or limits")
 	}
 	if s.Defaults.ResponseMode != "mention" && s.Defaults.ResponseMode != "conversation" {
 		return errors.New("response_mode must be mention or conversation")
@@ -166,7 +166,7 @@ func (s settings) validate(ready bool) error {
 	for id, g := range s.Groups {
 		n, err := strconv.ParseInt(id, 10, 64)
 		if err != nil || n >= 0 {
-			return errors.New("gateway group IDs must be negative decimal integers")
+			return errors.New("telegram group IDs must be negative decimal integers")
 		}
 		if g.ResponseMode != "mention" && g.ResponseMode != "conversation" {
 			return errors.New("group response_mode must be mention or conversation")
@@ -187,18 +187,35 @@ func initSettings(home string) (bool, error) {
 		}
 		changed := plugins.Style&yaml.FlowStyle != 0
 		plugins.Style &^= yaml.FlowStyle
-		gateway := nodeValue(plugins, "gateway")
-		if gateway == nil {
-			putNode(plugins, "gateway", encodedNode(defaults(home)))
-			return true, nil
-		}
-		if gateway.Kind != yaml.MappingNode {
-			return false, errors.New("plugins.gateway must be a mapping")
-		}
-		if mergeMissing(gateway, encodedNode(defaults(home))) {
+		telegram := nodeValue(plugins, "telegram")
+		legacy := nodeValue(plugins, "gateway")
+		if legacy != nil {
+			if telegram != nil {
+				return false, errors.New("both plugins.telegram and plugins.gateway exist; keep only the intended configuration before init")
+			}
+			if legacy.Kind != yaml.MappingNode {
+				return false, errors.New("plugins.gateway must be a mapping before migration")
+			}
+			for i := 0; i < len(plugins.Content); i += 2 {
+				if plugins.Content[i].Value == "gateway" {
+					plugins.Content[i].Value = "telegram"
+					break
+				}
+			}
+			telegram = legacy
 			changed = true
 		}
-		if blockStyle(gateway) {
+		if telegram == nil {
+			putNode(plugins, "telegram", encodedNode(defaults(home)))
+			return true, nil
+		}
+		if telegram.Kind != yaml.MappingNode {
+			return false, errors.New("plugins.telegram must be a mapping")
+		}
+		if mergeMissing(telegram, encodedNode(defaults(home))) {
+			changed = true
+		}
+		if blockStyle(telegram) {
 			changed = true
 		}
 		return changed, nil
@@ -207,9 +224,9 @@ func initSettings(home string) (bool, error) {
 func ensureGroup(home string, id int64) (groupSettings, error) {
 	var result groupSettings
 	_, err := config.UpdateDocument(home, func(doc *yaml.Node) (bool, error) {
-		gateway := nodeValue(nodeValue(doc.Content[0], "plugins"), "gateway")
-		if gateway == nil {
-			return false, errors.New("run gateway init")
+		telegram := nodeValue(nodeValue(doc.Content[0], "plugins"), "telegram")
+		if telegram == nil {
+			return false, errors.New("run telegram init")
 		}
 		s, err := loadSettings(home, false)
 		if err != nil {
@@ -221,10 +238,10 @@ func ensureGroup(home string, id int64) (groupSettings, error) {
 			return false, nil
 		}
 		result = s.Defaults
-		groups := nodeValue(gateway, "groups")
+		groups := nodeValue(telegram, "groups")
 		if groups == nil {
 			groups = encodedNode(map[string]any{})
-			putNode(gateway, "groups", groups)
+			putNode(telegram, "groups", groups)
 		}
 		if groups.Kind != yaml.MappingNode {
 			return false, errors.New("groups must be a mapping")
@@ -236,14 +253,14 @@ func ensureGroup(home string, id int64) (groupSettings, error) {
 }
 func checkInherited(s settings) error {
 	if access, ok := os.LookupEnv("HORIZON_INHERITED_ACCESS"); ok && (access != s.PrivateAccess || access != s.GroupAccess) {
-		return fmt.Errorf("HORIZON_INHERITED_ACCESS conflicts with gateway private_access/group_access; run gateway outside the inherited agent turn")
+		return fmt.Errorf("HORIZON_INHERITED_ACCESS conflicts with telegram private_access/group_access; run telegram outside the inherited agent turn")
 	}
 	return nil
 }
 
 func migrateGroup(home string, oldID, newID int64) error {
 	_, err := config.UpdateDocument(home, func(doc *yaml.Node) (bool, error) {
-		groups := nodeValue(nodeValue(nodeValue(doc.Content[0], "plugins"), "gateway"), "groups")
+		groups := nodeValue(nodeValue(nodeValue(doc.Content[0], "plugins"), "telegram"), "groups")
 		if groups == nil {
 			return false, errors.New("missing group settings")
 		}

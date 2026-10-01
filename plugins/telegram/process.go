@@ -21,7 +21,7 @@ func horizonBinary() (string, error) {
 		var err error
 		value, err = exec.LookPath("horizon")
 		if err != nil {
-			return "", errors.New("cannot find Horizon; launch gateway through horizon")
+			return "", errors.New("cannot find Horizon; launch telegram through horizon")
 		}
 	}
 	path, err := filepath.Abs(value)
@@ -87,7 +87,7 @@ func processRunner(binary, home string) runProcess {
 				return "", errors.New("Horizon process failed")
 			}
 			if out.overflow || diag.overflow {
-				return "", errors.New("Horizon process output exceeds the gateway limit")
+				return "", errors.New("Horizon process output exceeds the telegram limit")
 			}
 			return out.String(), nil
 		case <-ctx.Done():

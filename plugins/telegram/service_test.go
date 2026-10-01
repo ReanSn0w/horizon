@@ -123,7 +123,7 @@ func TestNativePlistFormat(t *testing.T) {
 	if runtime.GOOS != "darwin" {
 		t.Skip("macOS plist validator")
 	}
-	path := filepath.Join(t.TempDir(), "gateway.plist")
+	path := filepath.Join(t.TempDir(), "telegram.plist")
 	data := launchPlist("io.horizon.test", "/path with spaces/horizon", "/tmp/home & test", "/bin:/usr/bin")
 	if err := os.WriteFile(path, data, 0600); err != nil {
 		t.Fatal(err)

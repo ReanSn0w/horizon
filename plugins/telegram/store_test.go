@@ -49,11 +49,11 @@ func TestProcessLock(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !gatewayRunning(home) {
+	if !telegramRunning(home) {
 		t.Fatal("not detected")
 	}
 	unlock(f)
-	if gatewayRunning(home) {
+	if telegramRunning(home) {
 		t.Fatal("stale lock treated as running")
 	}
 }

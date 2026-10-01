@@ -19,7 +19,7 @@ func readyHome(t *testing.T) string {
 		putNode(root, "decision", encodedNode(map[string]any{"provider": map[string]string{"url": "https://example.test", "key": "unused"}, "model": "jev"}))
 		putNode(root, "default_model", encodedNode("chat"))
 		putNode(root, "models", encodedNode(map[string]any{"chat": map[string]any{"model": "model", "compact_threshold": 1000}}))
-		section := nodeValue(nodeValue(root, "plugins"), "gateway")
+		section := nodeValue(nodeValue(root, "plugins"), "telegram")
 		putNode(section, "telegram", encodedNode(map[string]any{"bot_token": "test-token", "owner_user_id": 1}))
 		return true, nil
 	})
@@ -50,7 +50,7 @@ func TestGenerateUsesSessionAccessAndData(t *testing.T) {
 		}
 		return "reply", nil
 	}
-	g := &gateway{home: home, cfg: cfg, store: s, run: run}
+	g := &bridge{home: home, cfg: cfg, store: s, run: run}
 	if err := g.process(context.Background(), c, j, cfg); err != nil {
 		t.Fatal(err)
 	}
@@ -66,7 +66,7 @@ func TestFailedProcessIsNotReplayed(t *testing.T) {
 	j := &job{ID: "x", ChatID: 1, Status: "evaluating", Manual: true}
 	c := &chat{ID: 1, Origin: 1, Type: "private", Jobs: []*job{j}}
 	s.update(func(v *state) error { v.Chats["1"] = c; return nil })
-	g := &gateway{home: home, cfg: cfg, store: s, run: func(ctx context.Context, dir string, args []string, input string) (string, error) {
+	g := &bridge{home: home, cfg: cfg, store: s, run: func(ctx context.Context, dir string, args []string, input string) (string, error) {
 		if strings.Contains(fmt.Sprint(args), "create") {
 			return "id", nil
 		}
@@ -96,7 +96,7 @@ func TestContextMarkerDoesNotConsumeQueuedMessages(t *testing.T) {
 		}
 		return "reply", nil
 	}
-	g := &gateway{home: home, cfg: cfg, store: s, run: run}
+	g := &bridge{home: home, cfg: cfg, store: s, run: run}
 	if err := g.process(context.Background(), c, j, cfg); err != nil {
 		t.Fatal(err)
 	}
@@ -109,7 +109,7 @@ func TestContextMarkerDoesNotConsumeQueuedMessages(t *testing.T) {
 	}
 }
 
-func TestDeliveryDeadlineDoesNotStopGateway(t *testing.T) {
+func TestDeliveryDeadlineDoesNotStopTelegram(t *testing.T) {
 	home := readyHome(t)
 	cfg, _ := loadSettings(home, true)
 	s := newStore(home, 99)
@@ -118,7 +118,7 @@ func TestDeliveryDeadlineDoesNotStopGateway(t *testing.T) {
 	if err := s.update(func(v *state) error { v.Chats["1"] = c; return nil }); err != nil {
 		t.Fatal(err)
 	}
-	g := &gateway{home: home, cfg: cfg, store: s, run: func(context.Context, string, []string, string) (string, error) { return "session", nil }, deliver: func(context.Context, *chat, *job) error { return context.DeadlineExceeded }}
+	g := &bridge{home: home, cfg: cfg, store: s, run: func(context.Context, string, []string, string) (string, error) { return "session", nil }, deliver: func(context.Context, *chat, *job) error { return context.DeadlineExceeded }}
 	if err := g.process(context.Background(), c, j, cfg); err != nil {
 		t.Fatal("one delivery deadline stopped the scheduler", err)
 	}

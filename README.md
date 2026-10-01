@@ -254,10 +254,10 @@ go test -race ./...
 [Установка и настройка](plugins/README.md#decision),
 [контракт JSON](plugins/decision/README.md).
 
-Плагин `gateway` связывает Telegram-бота с отдельными workspace и сессией
+Плагин `telegram` связывает Telegram-бота с отдельными workspace и сессией
 на чат. `make install-plugins` устанавливает оба плагина; для отдельной
-установки используйте `make install-gateway`. Настройка начинается с
-`horizon gateway init`, запуск — `horizon gateway start`.
-`horizon gateway list` показывает ID рядом с названием чата,
-`horizon gateway send --chat ID` запускает генерацию нового сообщения.
-[Конфигурация, правила ответа и пользовательские службы](plugins/gateway/README.md).
+установки используйте `make install-telegram`. Настройка начинается с
+`horizon telegram init`, запуск — `horizon telegram start`.
+`horizon telegram list` показывает ID рядом с названием чата,
+`horizon telegram send --chat ID` запускает генерацию нового сообщения.
+[Конфигурация, правила ответа и пользовательские службы](plugins/telegram/README.md).

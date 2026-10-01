@@ -32,7 +32,7 @@ func splitMessage(text string) []string {
 	}
 	return result
 }
-func (g *gateway) delivery(ctx context.Context, c *chat, j *job) error {
+func (g *bridge) delivery(ctx context.Context, c *chat, j *job) error {
 	if len(j.Parts) == 0 {
 		parts := splitMessage(j.Response)
 		if len(parts) == 0 {

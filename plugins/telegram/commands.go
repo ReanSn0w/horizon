@@ -41,7 +41,7 @@ func localStore(home string) (store, error) {
 	}
 	id, err := strconv.ParseInt(strings.TrimSpace(string(data)), 10, 64)
 	if err != nil || id <= 0 {
-		return store{}, errors.New("invalid gateway bot identity")
+		return store{}, errors.New("invalid telegram bot identity")
 	}
 	return newStore(home, id), nil
 }
@@ -109,8 +109,8 @@ func sendChat(a *app, opt *sendCommand) error {
 	if err != nil {
 		return &cliError{2, err}
 	}
-	if !gatewayRunning(a.home) {
-		return errors.New("gateway is not running; start it before send")
+	if !telegramRunning(a.home) {
+		return errors.New("telegram is not running; start it before send")
 	}
 	s, err := localStore(a.home)
 	if err != nil {
@@ -144,7 +144,7 @@ func sendChat(a *app, opt *sendCommand) error {
 	if !opt.Wait {
 		return printJob(a.out, opt.JSON, &submitted)
 	}
-	fmt.Fprintln(a.errOut, "gateway: waiting for request", submitted.ID)
+	fmt.Fprintln(a.errOut, "telegram: waiting for request", submitted.ID)
 	for {
 		value, err := s.snapshot()
 		if err != nil {
@@ -162,7 +162,7 @@ func sendChat(a *app, opt *sendCommand) error {
 			}
 		}
 		if found == nil {
-			return fmt.Errorf("request %s result is no longer retained; inspect gateway list", submitted.ID)
+			return fmt.Errorf("request %s result is no longer retained; inspect telegram list", submitted.ID)
 		}
 		if !pending(found.Status) {
 			if err = printJob(a.out, opt.JSON, found); err != nil {
@@ -173,11 +173,11 @@ func sendChat(a *app, opt *sendCommand) error {
 			}
 			return nil
 		}
-		if !gatewayRunning(a.home) {
-			return fmt.Errorf("gateway stopped; request %s is still retained", submitted.ID)
+		if !telegramRunning(a.home) {
+			return fmt.Errorf("telegram stopped; request %s is still retained", submitted.ID)
 		}
 		if !pause(a.ctx, 250*time.Millisecond) {
-			fmt.Fprintln(a.errOut, "gateway: accepted request", submitted.ID, "remains queued or running")
+			fmt.Fprintln(a.errOut, "telegram: accepted request", submitted.ID, "remains queued or running")
 			return context.Canceled
 		}
 	}

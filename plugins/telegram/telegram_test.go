@@ -51,7 +51,7 @@ func TestIngestFilteringAndMigration(t *testing.T) {
 func TestMigrationFromPreservesCustomRules(t *testing.T) {
 	home := configHome(t)
 	_, err := config.UpdateDocument(home, func(doc *yaml.Node) (bool, error) {
-		groups := nodeValue(nodeValue(nodeValue(doc.Content[0], "plugins"), "gateway"), "groups")
+		groups := nodeValue(nodeValue(nodeValue(doc.Content[0], "plugins"), "telegram"), "groups")
 		putNode(groups, "-4", encodedNode(groupSettings{false, "conversation"}))
 		return true, nil
 	})

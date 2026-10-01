@@ -58,7 +58,7 @@ func xmlText(s string) string {
 	return b.String()
 }
 func launchPlist(name, binary, home, path string) []byte {
-	args := []string{binary, "--home", home, "gateway", "start", "--log-file", filepath.Join(home, "gateway", "service.log")}
+	args := []string{binary, "--home", home, "telegram", "start", "--log-file", filepath.Join(home, "gateway", "service.log")}
 	var b strings.Builder
 	b.WriteString("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!-- Horizon gateway managed: " + name + " -->\n<plist version=\"1.0\"><dict>\n")
 	b.WriteString("<key>Label</key><string>" + xmlText(name) + "</string>\n<key>ProgramArguments</key><array>")
@@ -190,14 +190,14 @@ func manageService(a *app, opt *serviceCommand, host serviceHost) error {
 		if action == "uninstall" {
 			return nil
 		}
-		return errors.New("service is not installed; run gateway service install")
+		return errors.New("service is not installed; run telegram service install")
 	}
 	current, err := os.ReadFile(target)
 	if err != nil {
 		return err
 	}
 	if !strings.Contains(string(current), "Horizon gateway managed: "+name) {
-		return errors.New("service file is not owned by this gateway")
+		return errors.New("service file is not owned by this telegram")
 	}
 	if manager == "systemd" {
 		return systemdLifecycle(a, action, info, descriptor, host)
@@ -211,7 +211,7 @@ func manageService(a *app, opt *serviceCommand, host serviceHost) error {
 		if output, err := host.run(a.ctx, "launchctl", "print-disabled", domain); err == nil && strings.Contains(output, "\""+name+"\" => true") {
 			enabled = false
 		}
-		fmt.Fprintf(a.out, "Service: %s\nInstalled: true\nEnabled: %t\nLoaded: %t\nRunning: %t\n", name, enabled, loaded(), gatewayRunning(home))
+		fmt.Fprintf(a.out, "Service: %s\nInstalled: true\nEnabled: %t\nLoaded: %t\nRunning: %t\n", name, enabled, loaded(), telegramRunning(home))
 		return nil
 	case "start":
 		if _, err = host.run(a.ctx, "launchctl", "enable", label); err != nil {

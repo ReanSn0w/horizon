@@ -86,11 +86,60 @@ func TestConfigValidation(t *testing.T) {
 	}
 }
 
+func TestInitMigratesLegacyPluginName(t *testing.T) {
+	home := configHome(t)
+	path := filepath.Join(home, "config.yaml")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	data = bytes.Replace(data, []byte("  telegram:"), []byte("  gateway:"), 1)
+	if err := os.WriteFile(path, data, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if changed, err := initSettings(home); err != nil || !changed {
+		t.Fatalf("migration: changed=%t err=%v", changed, err)
+	}
+	after, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(after, bytes.Replace(data, []byte("  gateway:"), []byte("  telegram:"), 1)) {
+		t.Fatal("migration changed values or unrelated configuration")
+	}
+	if _, err := loadSettings(home, false); err != nil {
+		t.Fatal(err)
+	}
+	if changed, err := initSettings(home); err != nil || changed {
+		t.Fatalf("second init: changed=%t err=%v", changed, err)
+	}
+}
+
+func TestInitRejectsConflictingPluginNames(t *testing.T) {
+	home := configHome(t)
+	path := filepath.Join(home, "config.yaml")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	data = append(data, []byte("  gateway: {}\n")...)
+	if err := os.WriteFile(path, data, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := initSettings(home); err == nil {
+		t.Fatal("accepted conflicting configurations")
+	}
+	after, err := os.ReadFile(path)
+	if err != nil || !bytes.Equal(after, data) {
+		t.Fatal("conflict changed configuration")
+	}
+}
+
 func TestInitWritesBlockYAMLAndExpandsExistingInlineSettings(t *testing.T) {
 	for _, initial := range []string{
 		"mode: unit\n",
 		"mode: unit\nplugins: {}\n",
-		"# retained comment\nmode: unit\nplugins: {other: {custom: unchanged}, gateway: {telegram: {bot_token: test-token, owner_user_id: 7}, workspace_dir: ./chat-data, private_access: full, group_defaults: {owner_only: false, response_mode: conversation}, groups: {}}}\n",
+		"# retained comment\nmode: unit\nplugins: {other: {custom: unchanged}, telegram: {telegram: {bot_token: test-token, owner_user_id: 7}, workspace_dir: ./chat-data, private_access: full, group_defaults: {owner_only: false, response_mode: conversation}, groups: {}}}\n",
 	} {
 		t.Run(fmt.Sprintf("case_%d", len(initial)), func(t *testing.T) {
 			home := t.TempDir()
@@ -119,8 +168,8 @@ func TestInitWritesBlockYAMLAndExpandsExistingInlineSettings(t *testing.T) {
 				t.Fatal(err)
 			}
 			plugins := nodeValue(doc.Content[0], "plugins")
-			gateway := nodeValue(plugins, "gateway")
-			for _, node := range []*yaml.Node{plugins, gateway, nodeValue(gateway, "telegram"), nodeValue(gateway, "group_defaults"), nodeValue(gateway, "conversation")} {
+			telegram := nodeValue(plugins, "telegram")
+			for _, node := range []*yaml.Node{plugins, telegram, nodeValue(telegram, "telegram"), nodeValue(telegram, "group_defaults"), nodeValue(telegram, "conversation")} {
 				if node == nil || node.Style&yaml.FlowStyle != 0 {
 					t.Fatal("settings still use inline YAML")
 				}
@@ -154,7 +203,7 @@ func TestInitWritesBlockYAMLAndExpandsExistingInlineSettings(t *testing.T) {
 			if err := yaml.Unmarshal(data, &doc); err != nil {
 				t.Fatal(err)
 			}
-			groups := nodeValue(nodeValue(nodeValue(doc.Content[0], "plugins"), "gateway"), "groups")
+			groups := nodeValue(nodeValue(nodeValue(doc.Content[0], "plugins"), "telegram"), "groups")
 			if groups.Style&yaml.FlowStyle != 0 || nodeValue(groups, "-123") == nil {
 				t.Fatal("new group settings were written inline")
 			}

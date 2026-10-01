@@ -26,7 +26,7 @@ func TestDeliverySavedAndRecovered(t *testing.T) {
 		fmt.Fprint(w, `{"ok":true,"result":{"message_id":42}}`)
 	}))
 	defer server.Close()
-	g := &gateway{store: s, bot: tgUser{ID: 99}, tg: &telegram{server.URL, "token", &http.Client{Timeout: time.Second}}}
+	g := &bridge{store: s, bot: tgUser{ID: 99}, tg: &telegram{server.URL, "token", &http.Client{Timeout: time.Second}}}
 	if err := g.delivery(context.Background(), c, j); err != nil {
 		t.Fatal(err)
 	}

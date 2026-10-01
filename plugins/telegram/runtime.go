@@ -17,7 +17,7 @@ import (
 	"github.com/ReanSn0w/horizon/internal/config"
 )
 
-type gateway struct {
+type bridge struct {
 	home    string
 	cfg     settings
 	store   store
@@ -28,20 +28,20 @@ type gateway struct {
 	deliver func(context.Context, *chat, *job) error
 }
 
-func (g *gateway) settings() (settings, error) {
+func (g *bridge) settings() (settings, error) {
 	s, err := loadSettings(g.home, true)
 	if err != nil {
 		return s, err
 	}
 	if s.Telegram != g.cfg.Telegram || s.Workspace != g.cfg.Workspace {
-		return s, errors.New("gateway token, owner or workspace changed; restart gateway")
+		return s, errors.New("telegram token, owner or workspace changed; restart telegram")
 	}
 	if err = checkInherited(s); err != nil {
 		return s, err
 	}
 	return s, nil
 }
-func (g *gateway) setJob(chatID int64, id string, edit func(*chat, *job) error) error {
+func (g *bridge) setJob(chatID int64, id string, edit func(*chat, *job) error) error {
 	return g.store.update(func(v *state) error {
 		c, err := resolveChat(v, strconv.FormatInt(chatID, 10))
 		if err != nil {
@@ -52,10 +52,10 @@ func (g *gateway) setJob(chatID int64, id string, edit func(*chat, *job) error) 
 				return edit(c, j)
 			}
 		}
-		return errors.New("gateway job disappeared")
+		return errors.New("telegram job disappeared")
 	})
 }
-func (g *gateway) process(ctx context.Context, c *chat, j *job, cfg settings) error {
+func (g *bridge) process(ctx context.Context, c *chat, j *job, cfg settings) error {
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Minute)
 	defer cancel()
 	c, err := workspace(ctx, g.home, cfg, g.store, c, g.run)
@@ -158,7 +158,7 @@ func (g *gateway) process(ctx context.Context, c *chat, j *job, cfg settings) er
 	return errors.New("generated job missing")
 }
 
-func (g *gateway) deliverJob(ctx context.Context, c *chat, j *job) error {
+func (g *bridge) deliverJob(ctx context.Context, c *chat, j *job) error {
 	if g.deliver == nil {
 		return nil
 	}
@@ -177,7 +177,7 @@ func cID(c *chat, j *job) int64 {
 	}
 	return c.ID
 }
-func (g *gateway) fail(chatID int64, id string, cause error, unknown bool) error {
+func (g *bridge) fail(chatID int64, id string, cause error, unknown bool) error {
 	return g.setJob(chatID, id, func(c *chat, j *job) error {
 		j.Status = "failed"
 		if unknown {
@@ -191,7 +191,7 @@ func (g *gateway) fail(chatID int64, id string, cause error, unknown bool) error
 		return nil
 	})
 }
-func (g *gateway) loop(ctx context.Context) error {
+func (g *bridge) loop(ctx context.Context) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	if err := g.store.recover(); err != nil {
@@ -225,7 +225,7 @@ func (g *gateway) loop(ctx context.Context) error {
 			cfg, err := g.settings()
 			if err != nil {
 				if err.Error() != lastConfigError {
-					fmt.Fprintln(g.log, "gateway:", err)
+					fmt.Fprintln(g.log, "telegram:", err)
 					lastConfigError = err.Error()
 				}
 				continue
@@ -285,7 +285,7 @@ func (g *gateway) loop(ctx context.Context) error {
 		}
 	}
 }
-func (g *gateway) poll(ctx context.Context) error {
+func (g *bridge) poll(ctx context.Context) error {
 	backoff := time.Second
 	for ctx.Err() == nil {
 		cfg, err := g.settings()
@@ -309,7 +309,7 @@ func (g *gateway) poll(ctx context.Context) error {
 			if errors.As(err, &api) && api.Retry > 0 {
 				delay = time.Duration(api.Retry) * time.Second
 			}
-			fmt.Fprintln(g.log, "gateway polling:", err)
+			fmt.Fprintln(g.log, "telegram polling:", err)
 			if !pause(ctx, delay) {
 				break
 			}
@@ -345,7 +345,7 @@ func pause(ctx context.Context, d time.Duration) bool {
 		return true
 	}
 }
-func startGateway(a *app) error {
+func startTelegram(a *app) error {
 	cfg, err := loadSettings(a.home, true)
 	if err != nil {
 		return &cliError{2, err}
@@ -355,7 +355,7 @@ func startGateway(a *app) error {
 	}
 	hc, err := config.Load(a.home)
 	if err != nil {
-		return &cliError{2, errors.New("invalid Horizon configuration; configure provider and model before starting gateway")}
+		return &cliError{2, errors.New("invalid Horizon configuration; configure provider and model before starting telegram")}
 	}
 	if _, _, err = hc.SelectModel(""); err != nil {
 		return &cliError{2, err}
@@ -367,7 +367,7 @@ func startGateway(a *app) error {
 	}
 	f, err := lockFile(filepath.Join(a.home, "gateway", "process.lock"), true)
 	if err != nil {
-		return errors.New("gateway is already running or its process lock is unavailable")
+		return errors.New("telegram is already running or its process lock is unavailable")
 	}
 	defer unlock(f)
 	binary, err := horizonBinary()
@@ -402,9 +402,9 @@ func startGateway(a *app) error {
 	if a.runner != nil {
 		run = a.runner
 	}
-	g := &gateway{home: a.home, cfg: cfg, store: s, bot: bot, tg: tg, run: run, log: a.errOut}
+	g := &bridge{home: a.home, cfg: cfg, store: s, bot: bot, tg: tg, run: run, log: a.errOut}
 	g.deliver = g.delivery
-	fmt.Fprintf(a.errOut, "gateway: Telegram @%s started\n", bot.Username)
+	fmt.Fprintf(a.errOut, "telegram: Telegram @%s started\n", bot.Username)
 	return g.loop(a.ctx)
 }
 func atomicIdentity(home string, botID int64) error {

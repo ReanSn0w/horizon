@@ -1,6 +1,6 @@
-# Telegram gateway
+# Telegram integration
 
-`horizon gateway` connects one Telegram bot to one Horizon home. It receives
+`horizon telegram` connects one Telegram bot to one Horizon home. It receives
 text messages by long polling, creates a workspace and a fixed Horizon session
 for each chat, and sends only successful final responses. The plugin follows
 [Horizon's plugin protocol](../../docs/PLUGINS.md).
@@ -10,34 +10,51 @@ for each chat, and sends only successful final responses. The plugin follows
 ```sh
 make install-all
 horizon init
-horizon gateway init
+horizon telegram init
 # Edit ~/.horizon/config.yaml, then:
-horizon gateway start
+horizon telegram start
 ```
 
-Use `make install-gateway` to install only this plugin. `decision` is needed
+Use `make install-telegram` to install only this plugin. `decision` is needed
 for conversation mode. Horizon's normal provider, model and shared `decision`
 settings must also be configured; the default read/write access modes require
-Jev for shell command evaluation. `gateway init` adds missing fields without
+Jev for shell command evaluation. `telegram init` adds missing fields without
 requiring API keys and preserves existing values, comments and file permissions.
-Gateway settings are written as block YAML. Running `gateway init` again also
-expands an existing inline gateway section into readable YAML without changing
+Telegram settings are written as block YAML. Running `telegram init` again also
+expands an existing inline telegram section into readable YAML without changing
 its configured values. Empty `groups: {}` remains valid until a group is added.
+
+### Upgrade from gateway
+
+The plugin command and executable are now `telegram` and `horizon-telegram`.
+Stop the old foreground process or run `horizon gateway service stop` before
+switching. Install the new binary with `make install-telegram`, then run
+`horizon telegram init`: it renames `plugins.gateway` to `plugins.telegram`
+under the configuration lock, preserving values and comments. If both sections
+exist, init refuses to choose one; keep the intended section before retrying.
+
+State paths under `<home>/gateway/`, workspace markers `.horizon-gateway.json`,
+and service identifiers `io.horizon.gateway.<home-hash>` are retained for
+compatibility. Existing chats, sessions and queued jobs remain available.
+For an installed user service, run `horizon telegram service install` again
+to update its command arguments, then `horizon telegram service restart`.
+The old installed `horizon-gateway` executable is not removed automatically;
+remove it after the switch. Do not run both plugin versions together.
 
 An alternative home must be used consistently:
 
 ```sh
 make install-plugins HORIZON_HOME=/absolute/path/to/home
 horizon --home /absolute/path/to/home init
-horizon --home /absolute/path/to/home gateway init
-horizon --home /absolute/path/to/home gateway start
+horizon --home /absolute/path/to/home telegram init
+horizon --home /absolute/path/to/home telegram start
 ```
 
 The added section is:
 
 ```yaml
 plugins:
-  gateway:
+  telegram:
     telegram:
       bot_token: "YOUR_BOTFATHER_TOKEN"
       owner_user_id: 123456789
@@ -57,8 +74,8 @@ plugins:
 Create the bot with [@BotFather](https://t.me/BotFather), and set the owner's
 numeric Telegram user ID, not a username or group ID. Keep `config.yaml` private
 (`0600`). Tokens are read from this file and are not put in command arguments,
-service definitions or gateway state. Participant text and generated replies
-are stored locally in the gateway history and Horizon sessions.
+service definitions or telegram state. Participant text and generated replies
+are stored locally in the telegram history and Horizon sessions.
 
 `workspace_dir` defaults to `<home>/workspaces/telegram`; relative paths are
 resolved against home. Access accepts `read`, `write` or `full`. Parallelism is
@@ -88,12 +105,12 @@ In `conversation` mode an eligible author's mention triggers a reply directly.
 Other text is evaluated through `horizon decision -` with recent chat messages
 and known bot replies. A valid `should_reply.noul` at or above `reply_threshold`
 allows generation. An error, timeout or malformed result prevents that reply.
-Jev uses the shared top-level `decision` provider and model, not separate gateway
+Jev uses the shared top-level `decision` provider and model, not separate telegram
 credentials. Full decision requests are bounded to 32 KiB.
 
 To observe ordinary group messages, disable Privacy Mode through BotFather or
 make the bot an administrator; see [Telegram's bot FAQ](https://core.telegram.org/bots/faq#what-messages-will-my-bot-get).
-The gateway knows only updates it receives and sends it confirms. It does not
+The telegram knows only updates it receives and sends it confirms. It does not
 import older Telegram history. An existing webhook prevents startup; remove it
 explicitly before choosing polling. A second polling process causes a conflict.
 
@@ -106,11 +123,11 @@ access conflicts with configured access, startup fails explicitly.
 ## Chats and generated messages
 
 ```sh
-horizon gateway list
-horizon gateway list --json
-horizon gateway send --chat -1001234567890
-horizon gateway send --chat -1001234567890 -m 'Summarize the recent discussion' --wait
-horizon gateway send --chat -1001234567890 --thread 42 --json
+horizon telegram list
+horizon telegram list --json
+horizon telegram send --chat -1001234567890
+horizon telegram send --chat -1001234567890 -m 'Summarize the recent discussion' --wait
+horizon telegram send --chat -1001234567890 --thread 42 --json
 ```
 
 `list` reads local state without network or model calls. `CHAT ID` and `NAME`
@@ -125,7 +142,7 @@ includes `chat_id` as a decimal string, `name`, `type`, `available`, `workspace`
 `session_id`, `owner_only`, `response_mode`, `last_message_at` (RFC3339 or null),
 `pending`, `unknown`, and optional latest request/status/error fields.
 
-`send` requires a running gateway and a known available chat. It queues a new
+`send` requires a running telegram and a known available chat. It queues a new
 Horizon turn in the chat's existing session. `-m` is an instruction to generate a
 reply using recent history; it is not sent literally. Without `-m`, Horizon is
 asked to continue the conversation. Manual sends bypass reply eligibility
@@ -144,12 +161,12 @@ authors do not trigger responses in this version.
 On macOS:
 
 ```sh
-horizon gateway service install --manager launchd
-horizon gateway service start
-horizon gateway service status
-horizon gateway service restart
-horizon gateway service stop
-horizon gateway service uninstall
+horizon telegram service install --manager launchd
+horizon telegram service start
+horizon telegram service status
+horizon telegram service restart
+horizon telegram service stop
+horizon telegram service uninstall
 ```
 
 The LaunchAgent is installed in `~/Library/LaunchAgents`. It runs in the logged-in
@@ -166,7 +183,7 @@ journalctl --user -u io.horizon.gateway.<home-hash>.service
 ```
 
 `status` prints the exact unit name, installation, enabled/running state and
-whether the gateway's process lock is held. A missing user manager is an error.
+whether the telegram's process lock is held. A missing user manager is an error.
 Running outside login sessions may require administrator-configured lingering;
 see [loginctl](https://www.freedesktop.org/software/systemd/man/latest/loginctl.html).
 The plugin does not change lingering policy. Unit paths follow
@@ -175,7 +192,7 @@ The plugin does not change lingering policy. Unit paths follow
 Service names derive from the normalized home path. Definitions contain absolute
 Horizon and home paths and the installation-time PATH, but no bot/API tokens.
 Reinstall after moving Horizon or changing the tool PATH. `install` enables future
-autostart; `start` runs now. `uninstall` stops and removes only this gateway's
+autostart; `start` runs now. `uninstall` stops and removes only this telegram's
 service definition, preserving configuration, state and sessions. Do not run a
 foreground instance alongside a service: a home-wide lock prevents duplicates.
 
@@ -183,7 +200,7 @@ foreground instance alongside a service: a home-wide lock prevents duplicates.
 
 State lives in `<home>/gateway/telegram/<bot_id>/state.yaml`, protected by a
 permanent lock and atomic writes. Workspaces use numeric bot/chat IDs and retain
-their binding through a group-to-supergroup migration. The gateway keeps up to
+their binding through a group-to-supergroup migration. The telegram keeps up to
 100 recent messages and 100 completed job results per chat, plus pending and
 unknown jobs. Pending queues are limited to 100 per chat and 1000 overall.
 Updates are acknowledged only after they have been saved.
@@ -216,7 +233,7 @@ With a dedicated test bot and configured providers:
    Test owner/nonowner mentions with both `owner_only` values.
 3. Enable `conversation`, send several contextual messages and verify Jev decides
    when participation is useful. Test `send -m ... --wait` from another terminal.
-4. Restart the gateway and verify the same workspace/session persists without
+4. Restart the telegram and verify the same workspace/session persists without
    duplicate replies; verify rename and removal update `list`.
 5. Install/start/status/stop/uninstall the user service on the target OS, then
    confirm its definition is removed and home data remains.

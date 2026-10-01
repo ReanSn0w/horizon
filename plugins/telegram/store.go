@@ -90,7 +90,7 @@ func (s store) read() (state, error) {
 		return v, err
 	}
 	if v.Version != 1 || v.BotID != s.botID || v.Chats == nil || v.Aliases == nil {
-		return v, errors.New("invalid or unsupported gateway state")
+		return v, errors.New("invalid or unsupported telegram state")
 	}
 	for key, c := range v.Chats {
 		if c == nil || key != strconv.FormatInt(c.ID, 10) {
@@ -98,7 +98,7 @@ func (s store) read() (state, error) {
 		}
 		for _, j := range c.Jobs {
 			if j == nil || j.ID == "" || j.ChatID != c.ID || !validJobStatus(j.Status) {
-				return v, errors.New("invalid gateway job")
+				return v, errors.New("invalid telegram job")
 			}
 		}
 	}
@@ -112,7 +112,7 @@ func validJobStatus(s string) bool {
 	return false
 }
 func atomicFile(path string, data []byte, mode os.FileMode) error {
-	f, err := os.CreateTemp(filepath.Dir(path), ".gateway-*")
+	f, err := os.CreateTemp(filepath.Dir(path), ".telegram-*")
 	if err != nil {
 		return err
 	}
@@ -244,7 +244,7 @@ func enqueue(v *state, c *chat, j *job) error {
 		}
 	}
 	if total >= 1000 || count >= 100 {
-		return errors.New("gateway queue is full")
+		return errors.New("telegram queue is full")
 	}
 	c.Jobs = append(c.Jobs, j)
 	return nil
@@ -276,7 +276,7 @@ func resolveChat(v *state, id string) (*chat, error) {
 	}
 	c := v.Chats[id]
 	if c == nil {
-		return nil, fmt.Errorf("unknown chat ID %s; use gateway list", id)
+		return nil, fmt.Errorf("unknown chat ID %s; use telegram list", id)
 	}
 	return c, nil
 }
@@ -288,7 +288,7 @@ func sortedChats(v state) []*chat {
 	sort.Slice(result, func(i, j int) bool { return result[i].ID < result[j].ID })
 	return result
 }
-func gatewayRunning(home string) bool {
+func telegramRunning(home string) bool {
 	f, err := lockFile(filepath.Join(home, "gateway", "process.lock"), true)
 	if err == nil {
 		unlock(f)
@@ -301,11 +301,11 @@ func decodeState(data []byte, v *state) error {
 	d := yaml.NewDecoder(bytes.NewReader(data))
 	d.KnownFields(true)
 	if err := d.Decode(v); err != nil {
-		return errors.New("cannot decode gateway state")
+		return errors.New("cannot decode telegram state")
 	}
 	var extra yaml.Node
 	if err := d.Decode(&extra); !errors.Is(err, io.EOF) {
-		return errors.New("gateway state has trailing data")
+		return errors.New("telegram state has trailing data")
 	}
 	return nil
 }

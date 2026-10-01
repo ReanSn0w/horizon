@@ -21,12 +21,12 @@ func unitEscape(value string) string {
 	return "\"" + value + "\""
 }
 func systemdUnit(name, binary, home, path string) []byte {
-	args := []string{binary, "--home", home, "gateway", "start"}
+	args := []string{binary, "--home", home, "telegram", "start"}
 	quoted := []string{}
 	for _, arg := range args {
 		quoted = append(quoted, unitQuote(arg))
 	}
-	return []byte(fmt.Sprintf("# Horizon gateway managed: %s\n[Unit]\nDescription=Horizon Telegram gateway\nStartLimitIntervalSec=60\nStartLimitBurst=5\n\n[Service]\nType=simple\nExecStart=%s\nEnvironment=%s\nRestart=on-failure\nRestartSec=10\nKillMode=control-group\nTimeoutStopSec=15\nUMask=0077\nStandardOutput=journal\nStandardError=journal\n\n[Install]\nWantedBy=default.target\n", name, strings.Join(quoted, " "), unitEscape("PATH="+path)))
+	return []byte(fmt.Sprintf("# Horizon gateway managed: %s\n[Unit]\nDescription=Horizon Telegram integration\nStartLimitIntervalSec=60\nStartLimitBurst=5\n\n[Service]\nType=simple\nExecStart=%s\nEnvironment=%s\nRestart=on-failure\nRestartSec=10\nKillMode=control-group\nTimeoutStopSec=15\nUMask=0077\nStandardOutput=journal\nStandardError=journal\n\n[Install]\nWantedBy=default.target\n", name, strings.Join(quoted, " "), unitEscape("PATH="+path)))
 }
 func systemdLifecycle(a *app, action string, info serviceInfo, descriptor string, host serviceHost) error {
 	name := info.Name + ".service"
@@ -52,7 +52,7 @@ func systemdLifecycle(a *app, action string, info serviceInfo, descriptor string
 		if err != nil {
 			active = "inactive"
 		}
-		fmt.Fprintf(a.out, "Service: %s\nInstalled: true\nEnabled: %s\nActive: %s\nRunning: %t\n", name, strings.TrimSpace(enabled), strings.TrimSpace(active), gatewayRunning(a.home))
+		fmt.Fprintf(a.out, "Service: %s\nInstalled: true\nEnabled: %s\nActive: %s\nRunning: %t\n", name, strings.TrimSpace(enabled), strings.TrimSpace(active), telegramRunning(a.home))
 		return nil
 	case "start", "stop", "restart":
 		_, err := call(action, name)

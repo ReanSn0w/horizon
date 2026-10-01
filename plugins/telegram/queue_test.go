@@ -74,7 +74,7 @@ func TestQueueSerializesChatAndRunsOtherChat(t *testing.T) {
 		}
 		return "reply", nil
 	}
-	g := &gateway{home: home, cfg: cfg, store: s, run: run, log: io.Discard, tg: &telegram{base: server.URL, token: "test-token", http: server.Client()}}
+	g := &bridge{home: home, cfg: cfg, store: s, run: run, log: io.Discard, tg: &telegram{base: server.URL, token: "test-token", http: server.Client()}}
 	g.deliver = func(ctx context.Context, c *chat, j *job) error {
 		err := g.setJob(c.ID, j.ID, func(_ *chat, j *job) error { j.Status = "sent"; return nil })
 		if err != nil {
