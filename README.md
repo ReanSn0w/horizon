@@ -230,3 +230,8 @@ go test -race ./...
 Обычные тесты используют локальный тестовый сервер и не требуют ключа API.
 Карта кода и правила изменений — в [AGENTS.md](AGENTS.md), описание инструментов —
 в [docs/TOOLS.md](docs/TOOLS.md). Полная справка по командам: `horizon --help`.
+
+Плагин `decision` принимает структурированный JSON для прямой оценки Jev:
+`horizon decision request.json` или `horizon decision - -o result.json`.
+[Установка и настройка](plugins/README.md#decision),
+[контракт JSON](plugins/decision/README.md).
