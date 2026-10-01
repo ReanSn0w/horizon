@@ -386,6 +386,7 @@ func startGateway(a *app) error {
 		run = a.runner
 	}
 	g := &gateway{home: a.home, cfg: cfg, store: s, bot: bot, tg: tg, run: run, log: a.errOut}
+	g.deliver = g.delivery
 	fmt.Fprintf(a.errOut, "gateway: Telegram @%s started\n", bot.Username)
 	return g.loop(a.ctx)
 }
