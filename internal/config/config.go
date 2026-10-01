@@ -9,6 +9,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"gopkg.in/yaml.v3"
 )
 
 const (
@@ -17,6 +19,7 @@ const (
 )
 
 type Config struct {
+	Plugins        map[string]yaml.Node
 	DisabledSkills []string
 	SoulEnabled    bool
 	Mode           string
@@ -50,14 +53,15 @@ type Limits struct {
 }
 
 type rawConfig struct {
-	DisabledSkills disabledIDs         `yaml:"disabled_skills"`
-	SoulEnabled    bool                `yaml:"soul_enabled"`
-	Mode           string              `yaml:"mode"`
-	DefaultModel   string              `yaml:"default_model"`
-	Models         map[string]rawModel `yaml:"models"`
-	Provider       Provider            `yaml:"provider"`
-	Decision       Decision            `yaml:"decision"`
-	Limits         rawLimits           `yaml:"limits"`
+	Plugins        map[string]yaml.Node `yaml:"plugins"`
+	DisabledSkills disabledIDs          `yaml:"disabled_skills"`
+	SoulEnabled    bool                 `yaml:"soul_enabled"`
+	Mode           string               `yaml:"mode"`
+	DefaultModel   string               `yaml:"default_model"`
+	Models         map[string]rawModel  `yaml:"models"`
+	Provider       Provider             `yaml:"provider"`
+	Decision       Decision             `yaml:"decision"`
+	Limits         rawLimits            `yaml:"limits"`
 }
 
 type rawModel struct {
@@ -172,6 +176,7 @@ func validate(raw rawConfig) (Config, error) {
 		return Config{}, err
 	}
 	return Config{
+		Plugins:        raw.Plugins,
 		DisabledSkills: append([]string(nil), raw.DisabledSkills...),
 		SoulEnabled:    raw.SoulEnabled,
 		Mode:           raw.Mode,
@@ -211,7 +216,11 @@ func (c Config) DecisionEndpoint() (string, error) {
 	if err := c.RequireDecision(); err != nil {
 		return "", err
 	}
-	return url.JoinPath(c.Decision.Provider.URL, "alpha/decisions")
+	base := strings.TrimRight(c.Decision.Provider.URL, "/")
+	if strings.HasSuffix(base, "/alpha/decisions") {
+		return base, nil
+	}
+	return url.JoinPath(base, "alpha/decisions")
 }
 
 func parseLimits(raw rawLimits) (Limits, error) {
