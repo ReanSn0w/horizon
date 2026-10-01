@@ -80,3 +80,54 @@ func TestFailedProcessIsNotReplayed(t *testing.T) {
 		t.Fatal("failed command can be replayed")
 	}
 }
+
+func TestContextMarkerDoesNotConsumeQueuedMessages(t *testing.T) {
+	home := readyHome(t)
+	cfg, _ := loadSettings(home, true)
+	s := newStore(home, 99)
+	j := &job{ID: "first", ChatID: 1, Status: "evaluating", Input: record{Seq: 1, ID: 1, Author: 1, Text: "first"}}
+	c := &chat{ID: 1, Origin: 1, Type: "private", History: []record{j.Input, {Seq: 2, ID: 2, Text: "waiting"}, {Seq: 3, ID: 3, Bot: true, Text: "bot"}}, Jobs: []*job{j}}
+	if err := s.update(func(v *state) error { v.Chats["1"] = c; return nil }); err != nil {
+		t.Fatal(err)
+	}
+	run := func(ctx context.Context, dir string, args []string, input string) (string, error) {
+		if strings.Contains(strings.Join(args, " "), "sessions create") {
+			return "fixed", nil
+		}
+		return "reply", nil
+	}
+	g := &gateway{home: home, cfg: cfg, store: s, run: run}
+	if err := g.process(context.Background(), c, j, cfg); err != nil {
+		t.Fatal(err)
+	}
+	value, err := s.snapshot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if value.Chats["1"].ContextSeq != 1 {
+		t.Fatal("queued participant input was incorrectly consumed")
+	}
+}
+
+func TestDeliveryDeadlineDoesNotStopGateway(t *testing.T) {
+	home := readyHome(t)
+	cfg, _ := loadSettings(home, true)
+	s := newStore(home, 99)
+	j := &job{ID: "job", ChatID: 1, Status: "generated", Response: "reply", Sent: []int64{42}}
+	c := &chat{ID: 1, Origin: 1, Type: "private", Jobs: []*job{j}}
+	if err := s.update(func(v *state) error { v.Chats["1"] = c; return nil }); err != nil {
+		t.Fatal(err)
+	}
+	g := &gateway{home: home, cfg: cfg, store: s, run: func(context.Context, string, []string, string) (string, error) { return "session", nil }, deliver: func(context.Context, *chat, *job) error { return context.DeadlineExceeded }}
+	if err := g.process(context.Background(), c, j, cfg); err != nil {
+		t.Fatal("one delivery deadline stopped the scheduler", err)
+	}
+	value, err := s.snapshot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	saved := value.Chats["1"].Jobs[0]
+	if saved.Status != "failed" || len(saved.Sent) != 1 || saved.Sent[0] != 42 {
+		t.Fatalf("deadline lost confirmed effects: %+v", saved)
+	}
+}

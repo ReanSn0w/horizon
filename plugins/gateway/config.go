@@ -105,6 +105,9 @@ func loadSettings(home string, ready bool) (settings, error) {
 	if section == nil {
 		return settings{}, errors.New("plugins.gateway is missing; run 'horizon gateway init'")
 	}
+	if section.Kind != yaml.MappingNode {
+		return settings{}, errors.New("plugins.gateway must be a mapping")
+	}
 	payload, err := yaml.Marshal(section)
 	if err != nil {
 		return settings{}, err
@@ -114,6 +117,9 @@ func loadSettings(home string, ready bool) (settings, error) {
 	dec.KnownFields(true)
 	if err = dec.Decode(&s); err != nil {
 		return s, errors.New("invalid plugins.gateway; check field names and types")
+	}
+	if strings.TrimSpace(s.Workspace) == "" {
+		return s, errors.New("gateway workspace_dir must not be empty")
 	}
 	if !filepath.IsAbs(s.Workspace) {
 		s.Workspace = filepath.Join(home, s.Workspace)

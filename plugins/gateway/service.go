@@ -211,7 +211,7 @@ func manageService(a *app, opt *serviceCommand, host serviceHost) error {
 		if output, err := host.run(a.ctx, "launchctl", "print-disabled", domain); err == nil && strings.Contains(output, "\""+name+"\" => true") {
 			enabled = false
 		}
-		fmt.Fprintf(a.out, "Installed: true\nEnabled: %t\nLoaded: %t\nRunning: %t\n", enabled, loaded(), gatewayRunning(home))
+		fmt.Fprintf(a.out, "Service: %s\nInstalled: true\nEnabled: %t\nLoaded: %t\nRunning: %t\n", name, enabled, loaded(), gatewayRunning(home))
 		return nil
 	case "start":
 		if _, err = host.run(a.ctx, "launchctl", "enable", label); err != nil {

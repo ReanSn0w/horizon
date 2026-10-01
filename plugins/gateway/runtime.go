@@ -63,10 +63,7 @@ func (g *gateway) process(ctx context.Context, c *chat, j *job, cfg settings) er
 		return g.fail(cID(c, j), j.ID, err, false)
 	}
 	if j.Status == "generated" {
-		if g.deliver != nil {
-			return g.deliver(ctx, c, j)
-		}
-		return nil
+		return g.deliverJob(ctx, c, j)
 	}
 	// Re-read conversation after earlier jobs have delivered their replies.
 	value, err := g.store.snapshot()
@@ -121,12 +118,17 @@ func (g *gateway) process(ctx context.Context, c *chat, j *job, cfg settings) er
 			seq = r.Seq
 		}
 	}
+	// Bot replies may have sequence numbers beyond messages already waiting in
+	// the queue. Do not mark those intervening participant messages as consumed.
+	if !j.Manual {
+		seq = max(c.ContextSeq, j.Input.Seq)
+	}
 	if err = g.setJob(c.ID, j.ID, func(c *chat, j *job) error { j.Status = "generating"; j.ContextSeq = seq; return nil }); err != nil {
 		return err
 	}
 	output, err := g.run(ctx, c.Workspace, []string{"--home", g.home, "resume", "--session", c.Session, "--mode", "plain", "--access", mode}, string(data))
 	if err != nil {
-		return g.fail(c.ID, j.ID, err, true)
+		return g.fail(c.ID, j.ID, fmt.Errorf("Horizon session %s: %w", c.Session, err), true)
 	}
 	if strings.TrimSpace(output) == "" {
 		return g.fail(c.ID, j.ID, errors.New("Horizon returned an empty response"), false)
@@ -150,14 +152,25 @@ func (g *gateway) process(ctx context.Context, c *chat, j *job, cfg settings) er
 	}
 	for _, saved := range current.Jobs {
 		if saved.ID == j.ID {
-			if g.deliver != nil {
-				return g.deliver(ctx, current, saved)
-			}
-			return nil
+			return g.deliverJob(ctx, current, saved)
 		}
 	}
 	return errors.New("generated job missing")
 }
+
+func (g *gateway) deliverJob(ctx context.Context, c *chat, j *job) error {
+	if g.deliver == nil {
+		return nil
+	}
+	err := g.deliver(ctx, c, j)
+	// Cancellation of an in-flight API call is classified by delivery itself.
+	// A deadline between confirmed fragments must not stop unrelated chats.
+	if errors.Is(err, context.DeadlineExceeded) {
+		return g.fail(c.ID, j.ID, errors.New("delivery deadline exceeded; confirmed fragment IDs are retained"), false)
+	}
+	return err
+}
+
 func cID(c *chat, j *job) int64 {
 	if c == nil {
 		return j.ChatID
@@ -170,7 +183,10 @@ func (g *gateway) fail(chatID int64, id string, cause error, unknown bool) error
 		if unknown {
 			j.Status = "unknown"
 		}
-		j.Error = strings.ReplaceAll(cause.Error(), g.cfg.Telegram.Token, "[redacted]")
+		j.Error = cause.Error()
+		if g.cfg.Telegram.Token != "" {
+			j.Error = strings.ReplaceAll(j.Error, g.cfg.Telegram.Token, "[redacted]")
+		}
 		c.LastError = j.Error
 		return nil
 	})
@@ -182,11 +198,12 @@ func (g *gateway) loop(ctx context.Context) error {
 		return err
 	}
 	pollDone := make(chan error, 1)
-	go func() { pollDone <- g.poll(ctx) }()
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() { defer wg.Done(); pollDone <- g.poll(ctx) }()
 	active := map[int64]bool{}
 	done := make(chan int64, 32)
 	fatal := make(chan error, 32)
-	var wg sync.WaitGroup
 	defer func() { cancel(); wg.Wait() }()
 	tick := time.NewTicker(250 * time.Millisecond)
 	defer tick.Stop()
@@ -357,7 +374,7 @@ func startGateway(a *app) error {
 	if err != nil {
 		return err
 	}
-	tg := &telegram{base: "https://api.telegram.org", token: cfg.Telegram.Token, http: &http.Client{Timeout: 40 * time.Second}}
+	tg := &telegram{base: telegramEndpoint, token: cfg.Telegram.Token, http: &http.Client{Timeout: 40 * time.Second}}
 	if a.telegram != nil {
 		tg = a.telegram
 	}
@@ -392,8 +409,13 @@ func startGateway(a *app) error {
 }
 func atomicIdentity(home string, botID int64) error {
 	path := filepath.Join(home, "gateway", "identity")
-	if data, err := os.ReadFile(path); err == nil && strings.TrimSpace(string(data)) != fmt.Sprint(botID) {
-		return errors.New("this home belongs to another Telegram bot; use a separate Horizon home")
+	if data, err := os.ReadFile(path); err == nil {
+		if strings.TrimSpace(string(data)) != fmt.Sprint(botID) {
+			return errors.New("this home belongs to another Telegram bot; use a separate Horizon home")
+		}
+		return nil
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return err
 	}
 	return atomicFile(path, []byte(fmt.Sprint(botID)), 0600)
 }

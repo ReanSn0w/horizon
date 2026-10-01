@@ -15,6 +15,9 @@ func TestLocalHelp(t *testing.T) {
 		if code := runCLI(context.Background(), args, &out, &diag); code != 0 || out.Len() == 0 || diag.Len() != 0 {
 			t.Fatalf("%v: %d %s", args, code, &diag)
 		}
+		if len(args) == 0 && !strings.Contains(out.String(), "    telegram:\n      bot_token:") {
+			t.Fatal("help lost example YAML indentation")
+		}
 	}
 	var out, diag bytes.Buffer
 	if code := runCLI(context.Background(), []string{"send"}, &out, &diag); code != 2 || !strings.Contains(diag.String(), "chat") {

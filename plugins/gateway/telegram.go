@@ -63,6 +63,11 @@ type telegram struct {
 	base, token string
 	http        *http.Client
 }
+
+// A build-time override allows binary integration tests to use a local server.
+// Runtime configuration cannot redirect the bot token to another endpoint.
+var telegramEndpoint = "https://api.telegram.org"
+
 type apiError struct {
 	Code        int
 	Retry       int
@@ -195,11 +200,6 @@ func ingest(home string, s store, cfg settings, bot tgUser, u update) error {
 	} else if u.Membership != nil {
 		input = &u.Membership.Chat
 	}
-	if input != nil && acceptChat(*input, cfg.Telegram.Owner) && input.Type != "private" {
-		if _, err := ensureGroup(home, input.ID); err != nil {
-			return err
-		}
-	}
 	if m := u.Message; m != nil {
 		if m.MigrateTo != 0 {
 			if err := migrateGroup(home, m.Chat.ID, m.MigrateTo); err != nil {
@@ -210,6 +210,11 @@ func ingest(home string, s store, cfg settings, bot tgUser, u update) error {
 			if err := migrateGroup(home, m.MigrateFrom, m.Chat.ID); err != nil {
 				return err
 			}
+		}
+	}
+	if input != nil && acceptChat(*input, cfg.Telegram.Owner) && input.Type != "private" {
+		if _, err := ensureGroup(home, input.ID); err != nil {
+			return err
 		}
 	}
 	return s.update(func(v *state) error {

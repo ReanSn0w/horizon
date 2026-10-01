@@ -52,3 +52,12 @@ func TestResponseMatrixAndContext(t *testing.T) {
 		t.Fatal("UTF16 mention missed")
 	}
 }
+
+func TestPendingInputSurvivesHistoryTrimming(t *testing.T) {
+	j := &job{Input: record{Seq: 1, ID: 42, Text: "pending-input"}}
+	c := &chat{History: []record{{Seq: 102, ID: 102, Text: "later participant"}, {Seq: 103, ID: 103, Bot: true, Text: "previous reply"}}}
+	rows := historyFor(c, j, 1, false)
+	if len(rows) != 1 || rows[0].ID != 42 || rows[0].Text != "pending-input" {
+		t.Fatalf("lost pending input: %+v", rows)
+	}
+}

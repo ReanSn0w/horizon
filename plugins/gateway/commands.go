@@ -25,6 +25,7 @@ type listedChat struct {
 	ResponseMode string     `json:"response_mode"`
 	LastAt       *time.Time `json:"last_message_at"`
 	Pending      int        `json:"pending"`
+	Unknown      int        `json:"unknown"`
 	LastJob      string     `json:"last_request_id,omitempty"`
 	Status       string     `json:"last_status,omitempty"`
 	Error        string     `json:"last_error,omitempty"`
@@ -75,6 +76,9 @@ func listChats(a *app, opt *listCommand) error {
 			if pending(j.Status) {
 				item.Pending++
 			}
+			if j.Status == "unknown" {
+				item.Unknown++
+			}
 			item.LastJob = j.ID
 			item.Status = j.Status
 		}
@@ -87,19 +91,19 @@ func listChats(a *app, opt *listCommand) error {
 		}{1, result})
 	}
 	w := tabwriter.NewWriter(a.out, 0, 4, 2, ' ', 0)
-	fmt.Fprintln(w, "CHAT ID\tNAME\tTYPE\tAVAILABLE\tOWNER ONLY\tRESPONSE MODE\tLAST MESSAGE\tPENDING\tLAST STATUS\tLAST ERROR\tWORKSPACE\tSESSION")
+	fmt.Fprintln(w, "CHAT ID\tNAME\tTYPE\tAVAILABLE\tOWNER ONLY\tRESPONSE MODE\tLAST MESSAGE\tPENDING\tUNKNOWN\tLAST STATUS\tLAST ERROR\tWORKSPACE\tSESSION")
 	for _, c := range result {
 		last := "-"
 		if c.LastAt != nil {
 			last = c.LastAt.Format(time.RFC3339)
 		}
-		fmt.Fprintf(w, "%s\t%s\t%s\t%t\t%t\t%s\t%s\t%d\t%s\t%s\t%s\t%s\n", c.ID, safeLine(c.Name), c.Type, c.Available, c.OwnerOnly, c.ResponseMode, last, c.Pending, c.Status, safeLine(c.Error), safeLine(c.Workspace), c.Session)
+		fmt.Fprintf(w, "%s\t%s\t%s\t%t\t%t\t%s\t%s\t%d\t%d\t%s\t%s\t%s\t%s\n", c.ID, safeLine(c.Name), c.Type, c.Available, c.OwnerOnly, c.ResponseMode, last, c.Pending, c.Unknown, c.Status, safeLine(c.Error), safeLine(c.Workspace), c.Session)
 	}
 	return w.Flush()
 }
 func sendChat(a *app, opt *sendCommand) error {
-	if _, err := strconv.ParseInt(opt.Chat, 10, 64); err != nil || opt.Thread < 0 {
-		return &cliError{2, errors.New("--chat must be a decimal ID and --thread must be non-negative")}
+	if opt.Chat == 0 || opt.Thread < 0 {
+		return &cliError{2, errors.New("--chat must be a non-zero decimal ID and --thread must be non-negative")}
 	}
 	cfg, err := loadSettings(a.home, true)
 	if err != nil {
@@ -114,7 +118,7 @@ func sendChat(a *app, opt *sendCommand) error {
 	}
 	var submitted job
 	err = s.update(func(v *state) error {
-		c, err := resolveChat(v, opt.Chat)
+		c, err := resolveChat(v, fmt.Sprint(opt.Chat))
 		if err != nil {
 			return err
 		}
@@ -122,6 +126,9 @@ func sendChat(a *app, opt *sendCommand) error {
 			return errors.New("chat is not an available permitted destination")
 		}
 		thread := opt.Thread
+		if thread > 0 && !c.Forum {
+			return &cliError{2, errors.New("--thread is only supported for forum chats")}
+		}
 		if c.Forum && thread == 0 {
 			if !c.HasThread || c.Thread <= 0 {
 				return errors.New("specify --thread for this forum chat")

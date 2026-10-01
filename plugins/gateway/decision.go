@@ -28,6 +28,19 @@ func historyFor(c *chat, j *job, limit int, unseen bool) []record {
 	if len(rows) > limit {
 		rows = rows[len(rows)-limit:]
 	}
+	// The bounded history can drop a still-pending input. The job retains it.
+	if j.Input.Seq > 0 && (!unseen || j.Input.Seq > c.ContextSeq) {
+		found := false
+		for _, r := range rows {
+			found = found || r.Seq == j.Input.Seq
+		}
+		if !found {
+			if len(rows) >= limit {
+				rows = rows[1:]
+			}
+			rows = append(rows, j.Input)
+		}
+	}
 	return rows
 }
 func shortened(text string, limit int) string {
@@ -80,7 +93,11 @@ func shouldReply(ctx context.Context, home string, cfg settings, c *chat, j *job
 			break
 		}
 		if len(rows) > 1 {
-			rows = rows[1:]
+			index := 0
+			if rows[0].Seq == j.Input.Seq {
+				index = 1
+			}
+			rows = append(rows[:index], rows[index+1:]...)
 			continue
 		}
 		if len(rows) == 0 || len(rows[0].Text) < 128 {

@@ -6,7 +6,9 @@ import (
 	"encoding/xml"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -46,8 +48,6 @@ func TestLaunchAgentLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var value any
-	_ = value
 	decoder := xml.NewDecoder(bytes.NewReader(data))
 	for {
 		_, err := decoder.Token()
@@ -109,5 +109,26 @@ func TestSystemdLifecycleAndQuoting(t *testing.T) {
 	unit := string(systemdUnit("name", "/a path/%/$/binary", "/home path", "/a:path"))
 	if !strings.Contains(unit, `"/a path/%%/$$/binary"`) || !strings.Contains(unit, "KillMode=control-group") {
 		t.Fatal(unit)
+	}
+}
+
+func TestSystemdEnvironmentDoesNotDoubleDollars(t *testing.T) {
+	unit := string(systemdUnit("name", "/bin/horizon", "/home/user", "/tools/$literal/%path"))
+	if !strings.Contains(unit, `Environment="PATH=/tools/$literal/%%path"`) {
+		t.Fatal(unit)
+	}
+}
+
+func TestNativePlistFormat(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		t.Skip("macOS plist validator")
+	}
+	path := filepath.Join(t.TempDir(), "gateway.plist")
+	data := launchPlist("io.horizon.test", "/path with spaces/horizon", "/tmp/home & test", "/bin:/usr/bin")
+	if err := os.WriteFile(path, data, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if output, err := exec.Command("plutil", "-lint", path).CombinedOutput(); err != nil {
+		t.Fatalf("plist invalid: %v %s", err, output)
 	}
 }

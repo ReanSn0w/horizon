@@ -44,7 +44,7 @@ func TestListNameAndSendQueue(t *testing.T) {
 	}
 	defer unlock(f)
 	out.Reset()
-	if err = sendChat(a, &sendCommand{Chat: "-1", Message: "compose", JSON: true}); err != nil {
+	if err = sendChat(a, &sendCommand{Chat: -1, Message: "compose", JSON: true}); err != nil {
 		t.Fatal(err)
 	}
 	var submitted job

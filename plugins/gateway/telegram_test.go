@@ -1,6 +1,8 @@
 package main
 
 import (
+	"github.com/ReanSn0w/horizon/internal/config"
+	"gopkg.in/yaml.v3"
 	"os"
 	"path/filepath"
 	"strings"
@@ -43,5 +45,29 @@ func TestIngestFilteringAndMigration(t *testing.T) {
 	data, _ := os.ReadFile(filepath.Join(home, "config.yaml"))
 	if !strings.Contains(string(data), "-4") {
 		t.Fatal("missing group config")
+	}
+}
+
+func TestMigrationFromPreservesCustomRules(t *testing.T) {
+	home := configHome(t)
+	_, err := config.UpdateDocument(home, func(doc *yaml.Node) (bool, error) {
+		groups := nodeValue(nodeValue(nodeValue(doc.Content[0], "plugins"), "gateway"), "groups")
+		putNode(groups, "-4", encodedNode(groupSettings{false, "conversation"}))
+		return true, nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg, _ := loadSettings(home, false)
+	s := newStore(home, 99)
+	if err := ingest(home, s, cfg, tgUser{ID: 99}, update{ID: 1, Message: &tgMessage{Chat: tgChat{ID: -8, Type: "supergroup"}, MigrateFrom: -4}}); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err = loadSettings(home, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Groups["-8"] != (groupSettings{false, "conversation"}) {
+		t.Fatal("migration replaced custom group rules")
 	}
 }

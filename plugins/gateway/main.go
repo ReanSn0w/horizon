@@ -54,7 +54,7 @@ func (c *listCommand) Execute(args []string) error { return c.call(c, args) }
 
 type sendCommand struct {
 	command
-	Chat    string `long:"chat" required:"true" description:"Decimal chat ID from gateway list"`
+	Chat    int64  `long:"chat" required:"true" description:"Decimal chat ID from gateway list"`
 	Message string `short:"m" long:"message" description:"Instruction for Horizon; default: continue the conversation"`
 	Thread  int64  `long:"thread" description:"Telegram forum topic ID"`
 	Wait    bool   `long:"wait" description:"Wait for delivery; interrupting the wait leaves the accepted job running"`
@@ -95,7 +95,7 @@ func runCLI(ctx context.Context, args []string, out, errOut io.Writer) int {
 	a := &app{ctx: ctx, out: out, errOut: errOut}
 	a.dispatch = func(name string, value any) error { return execute(a, name, value) }
 	parser := flags.NewNamedParser("horizon gateway", flags.HelpFlag|flags.PassDoubleDash)
-	parser.LongDescription = "Connect a Telegram bot to per-chat Horizon workspaces.\nInitialize with 'horizon gateway init', edit plugins.gateway in config.yaml, then run 'horizon gateway start'.\nGroups default to owner_only: true and response_mode: mention.\nUse 'horizon gateway list' to find chat IDs and 'horizon gateway send --chat ID' to generate a new reply."
+	parser.LongDescription = gatewayHelp
 	commands := []struct {
 		name, short, description string
 		value                    any
@@ -113,13 +113,13 @@ func runCLI(ctx context.Context, args []string, out, errOut io.Writer) int {
 		}
 	}
 	if len(args) == 0 {
-		parser.WriteHelp(out)
+		writeHelp(parser, out)
 		return 0
 	}
 	if _, err := parser.ParseArgs(args); err != nil {
 		var flagErr *flags.Error
 		if errors.As(err, &flagErr) && flagErr.Type == flags.ErrHelp {
-			parser.WriteHelp(out)
+			writeHelp(parser, out)
 			return 0
 		}
 		if ctx.Err() != nil {
@@ -138,4 +138,12 @@ func runCLI(ctx context.Context, args []string, out, errOut io.Writer) int {
 	}
 	return 0
 }
+
+func writeHelp(parser *flags.Parser, out io.Writer) {
+	parser.WriteHelp(out)
+	if parser.Active == nil || parser.Active.Name == "init" || parser.Active.Name == "start" {
+		fmt.Fprint(out, gatewayConfigHelp)
+	}
+}
+
 func (a *app) resolveHome() error { home, err := config.ResolveHome(""); a.home = home; return err }

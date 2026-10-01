@@ -26,6 +26,23 @@ func workspace(ctx context.Context, home string, cfg settings, s store, c *chat,
 	if path == "" {
 		path = filepath.Join(base, fmt.Sprintf("telegram_%d_%d", s.botID, c.Origin))
 	}
+	// Reject an invalid saved path before creating any directories there.
+	lexical, err := filepath.Rel(base, path)
+	if err != nil || lexical == "." || lexical == ".." || strings.HasPrefix(lexical, ".."+string(os.PathSeparator)) {
+		return nil, errors.New("chat workspace is outside workspace_dir")
+	}
+	resolved, resolveErr := filepath.EvalSymlinks(path)
+	if resolveErr != nil && c.Workspace != "" {
+		return nil, errors.New("saved chat workspace is unavailable; restore it before continuing")
+	}
+	if resolveErr == nil {
+		rel, err := filepath.Rel(base, resolved)
+		if err != nil || rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) {
+			return nil, errors.New("chat workspace is outside workspace_dir")
+		}
+	} else if !errors.Is(resolveErr, os.ErrNotExist) {
+		return nil, resolveErr
+	}
 	if err = os.MkdirAll(path, 0700); err != nil {
 		return nil, err
 	}
