@@ -3,6 +3,7 @@
 package config
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"os"
@@ -19,6 +20,55 @@ func UpdateDisabledSkills(home, id string, disable bool, beforeEnable func([]str
 	if !validSkillID(id) {
 		return false, fmt.Errorf("invalid skill ID %q", id)
 	}
+	return UpdateDocument(home, func(document *yaml.Node) (bool, error) {
+		raw, err := decodeDocument(document)
+		if err != nil {
+			return false, err
+		}
+		ids := []string(raw.DisabledSkills)
+		present := slices.Contains(ids, id)
+		if present == disable {
+			return false, nil
+		}
+		if disable {
+			ids = append(ids, id)
+		} else {
+			ids = slices.DeleteFunc(ids, func(value string) bool { return value == id })
+		}
+		if !disable && beforeEnable != nil {
+			if err := beforeEnable(append([]string(nil), ids...)); err != nil {
+				return false, err
+			}
+		}
+		root := document.Content[0]
+		var list *yaml.Node
+		for i := 0; i < len(root.Content); i += 2 {
+			if root.Content[i].Value == "disabled_skills" {
+				list = root.Content[i+1]
+				break
+			}
+		}
+		if list == nil {
+			list = &yaml.Node{}
+			root.Content = append(root.Content, &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "disabled_skills"}, list)
+		}
+		// Retain this node's comments and anchor while replacing only its value.
+		list.Kind = yaml.SequenceNode
+		list.Tag = "!!seq"
+		list.Value = ""
+		list.Alias = nil
+		list.Content = nil
+		for _, id := range ids {
+			list.Content = append(list.Content, &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: id})
+		}
+		return true, nil
+	})
+}
+
+// UpdateDocument serializes all config writers on the resolved target, retains
+// symlinks and file mode, and validates the common schema before and after edits.
+// The callback runs under the lock and must not call another config writer.
+func UpdateDocument(home string, edit func(*yaml.Node) (bool, error)) (bool, error) {
 	path, err := filepath.EvalSymlinks(filepath.Join(home, "config.yaml"))
 	if err != nil {
 		return false, err
@@ -43,59 +93,41 @@ func UpdateDisabledSkills(home, id string, disable bool, beforeEnable func([]str
 		return false, err
 	}
 	defer syscall.Flock(int(lock.Fd()), syscall.LOCK_UN)
-	raw, document, err := readConfig(path)
+	_, document, err := readConfig(path)
 	if err != nil {
 		return false, err
 	}
-	ids := []string(raw.DisabledSkills)
-	present := slices.Contains(ids, id)
-	if present == disable {
-		return false, nil
+	changed, err := edit(document)
+	if err != nil || !changed {
+		return false, err
 	}
-	if disable {
-		ids = append(ids, id)
-	} else {
-		ids = slices.DeleteFunc(ids, func(value string) bool { return value == id })
-	}
-	if !disable && beforeEnable != nil {
-		if err := beforeEnable(append([]string(nil), ids...)); err != nil {
-			return false, err
-		}
-	}
-	root := document.Content[0]
-	var list *yaml.Node
-	for i := 0; i < len(root.Content); i += 2 {
-		if root.Content[i].Value == "disabled_skills" {
-			list = root.Content[i+1]
-			break
-		}
-	}
-	if list == nil {
-		list = &yaml.Node{}
-		root.Content = append(root.Content, &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "disabled_skills"}, list)
-	}
-	// Retain this node's comments and anchor while replacing only its value.
-	list.Kind = yaml.SequenceNode
-	list.Tag = "!!seq"
-	list.Value = ""
-	list.Alias = nil
-	list.Content = nil
-	for _, id := range ids {
-		list.Content = append(list.Content, &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: id})
+	if _, err = decodeDocument(document); err != nil {
+		return false, err
 	}
 	data, err := yaml.Marshal(document)
 	if err != nil {
 		return false, err
 	}
-	// Re-read mode under the lock: a prior Horizon writer may have replaced the file.
 	info, err = os.Stat(path)
 	if err != nil {
 		return false, err
 	}
-	if err := writeConfigAtomic(path, data, info.Mode().Perm()); err != nil {
+	if err = writeConfigAtomic(path, data, info.Mode().Perm()); err != nil {
 		return false, err
 	}
 	return true, nil
+}
+
+func decodeDocument(document *yaml.Node) (rawConfig, error) {
+	data, err := yaml.Marshal(document)
+	if err != nil {
+		return rawConfig{}, err
+	}
+	var raw rawConfig
+	decoder := yaml.NewDecoder(bytes.NewReader(data))
+	decoder.KnownFields(true)
+	err = decoder.Decode(&raw)
+	return raw, err
 }
 
 func writeConfigAtomic(path string, data []byte, mode os.FileMode) error {

@@ -39,3 +39,4 @@ disabled_skills: []
 
 # Optional plugin-owned settings, keyed by command name (plugins.<name>).
 # Decision uses the shared decision section above and needs no own settings.
+# Run 'horizon gateway init' to add Telegram gateway settings (plugins.gateway).

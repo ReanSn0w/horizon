@@ -5,7 +5,7 @@ GO ?= go
 BIN_DIR ?= $(shell $(GO) env GOPATH | cut -d: -f1)/bin
 HORIZON_HOME ?= $(HOME)/.horizon
 # Select repository plugins to install.
-PLUGINS ?= decision
+PLUGINS ?= decision gateway
 PLUGIN_NAMES := $(notdir $(patsubst %/main.go,%,$(wildcard plugins/*/main.go)))
 PLUGIN_TARGETS := $(addprefix install-,$(PLUGIN_NAMES))
 
@@ -14,8 +14,9 @@ PLUGIN_TARGETS := $(addprefix install-,$(PLUGIN_NAMES))
 help:
 	@printf '%s\n' \
 	  'make install                 Install Horizon into GOPATH/bin' \
-	  'make install-plugins         Install decision into HORIZON_HOME/plugins' \
+	  'make install-plugins         Install selected plugins into HORIZON_HOME/plugins' \
 	  'make install-decision        Install the decision plugin' \
+	  'make install-gateway         Install the Telegram gateway plugin' \
 	  'make install-all             Install Horizon and selected plugins' \
 	  'Overrides: GO, BIN_DIR, HORIZON_HOME, PLUGINS'
 
