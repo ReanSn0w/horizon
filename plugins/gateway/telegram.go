@@ -164,7 +164,7 @@ func upsertChat(v *state, input tgChat) *chat {
 	key := strconv.FormatInt(input.ID, 10)
 	c := v.Chats[key]
 	if c == nil {
-		c = &chat{ID: input.ID, Type: input.Type, Available: true}
+		c = &chat{ID: input.ID, Origin: input.ID, Type: input.Type, Available: true}
 		v.Chats[key] = c
 	}
 	if title := displayChat(input); title != "" {

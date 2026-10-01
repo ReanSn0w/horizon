@@ -30,6 +30,7 @@ type record struct {
 	Mention bool   `yaml:"mention" json:"-"`
 }
 type chat struct {
+	Origin     int64     `yaml:"origin"`
 	ID         int64     `yaml:"id"`
 	Type       string    `yaml:"type"`
 	Title      string    `yaml:"title"`
