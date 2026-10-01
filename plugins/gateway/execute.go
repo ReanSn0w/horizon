@@ -20,5 +20,11 @@ func execute(a *app, name string, value any) error {
 	if name == "start" {
 		return startGateway(a)
 	}
+	if name == "list" {
+		return listChats(a, value.(*listCommand))
+	}
+	if name == "send" {
+		return sendChat(a, value.(*sendCommand))
+	}
 	return errors.New("gateway command is not configured")
 }
