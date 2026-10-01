@@ -17,7 +17,63 @@ import (
 	"github.com/ReanSn0w/horizon/internal/decision"
 )
 
-const usage = "Usage: horizon decision <request.json|-> [-o result.json]\n"
+const usage = `Usage: horizon decision <request.json|-> [-o result.json]
+
+Send state and questions to the Jev decision provider and return a JSON response.
+
+Arguments:
+  request.json    Path to a UTF-8 JSON request file.
+  -               Read the request from stdin.
+  -o result.json  Write the response to a file instead of stdout (atomic, mode 0600).
+  -h, --help      Show this help without loading configuration or using the network.
+
+Example request.json:
+{
+  "state": {
+    "proposal": "Release version 1.2",
+    "tests_passed": true,
+    "open_blockers": 0
+  },
+  "questions": {
+    "ready": {
+      "type": "noul",
+      "instructions": "Is the release ready, considering test results and blocking issues?",
+      "criteria": {
+        "true": "Tests passed and no blocking issues remain.",
+        "false": "Tests failed or blocking issues remain."
+      }
+    }
+  }
+}
+
+Examples:
+  horizon decision request.json
+  horizon decision request.json -o result.json
+  cat request.json | horizon decision -
+  horizon --home /path/to/home decision request.json
+
+Request format:
+  state      Data to evaluate, in any JSON format.
+  questions  A non-empty object of questions with unique names (such as ready).
+  Each question requires type and non-empty instructions.
+  Types: noul — truth score from 0 to 1; choice — select an option;
+  score — a numeric rating. Optional criteria are passed to the provider.
+  Other top-level fields are not allowed. Input is limited to 32 KiB;
+  the serialized request including the configured model must also fit this limit.
+
+Configuration and output:
+  URL, API key and model come from decision.provider.url, decision.provider.key
+  and decision.model in the selected home/config.yaml. Request overrides are
+  not supported.
+  Home: Horizon's global --home, then HORIZON_HOME, then ~/.horizon.
+  The response contains id, model, provider, answers and usage. The example's
+  ready score is in answers.ready.noul. Without -o, the response goes to stdout;
+  diagnostics go to stderr. The plugin does not create agent sessions.
+
+Exit codes: 0 — success; 2 — invalid arguments, input or configuration;
+            1 — provider or output error; 130 — cancellation.
+`
+
 const maxInputBytes = 32 * 1024
 
 func main() {

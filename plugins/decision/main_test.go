@@ -124,3 +124,23 @@ func TestLocalHelpAndMetadata(t *testing.T) {
 		}
 	}
 }
+
+func TestHelpExampleIsAcceptedRequest(t *testing.T) {
+	t.Setenv("HORIZON_HOME", filepath.Join(t.TempDir(), "missing"))
+	var out, diag bytes.Buffer
+	if code := run(context.Background(), []string{"--help"}, nil, &out, &diag); code != 0 || diag.Len() != 0 {
+		t.Fatalf("help failed: code=%d diagnostics=%s", code, &diag)
+	}
+	help := out.String()
+	start, end := strings.Index(help, "{\n"), strings.LastIndex(help, "\n}")
+	if start < 0 || end < start {
+		t.Fatal("help has no complete JSON example")
+	}
+	request, err := readRequest(strings.NewReader(help[start : end+2]))
+	if err != nil {
+		t.Fatalf("help example is not accepted: %v", err)
+	}
+	if q, ok := request.Questions["ready"]; !ok || q.Type != "noul" {
+		t.Fatal("example lacks documented ready question")
+	}
+}
