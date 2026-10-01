@@ -207,3 +207,23 @@ func checkInherited(s settings) error {
 	}
 	return nil
 }
+
+func migrateGroup(home string, oldID, newID int64) error {
+	_, err := config.UpdateDocument(home, func(doc *yaml.Node) (bool, error) {
+		groups := nodeValue(nodeValue(nodeValue(doc.Content[0], "plugins"), "gateway"), "groups")
+		if groups == nil {
+			return false, errors.New("missing group settings")
+		}
+		oldKey, newKey := strconv.FormatInt(oldID, 10), strconv.FormatInt(newID, 10)
+		old := nodeValue(groups, oldKey)
+		if old == nil {
+			return false, nil
+		}
+		if nodeValue(groups, newKey) != nil {
+			return false, nil
+		}
+		putNode(groups, newKey, old)
+		return true, nil
+	})
+	return err
+}
