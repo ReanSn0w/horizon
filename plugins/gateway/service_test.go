@@ -1,0 +1,86 @@
+package main
+
+import (
+	"bytes"
+	"context"
+	"encoding/xml"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+)
+
+func TestLaunchAgentLifecycle(t *testing.T) {
+	home := configHome(t)
+	binary, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HORIZON_EXECUTABLE", binary)
+	var out bytes.Buffer
+	a := &app{home: home, ctx: context.Background(), out: &out}
+	loaded := false
+	calls := []string{}
+	host := serviceHost{platform: "darwin", userHome: t.TempDir(), uid: 501, run: func(ctx context.Context, name string, args ...string) (string, error) {
+		calls = append(calls, strings.Join(args, " "))
+		switch args[0] {
+		case "print":
+			if !loaded {
+				return "", fmt.Errorf("not loaded")
+			}
+		case "bootstrap":
+			loaded = true
+		case "bootout":
+			loaded = false
+		}
+		return "", nil
+	}}
+	opt := &serviceCommand{Manager: "launchd"}
+	opt.Args.Action = "install"
+	if err = manageService(a, opt, host); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(host.userHome, "Library", "LaunchAgents", serviceName(home)+".plist")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var value any
+	_ = value
+	decoder := xml.NewDecoder(bytes.NewReader(data))
+	for {
+		_, err := decoder.Token()
+		if err != nil {
+			if err.Error() != "EOF" {
+				t.Fatal(err)
+			}
+			break
+		}
+	}
+	if !bytes.Contains(data, []byte("--log-file")) || bytes.Contains(data, []byte("bot_token")) {
+		t.Fatal("bad service arguments")
+	}
+	for _, action := range []string{"install", "start", "status", "stop", "restart", "uninstall", "uninstall"} {
+		opt.Args.Action = action
+		if err = manageService(a, opt, host); err != nil {
+			t.Fatalf("%s: %v", action, err)
+		}
+	}
+	if len(calls) == 0 {
+		t.Fatal("service manager not called")
+	}
+	if _, err = os.Stat(filepath.Join(home, "config.yaml")); err != nil {
+		t.Fatal("uninstall removed config")
+	}
+}
+func TestRotatingLog(t *testing.T) {
+	log := &rotatingLog{path: filepath.Join(t.TempDir(), "service.log"), limit: 8}
+	log.Write([]byte("123456"))
+	log.Write([]byte("abcdef"))
+	old, _ := os.ReadFile(log.path + ".1")
+	current, _ := os.ReadFile(log.path)
+	if string(old) != "123456" || string(current) != "abcdef" {
+		t.Fatal("rotation failed")
+	}
+}

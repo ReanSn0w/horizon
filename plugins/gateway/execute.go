@@ -18,6 +18,12 @@ func execute(a *app, name string, value any) error {
 		return nil
 	}
 	if name == "start" {
+		opt := value.(*startCommand)
+		if opt.LogFile != "" {
+			a.errOut = &rotatingLog{path: opt.LogFile, limit: 1024 * 1024}
+		} else {
+			a.errOut = &synchronizedWriter{out: a.errOut}
+		}
 		return startGateway(a)
 	}
 	if name == "list" {
@@ -26,5 +32,8 @@ func execute(a *app, name string, value any) error {
 	if name == "send" {
 		return sendChat(a, value.(*sendCommand))
 	}
-	return errors.New("gateway command is not configured")
+	if name == "service" {
+		return manageService(a, value.(*serviceCommand), nativeServiceHost())
+	}
+	return errors.New("unknown gateway command")
 }

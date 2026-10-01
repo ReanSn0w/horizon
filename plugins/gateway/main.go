@@ -38,7 +38,10 @@ type initCommand struct{ command }
 
 func (c *initCommand) Execute(args []string) error { return c.call(c, args) }
 
-type startCommand struct{ command }
+type startCommand struct {
+	command
+	LogFile string `long:"log-file" description:"Write diagnostics to a rotating private log file"`
+}
 
 func (c *startCommand) Execute(args []string) error { return c.call(c, args) }
 
@@ -130,7 +133,7 @@ func runCLI(ctx context.Context, args []string, out, errOut io.Writer) int {
 		} else if errors.As(err, &flagErr) {
 			code = 2
 		}
-		fmt.Fprintln(errOut, "gateway:", err)
+		fmt.Fprintln(a.errOut, "gateway:", err)
 		return code
 	}
 	return 0
