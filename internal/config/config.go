@@ -216,7 +216,11 @@ func (c Config) DecisionEndpoint() (string, error) {
 	if err := c.RequireDecision(); err != nil {
 		return "", err
 	}
-	return url.JoinPath(c.Decision.Provider.URL, "alpha/decisions")
+	base := strings.TrimRight(c.Decision.Provider.URL, "/")
+	if strings.HasSuffix(base, "/alpha/decisions") {
+		return base, nil
+	}
+	return url.JoinPath(base, "alpha/decisions")
 }
 
 func parseLimits(raw rawLimits) (Limits, error) {
