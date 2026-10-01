@@ -84,3 +84,30 @@ func TestRotatingLog(t *testing.T) {
 		t.Fatal("rotation failed")
 	}
 }
+
+func TestSystemdLifecycleAndQuoting(t *testing.T) {
+	home := configHome(t)
+	binary, _ := os.Executable()
+	t.Setenv("HORIZON_EXECUTABLE", binary)
+	var out bytes.Buffer
+	a := &app{home: home, ctx: context.Background(), out: &out}
+	calls := []string{}
+	host := serviceHost{platform: "linux", configHome: t.TempDir(), run: func(ctx context.Context, name string, args ...string) (string, error) {
+		calls = append(calls, name+" "+strings.Join(args, " "))
+		return "active", nil
+	}}
+	opt := &serviceCommand{Manager: "systemd"}
+	for _, action := range []string{"install", "install", "start", "status", "stop", "restart", "uninstall", "uninstall"} {
+		opt.Args.Action = action
+		if err := manageService(a, opt, host); err != nil {
+			t.Fatalf("%s: %v", action, err)
+		}
+	}
+	if !strings.Contains(strings.Join(calls, "\n"), "--user enable") {
+		t.Fatal("service not enabled")
+	}
+	unit := string(systemdUnit("name", "/a path/%/$/binary", "/home path", "/a:path"))
+	if !strings.Contains(unit, `"/a path/%%/$$/binary"`) || !strings.Contains(unit, "KillMode=control-group") {
+		t.Fatal(unit)
+	}
+}

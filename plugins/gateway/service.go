@@ -135,7 +135,7 @@ func manageService(a *app, opt *serviceCommand, host serviceHost) error {
 		if manager == "launchd" {
 			content = launchPlist(name, binary, home, os.Getenv("PATH"))
 		} else {
-			return errors.New("systemd service support is not configured")
+			content = systemdUnit(name, binary, home, os.Getenv("PATH"))
 		}
 		if old, err := os.ReadFile(target); err == nil {
 			if !strings.Contains(string(old), "Horizon gateway managed: "+name) {
@@ -144,6 +144,11 @@ func manageService(a *app, opt *serviceCommand, host serviceHost) error {
 			if bytes.Equal(old, content) && readErr == nil {
 				if manager == "launchd" {
 					if _, err := host.run(a.ctx, "launchctl", "enable", "gui/"+strconv.Itoa(host.uid)+"/"+name); err != nil {
+						return err
+					}
+				}
+				if manager == "systemd" {
+					if err := systemdLifecycle(a, "install", info, descriptor, host); err != nil {
 						return err
 					}
 				}
@@ -169,6 +174,11 @@ func manageService(a *app, opt *serviceCommand, host serviceHost) error {
 				return err
 			}
 		}
+		if manager == "systemd" {
+			if err := systemdLifecycle(a, "install", info, descriptor, host); err != nil {
+				return err
+			}
+		}
 		fmt.Fprintln(a.out, "Service installed:", target)
 		return nil
 	}
@@ -190,7 +200,7 @@ func manageService(a *app, opt *serviceCommand, host serviceHost) error {
 		return errors.New("service file is not owned by this gateway")
 	}
 	if manager == "systemd" {
-		return errors.New("systemd service support is not configured")
+		return systemdLifecycle(a, action, info, descriptor, host)
 	}
 	domain := "gui/" + strconv.Itoa(host.uid)
 	label := domain + "/" + name
