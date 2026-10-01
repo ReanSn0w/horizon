@@ -219,3 +219,22 @@ func TestSetupDiagnostics(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestPluginSettings(t *testing.T) {
+	for _, extra := range []string{"", "plugins: {}\n", "plugins:\n  decision: {}\n", "plugins:\n  custom:\n    arbitrary:\n      nested: [one, two]\n"} {
+		cfg, err := Load(writeConfig(t, validConfig+extra))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(extra, "custom:") {
+			if _, ok := cfg.Plugins["custom"]; !ok {
+				t.Fatal("lost plugin settings")
+			}
+		}
+	}
+	for _, extra := range []string{"plugins: []\n", "plugins:\n  decision: {}\nmystery: true\n", "plugins: {}\nprovider:\n  unexpected: true\n"} {
+		if _, err := Load(writeConfig(t, validConfig+extra)); err == nil {
+			t.Fatalf("accepted invalid configuration %q", extra)
+		}
+	}
+}

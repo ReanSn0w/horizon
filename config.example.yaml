@@ -36,3 +36,6 @@ limits:
 
 # Skill directory IDs excluded from the next agent turn.
 disabled_skills: []
+
+# Optional plugin-owned settings, keyed by command name (plugins.<name>).
+# Decision uses the shared decision section above and needs no own settings.
