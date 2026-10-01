@@ -10,14 +10,31 @@
 Нужны macOS или Linux, Go версии из [go.mod](go.mod) или новее, провайдер
 диалоговой модели с Responses API и отдельный провайдер модели решений Jev.
 
-Из корня репозитория установите бинарник в каталог из вашего `PATH`:
+Из корня репозитория установите Horizon в `$(go env GOPATH)/bin`:
 
 ```sh
-go install .
+make install
 ```
 
-Go устанавливает его в `GOBIN`, а если переменная не задана — в `$(go env GOPATH)/bin`.
-Добавьте этот каталог в `PATH`. Для локальной сборки: `go build -o horizon .`.
+Добавьте этот каталог в `PATH`. Makefile использует первый каталог `GOPATH`
+и явно задаёт `GOBIN`, поэтому отдельная настройка `GOBIN` не меняет место
+установки. Путь можно переопределить: `make install BIN_DIR=/path/to/bin`.
+Для установки через стандартные правила Go доступна команда `go install .`.
+Для локальной сборки: `go build -o horizon .`.
+
+Плагин `decision` устанавливается отдельной командой:
+
+```sh
+make install-decision
+# Основная система и плагины одним вызовом:
+make install-all
+# Другой home:
+make install-decision HORIZON_HOME=/path/to/home
+```
+
+По умолчанию используется `HORIZON_HOME` из окружения или `~/.horizon`.
+Установка плагинов создаёт каталог `plugins/`, но настройка home по-прежнему
+выполняется через `horizon init`. Список целей показывает `make help`.
 
 Подготовьте домашний каталог Horizon:
 
@@ -200,22 +217,23 @@ disabled_skills:
 
 ## Подключаемые команды
 
-Исходники примера находятся в `plugins/example/`. Установленные плагины
-принадлежат выбранному home; Horizon не ищет их в репозитории или `PATH`.
+Исходники плагина решений находятся в `plugins/decision/`. Установленные
+плагины принадлежат выбранному home; Horizon не ищет их в репозитории или `PATH`.
 
 ```sh
-go build -o /tmp/horizon-example ./plugins/example
+make install-decision HORIZON_HOME=/path/to/home
 horizon --home /path/to/home init
-cp /tmp/horizon-example /path/to/home/plugins/horizon-example
 horizon --home /path/to/home --help
-horizon --home /path/to/home example --help
-horizon --home /path/to/home example greet Ada
+horizon --home /path/to/home decision --help
+horizon --home /path/to/home decision request.json
 ```
+
+Перед оценкой заполните секцию `decision` в конфигурации.
 
 `HORIZON_HOME` также выбирает home, а явный `--home` имеет приоритет.
 Плагин можно установить symlink на исполняемый файл; для удаления удалите
 `<home>/plugins/horizon-<имя>`. `init` создаёт каталог `plugins/`, но не
-устанавливает пример. Запрос метаданных для справки и перед запуском тоже
+устанавливает плагины. Запрос метаданных для справки и перед запуском тоже
 исполняет сторонний код с вашими правами. Протокол, лимиты и коды завершения —
 в [docs/PLUGINS.md](docs/PLUGINS.md).
 

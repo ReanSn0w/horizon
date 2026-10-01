@@ -21,12 +21,6 @@ import (
 
 func TestBuiltBinaryPluginWorkflow(t *testing.T) {
 	binary := buildBinary(t)
-	example := filepath.Join(t.TempDir(), "horizon-example")
-	cmd := exec.Command("go", "build", "-o", example, "./plugins/example")
-	cmd.Dir = "../.."
-	if output, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("build example: %v: %s", err, output)
-	}
 	homeA, homeB := t.TempDir(), t.TempDir()
 	workspace := t.TempDir()
 	if out, errout, err := run(binary, workspace, "", "--home", homeA, "init"); err != nil || errout != "" || !strings.Contains(out, "Horizon home") {
@@ -37,27 +31,34 @@ func TestBuiltBinaryPluginWorkflow(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	installed := filepath.Join(homeA, "plugins", "horizon-example")
-	data, err := os.ReadFile(example)
-	if err != nil {
-		t.Fatal(err)
-	}
+	installed := filepath.Join(homeA, "plugins", "horizon-fixture")
+	data := []byte(`#!/bin/sh
+if [ "$1" = horizon-plugin-metadata ]; then
+  printf '%s\n' '{"protocol_version":1,"version":"1.0.0","description":"Test fixture"}'
+  exit 0
+fi
+if [ "$1" = greet ]; then
+  printf 'Hello, %s!\n' "$2"
+  exit 0
+fi
+exit 2
+`)
 	if err := os.WriteFile(installed, data, 0700); err != nil {
 		t.Fatal(err)
 	}
-	if out, _, err := run(binary, workspace, "", "--home", homeA, "--help"); err != nil || !strings.Contains(out, "example") {
+	if out, _, err := run(binary, workspace, "", "--home", homeA, "--help"); err != nil || !strings.Contains(out, "fixture") {
 		t.Fatalf("help %v %q", err, out)
 	}
-	if out, errout, err := run(binary, workspace, "", "--home", homeA, "example", "greet", "Ada"); err != nil || out != "Hello, Ada!\n" || errout != "" {
+	if out, errout, err := run(binary, workspace, "", "--home", homeA, "fixture", "greet", "Ada"); err != nil || out != "Hello, Ada!\n" || errout != "" {
 		t.Fatalf("run %v %q %q", err, out, errout)
 	}
-	if _, _, err := run(binary, workspace, "", "--home", homeB, "example", "greet"); err == nil {
+	if _, _, err := run(binary, workspace, "", "--home", homeB, "fixture", "greet"); err == nil {
 		t.Fatal("plugin leaked to second home")
 	}
 	if err := os.Remove(installed); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := run(binary, workspace, "", "--home", homeA, "example", "greet"); err == nil {
+	if _, _, err := run(binary, workspace, "", "--home", homeA, "fixture", "greet"); err == nil {
 		t.Fatal("removed plugin still available")
 	}
 }
