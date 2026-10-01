@@ -238,3 +238,13 @@ func TestPluginSettings(t *testing.T) {
 		}
 	}
 }
+
+func TestDecisionFullEndpoint(t *testing.T) {
+	for _, endpoint := range []string{"https://example.test/api", "https://example.test/api/alpha/decisions", "https://example.test/api/alpha/decisions/"} {
+		cfg := Config{Decision: Decision{Provider: Provider{URL: endpoint, Key: "secret"}, Model: "jev"}}
+		got, err := cfg.DecisionEndpoint()
+		if err != nil || got != "https://example.test/api/alpha/decisions" {
+			t.Fatalf("endpoint=%q err=%v", got, err)
+		}
+	}
+}
