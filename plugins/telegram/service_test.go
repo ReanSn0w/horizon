@@ -58,7 +58,7 @@ func TestLaunchAgentLifecycle(t *testing.T) {
 			break
 		}
 	}
-	if !bytes.Contains(data, []byte("--log-file")) || bytes.Contains(data, []byte("bot_token")) {
+	if !bytes.Contains(data, []byte("--log-file")) || !bytes.Contains(data, []byte("launchd.log")) || !bytes.Contains(data, []byte("HORIZON_SERVICE_LOG")) || bytes.Contains(data, []byte("bot_token")) {
 		t.Fatal("bad service arguments")
 	}
 	for _, action := range []string{"install", "start", "status", "stop", "restart", "uninstall", "uninstall"} {
@@ -66,6 +66,9 @@ func TestLaunchAgentLifecycle(t *testing.T) {
 		if err = manageService(a, opt, host); err != nil {
 			t.Fatalf("%s: %v", action, err)
 		}
+	}
+	if strings.Count(strings.Join(calls, "\n"), "bootstrap ") < 2 {
+		t.Fatal("restart did not reload updated plist", calls)
 	}
 	if len(calls) == 0 {
 		t.Fatal("service manager not called")

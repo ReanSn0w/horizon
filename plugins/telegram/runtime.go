@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime/debug"
 	"strconv"
 	"strings"
 	"sync"
@@ -18,14 +19,18 @@ import (
 )
 
 type bridge struct {
-	home    string
-	cfg     settings
-	store   store
-	bot     tgUser
-	tg      *telegram
-	run     runProcess
-	log     io.Writer
-	deliver func(context.Context, *chat, *job) error
+	jobTimeout time.Duration
+	health     *diagnosticHealth
+	home       string
+	cfg        settings
+	store      store
+	bot        tgUser
+	tg         *telegram
+	run        runProcess
+	log        io.Writer
+	journal    *diagnosticLog
+	resume     func(context.Context, string, []string, string, func(childEvent)) (string, error)
+	deliver    func(context.Context, *chat, *job) error
 }
 
 func (g *bridge) settings() (settings, error) {
@@ -41,22 +46,55 @@ func (g *bridge) settings() (settings, error) {
 	}
 	return s, nil
 }
+func (g *bridge) emit(level, event string, data map[string]any) {
+	for _, key := range []string{"error", "reason"} {
+		if value, ok := data[key].(string); ok {
+			data[key] = journalError(value)
+		}
+	}
+	if g.health != nil {
+		g.health.event(event, data)
+	}
+	if g.journal != nil {
+		g.journal.event(level, event, data)
+	}
+}
+func jobFields(c *chat, j *job) map[string]any {
+	return map[string]any{"chat_id": c.ID, "message_id": j.Input.ID, "request_id": j.ID, "session_id": c.Session}
+}
 func (g *bridge) setJob(chatID int64, id string, edit func(*chat, *job) error) error {
-	return g.store.update(func(v *state) error {
+	var data map[string]any
+	err := g.store.update(func(v *state) error {
 		c, err := resolveChat(v, strconv.FormatInt(chatID, 10))
 		if err != nil {
 			return err
 		}
 		for _, j := range c.Jobs {
 			if j.ID == id {
-				return edit(c, j)
+				previous := j.Status
+				if err = edit(c, j); err != nil {
+					return err
+				}
+				if previous != j.Status {
+					data = jobFields(c, j)
+					data["status"] = j.Status
+					data["previous_status"] = previous
+					if j.Error != "" {
+						data["error"] = j.Error
+					}
+				}
+				return nil
 			}
 		}
 		return errors.New("telegram job disappeared")
 	})
+	if err == nil && data != nil {
+		g.emit("info", "job_status", data)
+	}
+	return err
 }
 func (g *bridge) process(ctx context.Context, c *chat, j *job, cfg settings) error {
-	ctx, cancel := context.WithTimeout(ctx, 10*time.Minute)
+	ctx, cancel := context.WithTimeout(ctx, g.jobDuration())
 	defer cancel()
 	c, err := workspace(ctx, g.home, cfg, g.store, c, g.run)
 	if err != nil {
@@ -79,7 +117,12 @@ func (g *bridge) process(ctx context.Context, c *chat, j *job, cfg settings) err
 	if err != nil {
 		return g.fail(c.ID, j.ID, errors.New("invalid Horizon configuration"), false)
 	}
-	reply, err := shouldReply(ctx, g.home, cfg, c, j, hc.Decision.Model, g.run)
+	reply, err := shouldReply(ctx, g.home, cfg, c, j, hc.Decision.Model, g.run, func(data map[string]any) {
+		for k, v := range jobFields(c, j) {
+			data[k] = v
+		}
+		g.emit("info", "reply_decision", data)
+	})
 	if err != nil {
 		return g.fail(c.ID, j.ID, err, false)
 	}
@@ -126,7 +169,14 @@ func (g *bridge) process(ctx context.Context, c *chat, j *job, cfg settings) err
 	if err = g.setJob(c.ID, j.ID, func(c *chat, j *job) error { j.Status = "generating"; j.ContextSeq = seq; return nil }); err != nil {
 		return err
 	}
-	output, err := g.run(ctx, c.Workspace, []string{"--home", g.home, "resume", "--session", c.Session, "--mode", "plain", "--access", mode}, string(data))
+	runner, outputMode := g.run, "plain"
+	if g.resume != nil {
+		runner = func(ctx context.Context, dir string, args []string, input string) (string, error) {
+			return g.resume(ctx, dir, args, input, func(event childEvent) { g.childDiagnostic(event, jobFields(c, j)) })
+		}
+		outputMode = "jsonl"
+	}
+	output, err := runner(ctx, c.Workspace, []string{"--home", g.home, "resume", "--session", c.Session, "--mode", outputMode, "--access", mode}, string(data))
 	if err != nil {
 		return g.fail(c.ID, j.ID, fmt.Errorf("Horizon session %s: %w", c.Session, err), true)
 	}
@@ -194,17 +244,29 @@ func (g *bridge) fail(chatID int64, id string, cause error, unknown bool) error 
 func (g *bridge) loop(ctx context.Context) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	if err := g.store.recover(); err != nil {
-		return err
+	if g.health == nil {
+		id := requestID()
+		if g.journal != nil {
+			id = g.journal.runID
+		}
+		g.health = newHealth(id)
 	}
+	g.store.ctx = ctx
 	pollDone := make(chan error, 1)
 	var wg sync.WaitGroup
 	wg.Add(1)
+	go func() { defer wg.Done(); g.healthLoop(ctx) }()
+	defer func() { cancel(); wg.Wait() }()
+	g.health.phase(false, "state_recovery")
+	if err := g.store.recover(); err != nil {
+		return err
+	}
+	wg.Add(1)
 	go func() { defer wg.Done(); pollDone <- g.poll(ctx) }()
 	active := map[int64]bool{}
+	var lastOrigin int64
 	done := make(chan int64, 32)
 	fatal := make(chan error, 32)
-	defer func() { cancel(); wg.Wait() }()
 	tick := time.NewTicker(250 * time.Millisecond)
 	defer tick.Stop()
 	lastConfigError := ""
@@ -222,20 +284,38 @@ func (g *bridge) loop(ctx context.Context) error {
 		case origin := <-done:
 			delete(active, origin)
 		case <-tick.C:
+			g.health.phase(false, "configuration")
 			cfg, err := g.settings()
 			if err != nil {
 				if err.Error() != lastConfigError {
-					fmt.Fprintln(g.log, "telegram:", err)
+					g.emit("error", "configuration_paused", map[string]any{"error": err.Error()})
 					lastConfigError = err.Error()
 				}
 				continue
 			}
+			if lastConfigError != "" {
+				g.emit("info", "configuration_recovered", nil)
+			}
 			lastConfigError = ""
+			g.health.phase(false, "state_snapshot")
 			value, err := g.store.snapshot()
 			if err != nil {
 				return err
 			}
-			for _, c := range sortedChats(value) {
+			g.health.mu.Lock()
+			g.health.value.Parallel = cfg.Parallel
+			g.health.value.Slots = len(active)
+			g.health.value.Pending = 0
+			for _, c := range value.Chats {
+				for _, j := range c.Jobs {
+					if pending(j.Status) {
+						g.health.value.Pending++
+					}
+				}
+			}
+			g.health.mu.Unlock()
+			g.health.phase(false, "scheduling")
+			for _, c := range schedulingOrder(value, lastOrigin) {
 				if len(active) >= cfg.Parallel {
 					break
 				}
@@ -258,13 +338,31 @@ func (g *bridge) loop(ctx context.Context) error {
 					}
 					selected.Status = "evaluating"
 				}
+				if selected != nil {
+					data := jobFields(c, selected)
+					if !selected.QueuedAt.IsZero() {
+						data["queue_wait_ms"] = time.Since(selected.QueuedAt).Milliseconds()
+					}
+					g.emit("info", "job_started", data)
+				}
+				lastOrigin = c.Origin
 				active[c.Origin] = true
 				wg.Add(1)
 				go func(c *chat, j *job, cfg settings) {
 					defer wg.Done()
+					started := time.Now()
+					defer func() {
+						if j != nil {
+							data := jobFields(c, j)
+							data["duration_ms"] = time.Since(started).Milliseconds()
+							g.emit("info", "job_finished", data)
+						}
+					}()
 					defer func() { done <- c.Origin }()
 					if j == nil {
-						_, err := workspace(ctx, g.home, cfg, g.store, c, g.run)
+						jobCtx, stop := context.WithTimeout(ctx, g.jobDuration())
+						defer stop()
+						_, err := workspace(jobCtx, g.home, cfg, g.store, c, g.run)
 						if err != nil {
 							_ = g.store.update(func(v *state) error {
 								current, e := resolveChat(v, fmt.Sprint(c.ID))
@@ -282,12 +380,16 @@ func (g *bridge) loop(ctx context.Context) error {
 					}
 				}(c, selected, cfg)
 			}
+			g.health.phase(false, "waiting")
 		}
 	}
 }
 func (g *bridge) poll(ctx context.Context) error {
 	backoff := time.Second
+	lastPollError := ""
+	queueFull := false
 	for ctx.Err() == nil {
+		g.health.phase(true, "configuration")
 		cfg, err := g.settings()
 		if err != nil {
 			if !pause(ctx, time.Second) {
@@ -295,10 +397,12 @@ func (g *bridge) poll(ctx context.Context) error {
 			}
 			continue
 		}
+		g.health.phase(true, "state_snapshot")
 		value, err := g.store.snapshot()
 		if err != nil {
 			return err
 		}
+		g.health.phase(true, "get_updates")
 		updates, err := g.tg.getUpdates(ctx, value.Offset)
 		if err != nil {
 			var api *apiError
@@ -309,24 +413,51 @@ func (g *bridge) poll(ctx context.Context) error {
 			if errors.As(err, &api) && api.Retry > 0 {
 				delay = time.Duration(api.Retry) * time.Second
 			}
-			fmt.Fprintln(g.log, "telegram polling:", err)
+			if err.Error() != lastPollError {
+				g.emit("error", "polling_failed", map[string]any{"error": err.Error(), "backoff_ms": delay.Milliseconds()})
+				lastPollError = err.Error()
+			}
 			if !pause(ctx, delay) {
 				break
 			}
 			backoff = min(30*time.Second, backoff*2)
 			continue
 		}
+		if lastPollError != "" {
+			g.emit("info", "polling_recovered", nil)
+			lastPollError = ""
+		}
+		g.health.mu.Lock()
+		g.health.value.PollAt = time.Now().UTC()
+		g.health.mu.Unlock()
 		backoff = time.Second
 		for _, u := range updates {
-			if err = ingest(g.home, g.store, cfg, g.bot, u); err != nil {
+			g.health.phase(true, "ingest")
+			if u.ID >= value.Offset {
+				data := map[string]any{"update_id": u.ID}
+				if u.Message != nil && acceptChat(u.Message.Chat, cfg.Telegram.Owner) {
+					data["chat_id"] = u.Message.Chat.ID
+					data["message_id"] = u.Message.ID
+				}
+				g.emit("info", "update_received", data)
+			}
+			if err = ingest(g.home, g.store, cfg, g.bot, u, func(name string, data map[string]any) { g.emit("info", name, data) }); err != nil {
 				// Back-pressure leaves this update unacknowledged.
 				if strings.Contains(err.Error(), "queue is full") {
+					if !queueFull {
+						g.emit("error", "queue_full", nil)
+						queueFull = true
+					}
 					if !pause(ctx, time.Second) {
 						break
 					}
 					break
 				}
 				return err
+			}
+			if queueFull {
+				g.emit("info", "queue_recovered", nil)
+				queueFull = false
 			}
 		}
 		if len(updates) == 0 && !pause(ctx, 100*time.Millisecond) {
@@ -402,10 +533,34 @@ func startTelegram(a *app) error {
 	if a.runner != nil {
 		run = a.runner
 	}
-	g := &bridge{home: a.home, cfg: cfg, store: s, bot: bot, tg: tg, run: run, log: a.errOut}
+	journal, _ := a.errOut.(*diagnosticLog)
+	if journal != nil {
+		journal.secrets = []string{cfg.Telegram.Token, hc.Provider.Key, hc.Decision.Provider.Key}
+	}
+	g := &bridge{journal: journal, home: a.home, cfg: cfg, store: s, bot: bot, tg: tg, run: run, log: a.errOut}
+	if a.runner == nil {
+		g.resume = func(ctx context.Context, dir string, args []string, input string, observe func(childEvent)) (string, error) {
+			return streamedRunner(binary, a.home, observe)(ctx, dir, args, input)
+		}
+	}
 	g.deliver = g.delivery
-	fmt.Fprintf(a.errOut, "telegram: Telegram @%s started\n", bot.Username)
-	return g.loop(a.ctx)
+	revision := "unavailable"
+	if build, ok := debug.ReadBuildInfo(); ok {
+		for _, item := range build.Settings {
+			if item.Key == "vcs.revision" {
+				revision = item.Value
+			}
+		}
+	}
+	plugin, _ := os.Executable()
+	g.emit("info", "daemon_started", map[string]any{"pid": os.Getpid(), "home": a.home, "horizon_binary": binary, "plugin_binary": plugin, "revision": revision})
+	err = g.loop(a.ctx)
+	reason := "completed"
+	if err != nil {
+		reason = err.Error()
+	}
+	g.emit("info", "daemon_stopped", map[string]any{"reason": reason})
+	return err
 }
 func atomicIdentity(home string, botID int64) error {
 	path := filepath.Join(home, "gateway", "identity")
@@ -418,4 +573,22 @@ func atomicIdentity(home string, botID int64) error {
 		return err
 	}
 	return atomicFile(path, []byte(fmt.Sprint(botID)), 0600)
+}
+
+// Rotate across chats; sorting alone indefinitely favors negative group IDs.
+func schedulingOrder(value state, lastOrigin int64) []*chat {
+	chats := sortedChats(value)
+	for i, c := range chats {
+		if c.Origin == lastOrigin {
+			return append(chats[i+1:], chats[:i+1]...)
+		}
+	}
+	return chats
+}
+
+func (g *bridge) jobDuration() time.Duration {
+	if g.jobTimeout > 0 {
+		return g.jobTimeout
+	}
+	return 10 * time.Minute
 }

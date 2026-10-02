@@ -40,3 +40,6 @@ disabled_skills: []
 # Optional plugin-owned settings, keyed by command name (plugins.<name>).
 # Decision uses the shared decision section above and needs no own settings.
 # Run 'horizon telegram init' to add Telegram plugin settings (plugins.telegram).
+
+# Installed agent extensions, explicitly enabled in this order.
+agent_plugins: []

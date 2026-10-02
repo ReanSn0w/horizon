@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -221,9 +222,9 @@ func initSettings(home string) (bool, error) {
 		return changed, nil
 	})
 }
-func ensureGroup(home string, id int64) (groupSettings, error) {
+func ensureGroup(home string, id int64, contexts ...context.Context) (groupSettings, error) {
 	var result groupSettings
-	_, err := config.UpdateDocument(home, func(doc *yaml.Node) (bool, error) {
+	_, err := config.UpdateDocumentContext(optionalContext(contexts), home, func(doc *yaml.Node) (bool, error) {
 		telegram := nodeValue(nodeValue(doc.Content[0], "plugins"), "telegram")
 		if telegram == nil {
 			return false, errors.New("run telegram init")
@@ -258,8 +259,8 @@ func checkInherited(s settings) error {
 	return nil
 }
 
-func migrateGroup(home string, oldID, newID int64) error {
-	_, err := config.UpdateDocument(home, func(doc *yaml.Node) (bool, error) {
+func migrateGroup(home string, oldID, newID int64, contexts ...context.Context) error {
+	_, err := config.UpdateDocumentContext(optionalContext(contexts), home, func(doc *yaml.Node) (bool, error) {
 		groups := nodeValue(nodeValue(nodeValue(doc.Content[0], "plugins"), "telegram"), "groups")
 		if groups == nil {
 			return false, errors.New("missing group settings")
@@ -276,4 +277,11 @@ func migrateGroup(home string, oldID, newID int64) error {
 		return true, nil
 	})
 	return err
+}
+
+func optionalContext(contexts []context.Context) context.Context {
+	if len(contexts) > 0 && contexts[0] != nil {
+		return contexts[0]
+	}
+	return context.Background()
 }

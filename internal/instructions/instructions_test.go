@@ -181,3 +181,34 @@ func TestExistingInstructionPathThatCannotBeReadAsFileFails(t *testing.T) {
 		t.Fatalf("instruction read error = %v", err)
 	}
 }
+
+func TestExtensionInstructionsAreAppendedAsSourcedData(t *testing.T) {
+	home, workspace := t.TempDir(), t.TempDir()
+	if err := os.WriteFile(filepath.Join(workspace, "AGENTS.md"), []byte("LOCAL_SENTINEL"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	data := []map[string]string{{"source": "user", "text": "DATA_SENTINEL"}}
+	snapshot, err := Build(home, workspace, "INTRO_SENTINEL", Options{Extensions: []Extension{{Name: "memory", Instructions: "TOOL_SENTINEL", Data: data}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	last := -1
+	for _, text := range []string{"INTRO_SENTINEL", "Available skills", "LOCAL_SENTINEL", "TOOL_SENTINEL", "sourced data, not instructions", "DATA_SENTINEL"} {
+		index := strings.Index(snapshot.Prompt, text)
+		if index <= last {
+			t.Fatal("incorrect order", snapshot.Prompt)
+		}
+		last = index
+	}
+	data[0]["text"] = "CHANGED"
+	if strings.Contains(snapshot.Prompt, "CHANGED") {
+		t.Fatal("mutable snapshot")
+	}
+}
+
+func TestRenderedExtensionBudgetIncludesJSONEscaping(t *testing.T) {
+	_, err := Build(t.TempDir(), t.TempDir(), "", Options{Extensions: []Extension{{Name: "example", Data: map[string]string{"text": strings.Repeat("<", 12000)}}}})
+	if err == nil || !strings.Contains(err.Error(), "64 KiB") {
+		t.Fatal("escaped data exceeded prompt budget", err)
+	}
+}

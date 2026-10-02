@@ -6,6 +6,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -19,6 +20,7 @@ const (
 )
 
 type Config struct {
+	AgentPlugins   []string
 	Plugins        map[string]yaml.Node
 	DisabledSkills []string
 	SoulEnabled    bool
@@ -53,6 +55,7 @@ type Limits struct {
 }
 
 type rawConfig struct {
+	AgentPlugins   []string             `yaml:"agent_plugins"`
 	Plugins        map[string]yaml.Node `yaml:"plugins"`
 	DisabledSkills disabledIDs          `yaml:"disabled_skills"`
 	SoulEnabled    bool                 `yaml:"soul_enabled"`
@@ -108,6 +111,16 @@ func Load(home string) (Config, error) {
 }
 
 func validate(raw rawConfig) (Config, error) {
+	if len(raw.AgentPlugins) > 16 {
+		return Config{}, errors.New("agent_plugins supports at most 16 plugins")
+	}
+	seen := map[string]bool{}
+	for _, name := range raw.AgentPlugins {
+		if !regexp.MustCompile(`^[a-z][a-z0-9-]*$`).MatchString(name) || seen[name] {
+			return Config{}, fmt.Errorf("invalid or duplicate agent_plugins name %q", name)
+		}
+		seen[name] = true
+	}
 	if raw.Mode != "unit" {
 		if raw.Mode == "server" {
 			return Config{}, errors.New("configuration mode server is not implemented")
@@ -177,6 +190,7 @@ func validate(raw rawConfig) (Config, error) {
 	}
 	return Config{
 		Plugins:        raw.Plugins,
+		AgentPlugins:   append([]string(nil), raw.AgentPlugins...),
 		DisabledSkills: append([]string(nil), raw.DisabledSkills...),
 		SoulEnabled:    raw.SoulEnabled,
 		Mode:           raw.Mode,

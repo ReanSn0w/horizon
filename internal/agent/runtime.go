@@ -2,6 +2,8 @@ package agent
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -11,6 +13,7 @@ import (
 	"github.com/ReanSn0w/horizon/internal/decision"
 	"github.com/ReanSn0w/horizon/internal/eventstream"
 	"github.com/ReanSn0w/horizon/internal/instructions"
+	"github.com/ReanSn0w/horizon/internal/plugins"
 	"github.com/ReanSn0w/horizon/internal/responses"
 	"github.com/ReanSn0w/horizon/internal/session"
 )
@@ -32,6 +35,7 @@ type Runtime struct {
 	Reviewer     decision.Reviewer
 	Profile      session.ModelProfile
 	Instructions *instructions.Snapshot
+	Extensions   []plugins.Extension
 	MaxRequests  int
 	MaxDuration  time.Duration
 	Publish      eventstream.Publish
@@ -85,7 +89,12 @@ func (r *Runtime) Run(ctx context.Context, message string) (Result, error) {
 	if err := r.Locked.StartTurn(turn); err != nil {
 		return Result{}, fmt.Errorf("start turn: %w", err)
 	}
-	r.publish("turn_started", turnID, map[string]any{"model_profile": r.ProfileName, "model": r.Profile.Model})
+	skills := make([]map[string]string, 0)
+	for _, skill := range r.Instructions.Skills.Summaries() {
+		skills = append(skills, map[string]string{"id": skill.ID, "name": skill.Name})
+	}
+	fingerprint := sha256.Sum256([]byte(r.Instructions.Prompt))
+	r.publish("turn_started", turnID, map[string]any{"model_profile": r.ProfileName, "model": r.Profile.Model, "home": r.Store.Home, "skills": skills, "instructions_sha256": hex.EncodeToString(fingerprint[:])})
 
 	input, err := BuildInput(r.Session)
 	if err != nil {
@@ -96,8 +105,12 @@ func (r *Runtime) Run(ctx context.Context, message string) (Result, error) {
 	executor.SetSkillCatalog(r.Instructions.Skills)
 	executor.SetHome(r.Store.Home)
 	executor.SetCommandReview(r.Access, r.Reviewer)
+	if err := executor.SetExtensions(r.Session.SessionID, r.Extensions); err != nil {
+		return Result{}, r.fail(turnID, "tool_registry_failed", err, now)
+	}
 	var automaticCompact *session.Compaction
 	requests := 0
+	var requestStarted time.Time
 	beforeAttempt := func() error {
 		if err := ctx.Err(); err != nil {
 			return err
@@ -106,13 +119,15 @@ func (r *Runtime) Run(ctx context.Context, message string) (Result, error) {
 			return errRequestLimit
 		}
 		requests++
+		requestStarted = now().UTC()
+		r.publish("model_request_started", turnID, map[string]any{"attempt": requests})
 		return nil
 	}
 
 	for {
 		request := responses.Request{
 			Model: r.Profile.Model, Instructions: r.Instructions.Prompt, Input: clone(input),
-			Tools: toolDefinitions(), ParallelToolCalls: false, Store: false,
+			Tools: toolDefinitions(executor.Definitions()), ParallelToolCalls: false, Store: false,
 			Include:           []string{"reasoning.encrypted_content"},
 			ContextManagement: []responses.ContextPolicy{{Type: "compaction", CompactThreshold: r.Profile.CompactThreshold}},
 		}
@@ -124,6 +139,14 @@ func (r *Runtime) Run(ctx context.Context, message string) (Result, error) {
 				r.publish("progress", turnID, map[string]any{"text": event.Delta})
 			}
 		})
+		if !requestStarted.IsZero() {
+			fields := map[string]any{"attempt": requests, "duration_ms": now().UTC().Sub(requestStarted).Milliseconds(), "ok": err == nil}
+			if err != nil {
+				fields["code"] = responseErrorCode(err)
+			}
+			r.publish("model_request_completed", turnID, fields)
+			requestStarted = time.Time{}
+		}
 		if err != nil {
 			return Result{}, r.stop(turnID, err, ctx, parentContext, now)
 		}
@@ -344,8 +367,11 @@ func failedTurnSummary(turn session.Turn) string {
 	return message
 }
 
-func toolDefinitions() []responses.Tool {
+func toolDefinitions(registered ...[]agenttool.Definition) []responses.Tool {
 	definitions := agenttool.Definitions()
+	if len(registered) > 0 {
+		definitions = registered[0]
+	}
 	result := make([]responses.Tool, len(definitions))
 	for index, definition := range definitions {
 		result[index] = responses.Tool(definition)

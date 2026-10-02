@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"os"
@@ -31,5 +32,72 @@ func TestProcessCancellationKillsIgnoringTerm(t *testing.T) {
 	}
 	if err := syscall.Kill(pid, 0); !errors.Is(err, syscall.ESRCH) {
 		t.Fatalf("managed process survived cancellation: %v", err)
+	}
+}
+
+func TestStreamedRunnerObservesBeforeExitAndFiltersContent(t *testing.T) {
+	home := readyHome(t)
+	gate := filepath.Join(t.TempDir(), "gate")
+	script := filepath.Join(t.TempDir(), "script")
+	code := "printf '%s\\n' '{\"type\":\"tool_started\",\"session_id\":\"s\",\"turn_id\":\"t\",\"data\":{\"name\":\"shell_exec\",\"call_id\":\"c\",\"arguments\":{\"command\":\"SECRET_COMMAND\"}}}'\nwhile [ ! -f '" + gate + "' ]; do sleep 0.01; done\nprintf '%s\\n' '{\"type\":\"progress\",\"data\":{\"text\":\"PRIVATE_PROGRESS\"}}' '{\"type\":\"turn_completed\",\"data\":{\"text\":\"FINAL\"}}'\n"
+	if err := os.WriteFile(script, []byte(code), 0600); err != nil {
+		t.Fatal(err)
+	}
+	var journal bytes.Buffer
+	g := &bridge{journal: &diagnosticLog{out: &journal, runID: "run"}}
+	observed := 0
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	output, err := streamedRunner("/bin/sh", home, func(e childEvent) {
+		observed++
+		g.childDiagnostic(e)
+		if e.Type == "tool_started" {
+			if err := os.WriteFile(gate, nil, 0600); err != nil {
+				t.Error(err)
+			}
+		}
+	})(ctx, "", []string{script}, "")
+	if err != nil || output != "FINAL" || observed != 3 {
+		t.Fatal(output, err, observed)
+	}
+	if strings.Contains(journal.String(), "SECRET_COMMAND") || strings.Contains(journal.String(), "PRIVATE_PROGRESS") || strings.Contains(journal.String(), "FINAL") {
+		t.Fatal(journal.String())
+	}
+}
+
+func TestStreamedRunnerRejectsInvalidCompletion(t *testing.T) {
+	for _, tc := range []struct{ name, script string }{
+		{"malformed", "printf 'invalid\\n'; sleep 30"},
+		{"truncated", `printf '{"type":"turn_completed","data":{"text":"answer"}}'`},
+		{"nonzero", `printf '%s\n' '{"type":"turn_completed","data":{"text":"answer"}}'; printf 'test-token unused CLI failure' >&2; exit 2`},
+		{"missing", `printf '%s\n' '{"type":"future_event","data":{}}'`},
+		{"duplicate", `printf '%s\n' '{"type":"turn_completed","data":{"text":"answer"}}' '{"type":"turn_completed","data":{"text":"answer"}}'`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+			defer cancel()
+			out, err := streamedRunner("/bin/sh", readyHome(t), nil)(ctx, "", []string{"-c", tc.script}, "")
+			if err == nil || out != "" || strings.Contains(err.Error(), "test-token") || strings.Contains(err.Error(), "unused") {
+				t.Fatal(out, err)
+			}
+		})
+	}
+}
+
+func TestEventCollectorSizeLimit(t *testing.T) {
+	cancelled := false
+	w := &eventCollector{cancel: func() { cancelled = true }}
+	if _, err := w.Write(bytes.Repeat([]byte("x"), 4*1024*1024+1)); err == nil || !cancelled {
+		t.Fatal("unbounded event")
+	}
+}
+
+func TestStreamedRunnerDrainsLargeStderr(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	code := `i=0; while [ "$i" -lt 10000 ]; do printf 'stderr-payload\n' >&2; i=$((i+1)); done; printf '%s\n' '{"type":"turn_completed","data":{"text":"answer"}}'`
+	out, err := streamedRunner("/bin/sh", "", nil)(ctx, "", []string{"-c", code}, "")
+	if err == nil || errors.Is(err, context.DeadlineExceeded) || out != "" {
+		t.Fatal("stderr was not bounded and drained", out, err)
 	}
 }

@@ -60,6 +60,7 @@ func marshalResponse(outcome outcome) (json.RawMessage, error) {
 }
 
 type outcome struct {
+	Fatal     error
 	Data      any
 	Error     *ToolError
 	Artifacts []artifact

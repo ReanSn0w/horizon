@@ -4,12 +4,14 @@ package config
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
 	"syscall"
+	"time"
 
 	"gopkg.in/yaml.v3"
 )
@@ -69,6 +71,12 @@ func UpdateDisabledSkills(home, id string, disable bool, beforeEnable func([]str
 // symlinks and file mode, and validates the common schema before and after edits.
 // The callback runs under the lock and must not call another config writer.
 func UpdateDocument(home string, edit func(*yaml.Node) (bool, error)) (bool, error) {
+	return UpdateDocumentContext(context.Background(), home, edit)
+}
+
+// UpdateDocumentContext allows a waiting daemon to stop without replacing the
+// permanent lock or changing the order of configuration and state locks.
+func UpdateDocumentContext(ctx context.Context, home string, edit func(*yaml.Node) (bool, error)) (bool, error) {
 	path, err := filepath.EvalSymlinks(filepath.Join(home, "config.yaml"))
 	if err != nil {
 		return false, err
@@ -89,8 +97,24 @@ func UpdateDocument(home string, edit func(*yaml.Node) (bool, error)) (bool, err
 		return false, err
 	}
 	defer lock.Close()
-	if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_EX); err != nil {
-		return false, err
+	for {
+		if err := ctx.Err(); err != nil {
+			return false, err
+		}
+		err := syscall.Flock(int(lock.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)
+		if err == nil {
+			break
+		}
+		if !errors.Is(err, syscall.EWOULDBLOCK) && !errors.Is(err, syscall.EAGAIN) {
+			return false, err
+		}
+		timer := time.NewTimer(20 * time.Millisecond)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return false, ctx.Err()
+		case <-timer.C:
+		}
 	}
 	defer syscall.Flock(int(lock.Fd()), syscall.LOCK_UN)
 	_, document, err := readConfig(path)

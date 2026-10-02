@@ -15,20 +15,24 @@ import (
 )
 
 type listedChat struct {
-	ID           string     `json:"chat_id"`
-	Name         string     `json:"name"`
-	Type         string     `json:"type"`
-	Available    bool       `json:"available"`
-	Workspace    string     `json:"workspace"`
-	Session      string     `json:"session_id"`
-	OwnerOnly    bool       `json:"owner_only"`
-	ResponseMode string     `json:"response_mode"`
-	LastAt       *time.Time `json:"last_message_at"`
-	Pending      int        `json:"pending"`
-	Unknown      int        `json:"unknown"`
-	LastJob      string     `json:"last_request_id,omitempty"`
-	Status       string     `json:"last_status,omitempty"`
-	Error        string     `json:"last_error,omitempty"`
+	CurrentRequest string     `json:"current_request_id,omitempty"`
+	CurrentStage   string     `json:"current_stage,omitempty"`
+	CurrentSince   *time.Time `json:"current_stage_since,omitempty"`
+	QueueWaitMS    *int64     `json:"oldest_queue_wait_ms,omitempty"`
+	ID             string     `json:"chat_id"`
+	Name           string     `json:"name"`
+	Type           string     `json:"type"`
+	Available      bool       `json:"available"`
+	Workspace      string     `json:"workspace"`
+	Session        string     `json:"session_id"`
+	OwnerOnly      bool       `json:"owner_only"`
+	ResponseMode   string     `json:"response_mode"`
+	LastAt         *time.Time `json:"last_message_at"`
+	Pending        int        `json:"pending"`
+	Unknown        int        `json:"unknown"`
+	LastJob        string     `json:"last_request_id,omitempty"`
+	Status         string     `json:"last_status,omitempty"`
+	Error          string     `json:"last_error,omitempty"`
 }
 
 func localStore(home string) (store, error) {
@@ -58,6 +62,10 @@ func listChats(a *app, opt *listCommand) error {
 	if err != nil {
 		return err
 	}
+	health, _ := readHealth(a.home)
+	if time.Since(health.Updated) > 3*time.Second || !telegramRunning(a.home) {
+		health.Active = nil
+	}
 	result := make([]listedChat, 0, len(value.Chats))
 	for _, c := range sortedChats(value) {
 		g := cfg.Defaults
@@ -72,8 +80,22 @@ func listChats(a *app, opt *listCommand) error {
 			t := c.LastAt
 			item.LastAt = &t
 		}
+		for _, active := range health.Active {
+			if active.ChatID == c.ID {
+				item.CurrentRequest = active.RequestID
+				item.CurrentStage = active.Stage
+				since := active.Since
+				item.CurrentSince = &since
+			}
+		}
 		for _, j := range c.Jobs {
 			if pending(j.Status) {
+				if j.Status == "queued" && !j.QueuedAt.IsZero() {
+					ms := time.Since(j.QueuedAt).Milliseconds()
+					if item.QueueWaitMS == nil || ms > *item.QueueWaitMS {
+						item.QueueWaitMS = &ms
+					}
+				}
 				item.Pending++
 			}
 			if j.Status == "unknown" {
@@ -91,13 +113,17 @@ func listChats(a *app, opt *listCommand) error {
 		}{1, result})
 	}
 	w := tabwriter.NewWriter(a.out, 0, 4, 2, ' ', 0)
-	fmt.Fprintln(w, "CHAT ID\tNAME\tTYPE\tAVAILABLE\tOWNER ONLY\tRESPONSE MODE\tLAST MESSAGE\tPENDING\tUNKNOWN\tLAST STATUS\tLAST ERROR\tWORKSPACE\tSESSION")
+	fmt.Fprintln(w, "CHAT ID\tNAME\tTYPE\tAVAILABLE\tOWNER ONLY\tRESPONSE MODE\tLAST MESSAGE\tPENDING\tUNKNOWN\tLAST STATUS\tCURRENT REQUEST\tCURRENT STAGE\tQUEUE WAIT MS\tLAST ERROR\tWORKSPACE\tSESSION")
 	for _, c := range result {
 		last := "-"
 		if c.LastAt != nil {
 			last = c.LastAt.Format(time.RFC3339)
 		}
-		fmt.Fprintf(w, "%s\t%s\t%s\t%t\t%t\t%s\t%s\t%d\t%d\t%s\t%s\t%s\t%s\n", c.ID, safeLine(c.Name), c.Type, c.Available, c.OwnerOnly, c.ResponseMode, last, c.Pending, c.Unknown, c.Status, safeLine(c.Error), safeLine(c.Workspace), c.Session)
+		wait := "-"
+		if c.QueueWaitMS != nil {
+			wait = strconv.FormatInt(*c.QueueWaitMS, 10)
+		}
+		fmt.Fprintf(w, "%s\t%s\t%s\t%t\t%t\t%s\t%s\t%d\t%d\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n", c.ID, safeLine(c.Name), c.Type, c.Available, c.OwnerOnly, c.ResponseMode, last, c.Pending, c.Unknown, c.Status, c.CurrentRequest, c.CurrentStage, wait, safeLine(c.Error), safeLine(c.Workspace), c.Session)
 	}
 	return w.Flush()
 }

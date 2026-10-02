@@ -78,6 +78,46 @@ func TestBuiltTelegramTelegramWorkflow(t *testing.T) {
 				t.Error("foreign private chat leaked into model context")
 			}
 			modelCalls++
+			instructions, _ := body["instructions"].(string)
+			if modelCalls <= 4 && strings.Contains(instructions, "hot-reload-name") {
+				t.Error("future skill present before creation")
+			}
+			if modelCalls == 5 || modelCalls == 6 {
+				if !strings.Contains(instructions, "- hot-reload-name:") {
+					t.Error("new skill missing without gateway restart")
+				}
+			}
+			if modelCalls == 5 {
+				writeCompleted(w, modelCalls, []json.RawMessage{json.RawMessage(`{"type":"function_call","call_id":"reload-read","name":"skill_read","arguments":"{\"name\":\"hot-reload-name\"}"}`)})
+				return
+			}
+			if modelCalls == 6 {
+				found := false
+				for _, item := range body["input"].([]any) {
+					row, ok := item.(map[string]any)
+					if !ok {
+						continue
+					}
+					if row["type"] == "function_call_output" && row["call_id"] == "reload-read" {
+						var result struct {
+							OK   bool `json:"ok"`
+							Data struct {
+								Content string `json:"content"`
+							} `json:"data"`
+						}
+						output, _ := row["output"].(string)
+						if json.Unmarshal([]byte(output), &result) == nil && result.OK && strings.Contains(result.Data.Content, "SKILL_BODY_MARKER") {
+							found = true
+						}
+					}
+				}
+				if !found {
+					t.Error("new skill_read failed")
+				}
+			}
+			if modelCalls == 7 && strings.Contains(instructions, "- hot-reload-name:") {
+				t.Error("disabled skill retained in next turn")
+			}
 			writeCompleted(w, modelCalls, message("generated-response"))
 		case "/alpha/decisions":
 			decisionCalls++
@@ -149,7 +189,7 @@ plugins:
 		t.Fatalf("telegram init %v %s %s", err, out, diag)
 	}
 	start := func() func() {
-		cmd := exec.Command(binary, "--home", home, "telegram", "start")
+		cmd := exec.Command(binary, "--home", home, "telegram", "start", "--log-file", filepath.Join(home, "gateway", "service.log"))
 		cmd.Dir = cwd
 		cmd.Env = filteredEnv("HORIZON_INHERITED_ACCESS")
 		var diagnostics bytes.Buffer
@@ -216,6 +256,22 @@ plugins:
 		t.Errorf("calls: models=%d decisions=%d", modelCalls, decisionCalls)
 	}
 	mu.Unlock()
+	skillPath := filepath.Join(home, "skills", "hot-reload", "SKILL.md")
+	if err := os.MkdirAll(filepath.Dir(skillPath), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(skillPath, []byte("---\nname: hot-reload-name\ndescription: Reload verification\n---\nSKILL_BODY_MARKER\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if out, diag, err := run(binary, cwd, "", "--home", home, "telegram", "send", "--chat", "1", "-m", "read new skill", "--wait", "--json"); err != nil || !strings.Contains(out, `"status":"sent"`) {
+		t.Fatalf("reload skill: %v %s %s", err, out, diag)
+	}
+	if out, diag, err := run(binary, cwd, "", "--home", home, "skills", "disable", "--id", "hot-reload"); err != nil {
+		t.Fatalf("disable skill: %v %s %s", err, out, diag)
+	}
+	if out, diag, err := run(binary, cwd, "", "--home", home, "telegram", "send", "--chat", "1", "-m", "check disabled skill", "--wait", "--json"); err != nil || !strings.Contains(out, `"status":"sent"`) {
+		t.Fatalf("disabled skill turn: %v %s %s", err, out, diag)
+	}
 	if out, diag, err := run(binary, cwd, "", "--home", home, "telegram", "start"); err == nil || !strings.Contains(diag, "already running") {
 		t.Fatalf("duplicate start: %v %s %s", err, out, diag)
 	}
@@ -234,9 +290,23 @@ plugins:
 		t.Errorf("chat bindings changed on restart: %s %s", original, restored)
 	}
 	stop()
+	logData, err := os.ReadFile(filepath.Join(home, "gateway", "service.log"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, secret := range []string{"test-token", "local-key", "owner-input", "group-input", "generated-response", "SKILL_BODY_MARKER"} {
+		if bytes.Contains(logData, []byte(secret)) {
+			t.Errorf("private marker leaked in diagnostic journal: %s", secret)
+		}
+	}
+	for _, event := range []string{"horizon_turn_started", "horizon_tool_started", "horizon_tool_completed", "instructions_sha256", "hot-reload-name"} {
+		if !bytes.Contains(logData, []byte(event)) {
+			t.Errorf("missing diagnostic metadata: %s", event)
+		}
+	}
 	mu.Lock()
 	defer mu.Unlock()
-	if modelCalls != 4 || len(sent) != 4 {
+	if modelCalls != 7 || len(sent) != 6 {
 		t.Errorf("restart repeated effects: models=%d sends=%d", modelCalls, len(sent))
 	}
 }

@@ -209,10 +209,10 @@ provider:
 		t.Fatalf("jsonl resume code=%d stderr=%q", code, stderr)
 	}
 	lines := strings.Split(strings.TrimSpace(stdout), "\n")
-	if len(lines) != 3 {
+	if len(lines) != 5 {
 		t.Fatalf("JSONL lines=%d: %s", len(lines), stdout)
 	}
-	want := []string{"turn_started", "progress", "turn_completed"}
+	want := []string{"turn_started", "model_request_started", "progress", "model_request_completed", "turn_completed"}
 	for index, line := range lines {
 		var event struct {
 			Type string         `json:"type"`

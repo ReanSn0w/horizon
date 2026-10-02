@@ -87,19 +87,20 @@ func TestMetadataTimeoutKillsChildHoldingOutputPipe(t *testing.T) {
 	home := t.TempDir()
 	ready := filepath.Join(home, "child.ready")
 	marker := filepath.Join(home, "child.marker")
-	path := candidate(t, home, "child", "( echo ready > '"+ready+"'; sleep 1; echo survived > '"+marker+"' ) &\nwait\n")
+	path := candidate(t, home, "child", "( echo ready > '"+ready+"'; sleep 2; echo survived > '"+marker+"' ) &\nwait\n")
+	// Allow process startup under parallel builds; still expire before the child writes.
 	start := time.Now()
-	_, err := readMetadata(path, home, 200*time.Millisecond)
+	_, err := readMetadata(path, home, time.Second)
 	if !errors.Is(err, ErrMetadataTimeout) {
 		t.Fatalf("expected metadata timeout, got %v", err)
 	}
-	if elapsed := time.Since(start); elapsed > 700*time.Millisecond {
+	if elapsed := time.Since(start); elapsed > 2*time.Second {
 		t.Fatalf("metadata wait held by child pipe for %s", elapsed)
 	}
 	if _, err := os.Stat(ready); err != nil {
 		t.Fatalf("child was not started: %v", err)
 	}
-	time.Sleep(1100 * time.Millisecond)
+	time.Sleep(2100 * time.Millisecond)
 	if _, err := os.Stat(marker); err == nil {
 		t.Fatal("managed metadata child survived timeout")
 	} else if !os.IsNotExist(err) {

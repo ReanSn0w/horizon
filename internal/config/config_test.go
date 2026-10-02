@@ -248,3 +248,16 @@ func TestDecisionFullEndpoint(t *testing.T) {
 		}
 	}
 }
+
+func TestAgentPlugins(t *testing.T) {
+	for _, value := range []string{"", "agent_plugins: []\n", "agent_plugins: [memory, other]\n", "agent_plugins: [memory, memory]\n", "agent_plugins: [../escape]\n", "agent_plugins: memory\n"} {
+		cfg, err := Load(writeConfig(t, validConfig+value))
+		invalid := strings.Contains(value, "memory, memory") || strings.Contains(value, "escape") || value == "agent_plugins: memory\n"
+		if (err != nil) != invalid {
+			t.Fatalf("%q: %v", value, err)
+		}
+		if value == "agent_plugins: [memory, other]\n" && strings.Join(cfg.AgentPlugins, ",") != "memory,other" {
+			t.Fatal(cfg.AgentPlugins)
+		}
+	}
+}

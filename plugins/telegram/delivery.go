@@ -63,10 +63,15 @@ func (g *bridge) delivery(ctx context.Context, c *chat, j *job) error {
 		if err = g.setJob(c.ID, j.ID, func(_ *chat, j *job) error { j.Status = "sending"; return nil }); err != nil {
 			return err
 		}
+		fields := jobFields(c, j)
+		fields["fragment"] = index
+		g.emit("info", "delivery_started", fields)
 		messageID, err := g.tg.send(ctx, c, j, j.Parts[index])
 		if err != nil {
 			var api *apiError
 			if errors.As(err, &api) && api.Code == 429 {
+				fields["retry_after"] = max(api.Retry, 1)
+				g.emit("info", "delivery_rate_limited", fields)
 				if err = g.setJob(c.ID, j.ID, func(_ *chat, j *job) error { j.Status = "generated"; return nil }); err != nil {
 					return err
 				}
@@ -94,6 +99,8 @@ func (g *bridge) delivery(ctx context.Context, c *chat, j *job) error {
 		}
 		text := j.Parts[index]
 		if err = g.setJob(c.ID, j.ID, func(c *chat, j *job) error {
+			fields["sent_message_id"] = messageID
+			g.emit("info", "delivery_confirmed", fields)
 			j.Sent = append(j.Sent, messageID)
 			appendHistory(c, record{ID: messageID, Author: g.bot.ID, Name: g.bot.Username, Text: text, Time: time.Now().Unix(), Thread: j.Thread, Bot: true})
 			j.Status = "generated"
@@ -105,6 +112,8 @@ func (g *bridge) delivery(ctx context.Context, c *chat, j *job) error {
 		}); err != nil {
 			return err
 		}
+		fields["sent_message_id"] = messageID
+		g.emit("info", "delivery_confirmed", fields)
 		j.Sent = append(j.Sent, messageID)
 		if len(j.Sent) < len(j.Parts) && !pause(ctx, time.Second) {
 			return ctx.Err()
