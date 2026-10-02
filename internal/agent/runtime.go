@@ -98,6 +98,7 @@ func (r *Runtime) Run(ctx context.Context, message string) (Result, error) {
 	executor.SetCommandReview(r.Access, r.Reviewer)
 	var automaticCompact *session.Compaction
 	requests := 0
+	var requestStarted time.Time
 	beforeAttempt := func() error {
 		if err := ctx.Err(); err != nil {
 			return err
@@ -106,6 +107,8 @@ func (r *Runtime) Run(ctx context.Context, message string) (Result, error) {
 			return errRequestLimit
 		}
 		requests++
+		requestStarted = now().UTC()
+		r.publish("model_request_started", turnID, map[string]any{"attempt": requests})
 		return nil
 	}
 
@@ -124,6 +127,14 @@ func (r *Runtime) Run(ctx context.Context, message string) (Result, error) {
 				r.publish("progress", turnID, map[string]any{"text": event.Delta})
 			}
 		})
+		if !requestStarted.IsZero() {
+			fields := map[string]any{"attempt": requests, "duration_ms": now().UTC().Sub(requestStarted).Milliseconds(), "ok": err == nil}
+			if err != nil {
+				fields["code"] = responseErrorCode(err)
+			}
+			r.publish("model_request_completed", turnID, fields)
+			requestStarted = time.Time{}
+		}
 		if err != nil {
 			return Result{}, r.stop(turnID, err, ctx, parentContext, now)
 		}

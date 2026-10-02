@@ -27,6 +27,7 @@ type bridge struct {
 	run     runProcess
 	log     io.Writer
 	journal *diagnosticLog
+	resume  func(context.Context, string, []string, string, func(childEvent)) (string, error)
 	deliver func(context.Context, *chat, *job) error
 }
 
@@ -158,7 +159,14 @@ func (g *bridge) process(ctx context.Context, c *chat, j *job, cfg settings) err
 	if err = g.setJob(c.ID, j.ID, func(c *chat, j *job) error { j.Status = "generating"; j.ContextSeq = seq; return nil }); err != nil {
 		return err
 	}
-	output, err := g.run(ctx, c.Workspace, []string{"--home", g.home, "resume", "--session", c.Session, "--mode", "plain", "--access", mode}, string(data))
+	runner, outputMode := g.run, "plain"
+	if g.resume != nil {
+		runner = func(ctx context.Context, dir string, args []string, input string) (string, error) {
+			return g.resume(ctx, dir, args, input, func(event childEvent) { g.childDiagnostic(event, jobFields(c, j)) })
+		}
+		outputMode = "jsonl"
+	}
+	output, err := runner(ctx, c.Workspace, []string{"--home", g.home, "resume", "--session", c.Session, "--mode", outputMode, "--access", mode}, string(data))
 	if err != nil {
 		return g.fail(c.ID, j.ID, fmt.Errorf("Horizon session %s: %w", c.Session, err), true)
 	}
@@ -482,6 +490,11 @@ func startTelegram(a *app) error {
 		journal.secrets = []string{cfg.Telegram.Token, hc.Provider.Key, hc.Decision.Provider.Key}
 	}
 	g := &bridge{journal: journal, home: a.home, cfg: cfg, store: s, bot: bot, tg: tg, run: run, log: a.errOut}
+	if a.runner == nil {
+		g.resume = func(ctx context.Context, dir string, args []string, input string, observe func(childEvent)) (string, error) {
+			return streamedRunner(binary, a.home, observe)(ctx, dir, args, input)
+		}
+	}
 	g.deliver = g.delivery
 	revision := "unavailable"
 	if build, ok := debug.ReadBuildInfo(); ok {
