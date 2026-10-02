@@ -219,6 +219,7 @@ func manageService(a *app, opt *serviceCommand, host serviceHost) error {
 		}
 		fmt.Fprintf(a.out, "Service: %s\nInstalled: true\nEnabled: %t\nLoaded: %t\nRunning: %t\n", name, enabled, loaded(), telegramRunning(home))
 		printServiceLogs(a, current, home)
+		printHealth(a)
 		return nil
 	case "start":
 		if _, err = host.run(a.ctx, "launchctl", "enable", label); err != nil {

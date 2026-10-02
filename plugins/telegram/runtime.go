@@ -19,6 +19,7 @@ import (
 )
 
 type bridge struct {
+	health  *diagnosticHealth
 	home    string
 	cfg     settings
 	store   store
@@ -45,6 +46,9 @@ func (g *bridge) settings() (settings, error) {
 	return s, nil
 }
 func (g *bridge) emit(level, event string, data map[string]any) {
+	if g.health != nil {
+		g.health.event(event, data)
+	}
 	if g.journal != nil {
 		g.journal.event(level, event, data)
 	}
@@ -234,12 +238,20 @@ func (g *bridge) fail(chatID int64, id string, cause error, unknown bool) error 
 func (g *bridge) loop(ctx context.Context) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
+	if g.health == nil {
+		id := requestID()
+		if g.journal != nil {
+			id = g.journal.runID
+		}
+		g.health = newHealth(id)
+	}
 	if err := g.store.recover(); err != nil {
 		return err
 	}
 	pollDone := make(chan error, 1)
 	var wg sync.WaitGroup
-	wg.Add(1)
+	wg.Add(2)
+	go func() { defer wg.Done(); g.healthLoop(ctx) }()
 	go func() { defer wg.Done(); pollDone <- g.poll(ctx) }()
 	active := map[int64]bool{}
 	done := make(chan int64, 32)
@@ -262,6 +274,7 @@ func (g *bridge) loop(ctx context.Context) error {
 		case origin := <-done:
 			delete(active, origin)
 		case <-tick.C:
+			g.health.phase(false, "configuration")
 			cfg, err := g.settings()
 			if err != nil {
 				if err.Error() != lastConfigError {
@@ -274,10 +287,24 @@ func (g *bridge) loop(ctx context.Context) error {
 				g.emit("info", "configuration_recovered", nil)
 			}
 			lastConfigError = ""
+			g.health.phase(false, "state_snapshot")
 			value, err := g.store.snapshot()
 			if err != nil {
 				return err
 			}
+			g.health.mu.Lock()
+			g.health.value.Parallel = cfg.Parallel
+			g.health.value.Slots = len(active)
+			g.health.value.Pending = 0
+			for _, c := range value.Chats {
+				for _, j := range c.Jobs {
+					if pending(j.Status) {
+						g.health.value.Pending++
+					}
+				}
+			}
+			g.health.mu.Unlock()
+			g.health.phase(false, "scheduling")
 			for _, c := range sortedChats(value) {
 				if len(active) >= cfg.Parallel {
 					break
@@ -340,6 +367,7 @@ func (g *bridge) loop(ctx context.Context) error {
 					}
 				}(c, selected, cfg)
 			}
+			g.health.phase(false, "waiting")
 		}
 	}
 }
@@ -348,6 +376,7 @@ func (g *bridge) poll(ctx context.Context) error {
 	lastPollError := ""
 	queueFull := false
 	for ctx.Err() == nil {
+		g.health.phase(true, "configuration")
 		cfg, err := g.settings()
 		if err != nil {
 			if !pause(ctx, time.Second) {
@@ -355,10 +384,12 @@ func (g *bridge) poll(ctx context.Context) error {
 			}
 			continue
 		}
+		g.health.phase(true, "state_snapshot")
 		value, err := g.store.snapshot()
 		if err != nil {
 			return err
 		}
+		g.health.phase(true, "get_updates")
 		updates, err := g.tg.getUpdates(ctx, value.Offset)
 		if err != nil {
 			var api *apiError
@@ -383,8 +414,12 @@ func (g *bridge) poll(ctx context.Context) error {
 			g.emit("info", "polling_recovered", nil)
 			lastPollError = ""
 		}
+		g.health.mu.Lock()
+		g.health.value.PollAt = time.Now().UTC()
+		g.health.mu.Unlock()
 		backoff = time.Second
 		for _, u := range updates {
+			g.health.phase(true, "ingest")
 			if u.ID >= value.Offset {
 				data := map[string]any{"update_id": u.ID}
 				if u.Message != nil && acceptChat(u.Message.Chat, cfg.Telegram.Owner) {
