@@ -17,6 +17,7 @@ import (
 	"github.com/ReanSn0w/horizon/internal/decision"
 	"github.com/ReanSn0w/horizon/internal/eventstream"
 	"github.com/ReanSn0w/horizon/internal/instructions"
+	"github.com/ReanSn0w/horizon/internal/plugins"
 	"github.com/ReanSn0w/horizon/internal/responses"
 	"github.com/ReanSn0w/horizon/internal/session"
 	flags "github.com/umputun/go-flags"
@@ -147,7 +148,9 @@ func (command *resumeCommand) Execute(args []string) error {
 		return failure(err.Error(), err)
 	}
 	defer locked.Close()
-	snapshot, err := buildInstructions(home, workspace.Dir, cfg)
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer stop()
+	snapshot, _, err := command.app.buildPluginInstructions(ctx, home, workspace, cfg, access, true)
 	if err != nil {
 		return failure(err.Error(), err)
 	}
@@ -179,8 +182,6 @@ func (command *resumeCommand) Execute(args []string) error {
 		MaxDuration:  cfg.Limits.MaxTurnDuration,
 		Publish:      newEventPublisher(command.Mode, command.global.Verbose, command.app.out, command.app.errOut),
 	}
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
-	defer stop()
 	result, err := runtime.Run(ctx, message)
 	if err != nil {
 		var runtimeError *agent.Error
@@ -332,7 +333,9 @@ func (command *sessionsCompactCommand) Execute(args []string) error {
 	if err != nil {
 		return err
 	}
-	snapshot, err := buildInstructions(home, workspace.Dir, cfg)
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer stop()
+	snapshot, _, err := command.app.buildPluginInstructions(ctx, home, workspace, cfg, "read", false)
 	if err != nil {
 		return failure(err.Error(), err)
 	}
@@ -345,8 +348,6 @@ func (command *sessionsCompactCommand) Execute(args []string) error {
 		return failure(err.Error(), err)
 	}
 	client := &responses.Client{ResponsesURL: responsesURL, CompactURL: compactURL, APIKey: cfg.Provider.Key, HTTPClient: http.DefaultClient}
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
-	defer stop()
 	result, err := agent.Compact(ctx, client, locked, value, snapshot.Prompt, cfg.Limits.MaxTurnDuration, publish)
 	if err != nil {
 		return failure(err.Error(), err)
@@ -406,4 +407,17 @@ func rejectArgs(args []string) error {
 
 func buildInstructions(home, workspace string, cfg config.Config) (*instructions.Snapshot, error) {
 	return instructions.Build(home, workspace, agent.Introduction, instructions.Options{DisabledSkills: cfg.DisabledSkills, SoulEnabled: cfg.SoulEnabled})
+}
+
+func (a *App) buildPluginInstructions(ctx context.Context, home string, workspace session.Workspace, cfg config.Config, access string, maintain bool) (*instructions.Snapshot, []plugins.Extension, error) {
+	extensions, err := plugins.Prepare(ctx, home, workspace, access, cfg.AgentPlugins, maintain, func(message string) { fmt.Fprintln(a.errOut, message) })
+	if err != nil {
+		return nil, nil, err
+	}
+	blocks := make([]instructions.Extension, 0, len(extensions))
+	for _, extension := range extensions {
+		blocks = append(blocks, instructions.Extension{Name: extension.Name, Instructions: extension.Description.Instructions, Data: extension.Context})
+	}
+	snapshot, err := instructions.Build(home, workspace.Dir, agent.Introduction, instructions.Options{DisabledSkills: cfg.DisabledSkills, SoulEnabled: cfg.SoulEnabled, Extensions: blocks})
+	return snapshot, extensions, err
 }
