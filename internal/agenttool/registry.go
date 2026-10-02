@@ -15,6 +15,7 @@ type handler func(context.Context, json.RawMessage, environment) outcome
 type registeredTool struct {
 	definition Definition
 	handler    handler
+	validate   func(json.RawMessage) *ToolError
 }
 
 func registry() []registeredTool {

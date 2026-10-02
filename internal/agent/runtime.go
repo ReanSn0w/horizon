@@ -13,6 +13,7 @@ import (
 	"github.com/ReanSn0w/horizon/internal/decision"
 	"github.com/ReanSn0w/horizon/internal/eventstream"
 	"github.com/ReanSn0w/horizon/internal/instructions"
+	"github.com/ReanSn0w/horizon/internal/plugins"
 	"github.com/ReanSn0w/horizon/internal/responses"
 	"github.com/ReanSn0w/horizon/internal/session"
 )
@@ -34,6 +35,7 @@ type Runtime struct {
 	Reviewer     decision.Reviewer
 	Profile      session.ModelProfile
 	Instructions *instructions.Snapshot
+	Extensions   []plugins.Extension
 	MaxRequests  int
 	MaxDuration  time.Duration
 	Publish      eventstream.Publish
@@ -103,6 +105,9 @@ func (r *Runtime) Run(ctx context.Context, message string) (Result, error) {
 	executor.SetSkillCatalog(r.Instructions.Skills)
 	executor.SetHome(r.Store.Home)
 	executor.SetCommandReview(r.Access, r.Reviewer)
+	if err := executor.SetExtensions(r.Session.SessionID, r.Extensions); err != nil {
+		return Result{}, r.fail(turnID, "tool_registry_failed", err, now)
+	}
 	var automaticCompact *session.Compaction
 	requests := 0
 	var requestStarted time.Time
@@ -122,7 +127,7 @@ func (r *Runtime) Run(ctx context.Context, message string) (Result, error) {
 	for {
 		request := responses.Request{
 			Model: r.Profile.Model, Instructions: r.Instructions.Prompt, Input: clone(input),
-			Tools: toolDefinitions(), ParallelToolCalls: false, Store: false,
+			Tools: toolDefinitions(executor.Definitions()), ParallelToolCalls: false, Store: false,
 			Include:           []string{"reasoning.encrypted_content"},
 			ContextManagement: []responses.ContextPolicy{{Type: "compaction", CompactThreshold: r.Profile.CompactThreshold}},
 		}
@@ -362,8 +367,11 @@ func failedTurnSummary(turn session.Turn) string {
 	return message
 }
 
-func toolDefinitions() []responses.Tool {
+func toolDefinitions(registered ...[]agenttool.Definition) []responses.Tool {
 	definitions := agenttool.Definitions()
+	if len(registered) > 0 {
+		definitions = registered[0]
+	}
 	result := make([]responses.Tool, len(definitions))
 	for index, definition := range definitions {
 		result[index] = responses.Tool(definition)

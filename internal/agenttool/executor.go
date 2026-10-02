@@ -21,6 +21,7 @@ type Executor struct {
 	turnID       string
 	now          func() time.Time
 	tools        map[string]registeredTool
+	order        []string
 	skills       *instructions.Catalog
 	home         string
 	access       string
@@ -49,10 +50,12 @@ func (e *Executor) SetCommandReview(access string, reviewer decision.Reviewer) {
 func NewExecutor(workspace, artifactsDir string, locked *session.LockedSession, turnID string) *Executor {
 	registered := registry()
 	tools := make(map[string]registeredTool, len(registered))
+	order := make([]string, 0, len(registered))
 	for _, item := range registered {
 		tools[item.definition.Name] = item
+		order = append(order, item.definition.Name)
 	}
-	return &Executor{workspace: workspace, artifactsDir: artifactsDir, locked: locked, turnID: turnID, now: time.Now, tools: tools}
+	return &Executor{workspace: workspace, artifactsDir: artifactsDir, locked: locked, turnID: turnID, now: time.Now, tools: tools, order: order}
 }
 
 func Definitions() []Definition {
@@ -84,7 +87,7 @@ func (e *Executor) Execute(ctx context.Context, callID, name string, arguments j
 		result = outcome{Error: &ToolError{Code: "cancelled", Message: err.Error()}}
 	} else if registered, ok := e.tools[name]; !ok {
 		result = outcome{Error: &ToolError{Code: "unknown_tool", Message: fmt.Sprintf("unknown tool %q", name)}}
-	} else if validationError := validateArguments(name, arguments); validationError != nil {
+	} else if validationError := registered.validateArguments(arguments); validationError != nil {
 		result = outcome{Error: validationError}
 	} else {
 		if name == ShellExec {
@@ -111,8 +114,11 @@ func (e *Executor) Execute(ctx context.Context, callID, name string, arguments j
 				}
 			}
 		} else {
-			result = registered.handler(ctx, arguments, environment{workspace: e.workspace, artifactsDir: e.artifactsDir, callID: callID, skills: e.skills, home: e.home})
+			result = registered.handler(ctx, arguments, environment{workspace: e.workspace, artifactsDir: e.artifactsDir, callID: callID, skills: e.skills, home: e.home, access: e.access})
 		}
+	}
+	if result.Fatal != nil {
+		return nil, result.Fatal
 	}
 	encoded, err := marshalResponse(result)
 	if err != nil {
@@ -142,4 +148,18 @@ func decodeStrict(arguments json.RawMessage, target any) *ToolError {
 		return invalid(err.Error())
 	}
 	return nil
+}
+
+func (tool registeredTool) validateArguments(arguments json.RawMessage) *ToolError {
+	if tool.validate != nil {
+		return tool.validate(arguments)
+	}
+	return validateArguments(tool.definition.Name, arguments)
+}
+func (e *Executor) Definitions() []Definition {
+	result := make([]Definition, 0, len(e.order))
+	for _, name := range e.order {
+		result = append(result, e.tools[name].definition)
+	}
+	return result
 }

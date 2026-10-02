@@ -150,7 +150,7 @@ func (command *resumeCommand) Execute(args []string) error {
 	defer locked.Close()
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
-	snapshot, _, err := command.app.buildPluginInstructions(ctx, home, workspace, cfg, access, true)
+	snapshot, extensions, err := command.app.buildPluginInstructions(ctx, home, workspace, cfg, access, true)
 	if err != nil {
 		return failure(err.Error(), err)
 	}
@@ -178,6 +178,7 @@ func (command *resumeCommand) Execute(args []string) error {
 		Reviewer:     reviewer,
 		Profile:      session.ModelProfile{Name: profileName, Model: profile.Model, Reasoning: profile.Reasoning, CompactThreshold: profile.CompactThreshold},
 		Instructions: snapshot,
+		Extensions:   extensions,
 		MaxRequests:  cfg.Limits.MaxModelRequests,
 		MaxDuration:  cfg.Limits.MaxTurnDuration,
 		Publish:      newEventPublisher(command.Mode, command.global.Verbose, command.app.out, command.app.errOut),
