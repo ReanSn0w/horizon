@@ -2,7 +2,7 @@
 
 Каждый плагин хранится в отдельном каталоге `plugins/<имя>/`. Этот каталог
 содержит исходники и не сканируется Horizon. Доступные плагины — `decision`
-и `telegram`.
+`telegram` и `memory`.
 
 Можно установить symlink на исполняемый файл. Для удаления достаточно удалить
 `<home>/plugins/horizon-<имя>`. `init` плагины автоматически не устанавливает.
@@ -54,9 +54,15 @@ horizon --home /path/to/home telegram start
 `make install-decision HORIZON_HOME=/path/to/home`.
 [Настройки, правила групп, send и управление службами](telegram/README.md).
 
-`make install-plugins` по умолчанию устанавливает `decision` и `telegram`.
+`make install-plugins` по умолчанию устанавливает `decision` `telegram` и `memory`.
 Для отдельной установки используйте `make install-decision` или
 `make install-telegram`; `PLUGINS=decision` выбирает только decision.
 `HORIZON_HOME` берётся из окружения или равен `~/.horizon`.
 Бинарники устанавливаются с правами `0700`; ошибка сборки сохраняет
 ранее установленную версию. Конфигурация и сессии не изменяются.
+
+## Memory
+
+`make install-memory` устанавливает отдельный плагин памяти. Включение контекста
+и инструментов: `agent_plugins: [memory]` в config.yaml; настройки — plugins.memory.
+[Команды, сжатие и уровни памяти](memory/README.md).

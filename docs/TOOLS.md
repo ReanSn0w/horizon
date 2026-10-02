@@ -1,6 +1,6 @@
 # Инструменты Horizon
 
-Модель получает два последовательных function tools: `skill_read` и
+По умолчанию модель получает два последовательных function tools: `skill_read` и
 `shell_exec`. Их схемы и исполнение находятся в `internal/agenttool`.
 Используется `strict: true`, `additionalProperties: false` и
 `parallel_tool_calls: false`. Результат возвращается в
@@ -78,3 +78,32 @@ Horizon не вызывает Jev и не требует его настройк
 `<home>/dialogs/<workspace-id>/<session-id>.artifacts/`. `sessions delete`
 удаляет их вместе с файлом сессии после получения блокировки; форк копирует
 артефакты, на которые ссылается переносимая история.
+
+## Инструменты расширений агента
+
+Явно включённые `agent_plugins` добавляют `<plugin>__<tool>` в тот же реестр
+определений, валидации аргументов и исполнения. Вызовы сохраняются существующим
+журналом pending/known/unknown; ошибка записи pending не позволяет запуск,
+ошибка сохранения результата останавливает ход. Полная ограниченная диагностика
+stderr сохраняется в артефакте plugin_stderr. Stdout служебной команды является
+JSON-результатом инструмента и не печатается как финальный ответ.
+
+Инструменты объявляют эффект: read, write_home, write_workspace, unrestricted.
+Read разрешает только чтение; write — также запись в home/workspace; full — все.
+Запрещённая операция получает access_denied до запуска процесса. Доверенный
+плагин запускается напрямую, без Jev; shell_exec сохраняет прежнюю проверку.
+Неизвестный исход после запуска имеет код plugin_outcome_unknown; автоматически
+повторять такую запись нельзя. Удалённый инструмент возвращает unknown_tool.
+
+Memory предоставляет:
+
+```json
+{"scope":"user","text":"Confirmed durable preference"}
+```
+
+для `memory__add` и `{"scope":"user"}` для `memory__read`. Scope: agent, user,
+workspace; пути выбирает хост. Read возвращает ограниченные блоки source/text,
+add — saved/id/duplicate и отдельный статус compaction. Ошибка сжатия после
+успешного add не отменяет сохранённую заметку. Инструмента clear у модели нет.
+[Подробности памяти](../plugins/memory/README.md),
+[протокол расширений](PLUGINS.md).

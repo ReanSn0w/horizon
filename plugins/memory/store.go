@@ -98,12 +98,19 @@ func (m *memoryStore) read(scope string) (state, error) {
 	if err := plugins.Decode(data, &s); err != nil {
 		return empty, fmt.Errorf("invalid memory state: %w", err)
 	}
-	if s.FormatVersion != 1 || s.Scope != scope || s.Workspace != empty.Workspace || s.Generation == "" {
+	_, generationError := hex.DecodeString(s.Generation)
+	if s.FormatVersion != 1 || s.Scope != scope || s.Workspace != empty.Workspace || len(s.Generation) != 32 || generationError != nil || s.Revision == 0 || s.AttemptIncomplete && s.LastAttemptAt == nil {
 		return empty, fmt.Errorf("incompatible memory state for %s", scope)
+	}
+	if scope == "workspace" && (!filepath.IsAbs(s.Workspace) || filepath.Clean(s.Workspace) != s.Workspace) {
+		return empty, fmt.Errorf("invalid stored workspace path")
+	}
+	if len(s.Pending) > 1024 || len(s.Summary) > 32768 {
+		return empty, fmt.Errorf("invalid memory state bounds")
 	}
 	ids := map[string]bool{}
 	for _, n := range s.Pending {
-		if n.ID == "" || n.At.IsZero() || strings.TrimSpace(n.Text) == "" || ids[n.ID] {
+		if n.ID == "" || len(n.ID) > 512 || n.At.IsZero() || strings.TrimSpace(n.Text) == "" || len(n.Text) > 16384 || ids[n.ID] {
 			return empty, fmt.Errorf("invalid pending memory note")
 		}
 		ids[n.ID] = true
@@ -113,7 +120,8 @@ func (m *memoryStore) read(scope string) (state, error) {
 	}
 	ids = map[string]bool{}
 	for _, o := range s.Operations {
-		if o.ID == "" || len(o.Digest) != 64 || o.At.IsZero() || ids[o.ID] {
+		_, digestError := hex.DecodeString(o.Digest)
+		if o.ID == "" || len(o.ID) > 512 || len(o.Digest) != 64 || digestError != nil || o.At.IsZero() || ids[o.ID] {
 			return empty, fmt.Errorf("invalid memory operation ledger")
 		}
 		ids[o.ID] = true
@@ -154,7 +162,7 @@ func (m *memoryStore) add(ctx context.Context, scope, text, id string) (note, bo
 	if text == "" || !utf8.ValidString(text) || len(text) > m.settings.NoteLimit {
 		return note{}, false, fmt.Errorf("note must be nonempty UTF-8 and fit note_limit")
 	}
-	if strings.TrimSpace(id) == "" || len(id) > 512 {
+	if strings.TrimSpace(id) == "" || len(id) > 512 || !utf8.ValidString(id) {
 		return note{}, false, fmt.Errorf("operation ID required (at most 512 bytes)")
 	}
 	hash := sha256.Sum256([]byte(text))
@@ -224,6 +232,9 @@ func saveState(path string, s state) error {
 	data, err := json.Marshal(s)
 	if err != nil {
 		return err
+	}
+	if len(data) > maxStateBytes {
+		return fmt.Errorf("serialized memory state exceeds size limit")
 	}
 	f, err := os.CreateTemp(filepath.Dir(path), ".memory-*")
 	if err != nil {

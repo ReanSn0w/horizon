@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math/big"
 	"reflect"
+	"strings"
 )
 
 // CheckSchema deliberately implements a small strict subset instead of accepting
@@ -163,8 +164,8 @@ func validateValue(s map[string]any, v any, enum bool) error {
 			matched = matched || ok
 		case "integer":
 			if n, ok := v.(json.Number); ok {
-				r, ok := new(big.Rat).SetString(string(n))
-				matched = matched || ok && r.IsInt()
+				_, exponent := numberParts(n)
+				matched = matched || exponent.Sign() >= 0
 			}
 		case "object":
 			_, ok := v.(map[string]any)
@@ -181,7 +182,7 @@ func validateValue(s map[string]any, v any, enum bool) error {
 		if values, ok := s["enum"].([]any); ok {
 			found := false
 			for _, x := range values {
-				found = found || reflect.DeepEqual(v, x)
+				found = found || equalJSON(v, x)
 			}
 			if !found {
 				return fmt.Errorf("value is outside enum")
@@ -211,4 +212,68 @@ func validateValue(s map[string]any, v any, enum bool) error {
 		}
 	}
 	return nil
+}
+
+// Normalize the decimal digits and exponent without allocating a number whose
+// size depends on its exponent (for example 1e100000000).
+func numberParts(n json.Number) (string, *big.Int) {
+	text := string(n)
+	exponent := new(big.Int)
+	if i := strings.IndexAny(text, "eE"); i >= 0 {
+		exponent.SetString(text[i+1:], 10)
+		text = text[:i]
+	}
+	negative := strings.HasPrefix(text, "-")
+	text = strings.TrimPrefix(text, "-")
+	if i := strings.IndexByte(text, '.'); i >= 0 {
+		exponent.Sub(exponent, big.NewInt(int64(len(text)-i-1)))
+		text = text[:i] + text[i+1:]
+	}
+	text = strings.TrimLeft(text, "0")
+	if text == "" {
+		return "0", new(big.Int)
+	}
+	trimmed := strings.TrimRight(text, "0")
+	exponent.Add(exponent, big.NewInt(int64(len(text)-len(trimmed))))
+	if negative {
+		trimmed = "-" + trimmed
+	}
+	return trimmed, exponent
+}
+func equalJSON(a, b any) bool {
+	switch x := a.(type) {
+	case json.Number:
+		y, ok := b.(json.Number)
+		if !ok {
+			return false
+		}
+		xd, xe := numberParts(x)
+		yd, ye := numberParts(y)
+		return xd == yd && xe.Cmp(ye) == 0
+	case map[string]any:
+		y, ok := b.(map[string]any)
+		if !ok || len(x) != len(y) {
+			return false
+		}
+		for k, v := range x {
+			other, ok := y[k]
+			if !ok || !equalJSON(v, other) {
+				return false
+			}
+		}
+		return true
+	case []any:
+		y, ok := b.([]any)
+		if !ok || len(x) != len(y) {
+			return false
+		}
+		for i, v := range x {
+			if !equalJSON(v, y[i]) {
+				return false
+			}
+		}
+		return true
+	default:
+		return reflect.DeepEqual(a, b)
+	}
 }

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/ReanSn0w/horizon/internal/config"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"sync/atomic"
@@ -175,5 +176,54 @@ func TestSummaryUsesOrdinaryResponsesWithoutHistory(t *testing.T) {
 	result, err := apiSummarizer(cfg, s)(context.Background(), "agent", "old", []note{{ID: "id", Text: "new", At: time.Now()}})
 	if err != nil || result != "Durable fact" || calls.Load() != 1 {
 		t.Fatal(result, err, calls.Load())
+	}
+}
+
+func TestAPIFailureAndCancellationPreserveMemory(t *testing.T) {
+	for _, cancelled := range []bool{false, true} {
+		t.Run(fmt.Sprint(cancelled), func(t *testing.T) {
+			var calls atomic.Int32
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				calls.Add(1)
+				io.Copy(io.Discard, r.Body)
+				if cancelled {
+					<-r.Context().Done()
+					return
+				}
+				http.Error(w, "offline", http.StatusServiceUnavailable)
+			}))
+			defer server.Close()
+			cfg := config.Config{DefaultModel: "test", Models: map[string]config.Model{"test": {Model: "test", CompactThreshold: 1000}}, Provider: config.Provider{URL: server.URL, Key: "fake"}}
+			s, err := loadSettings(cfg)
+			if err != nil {
+				t.Fatal(err)
+			}
+			s.Threshold = 1
+			if cancelled {
+				s.apiTimeout = 30 * time.Millisecond
+			}
+			m := newStore(t.TempDir(), t.TempDir(), s)
+			if _, _, err := m.add(context.Background(), "user", "keep this", "id"); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := m.compact(context.Background(), "user", false, apiSummarizer(cfg, s)); err == nil {
+				t.Fatal("unexpected success")
+			}
+			state, err := m.read("user")
+			if err != nil || len(state.Pending) != 1 || state.Summary != "" {
+				t.Fatal(state, err)
+			}
+			before := calls.Load()
+			if status, err := m.compact(context.Background(), "user", false, apiSummarizer(cfg, s)); err != nil || status.Status != "cooldown" || before != calls.Load() {
+				t.Fatal(status, err)
+			}
+			want := int32(2)
+			if cancelled {
+				want = 1
+			}
+			if before != want {
+				t.Fatal("attempt budget", before)
+			}
+		})
 	}
 }

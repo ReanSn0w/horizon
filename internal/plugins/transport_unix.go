@@ -10,6 +10,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"strings"
 	"syscall"
 	"time"
 	"unicode/utf8"
@@ -57,8 +58,7 @@ func Call(ctx context.Context, path, operation string, request Request, timeout 
 	if err != nil {
 		return empty, "", err
 	}
-	cmd.Env = Environment(os.Environ(), request.Home, executable)
-	cmd.Env = append(cmd.Env, "HORIZON_INHERITED_ACCESS="+request.Access)
+	cmd.Env = Environment(os.Environ(), request.Home, executable, request.Access)
 	cmd.Dir = request.Workspace
 	cmd.Stdin = bytes.NewReader(data)
 	stdout := &cappedBuffer{exceeded: make(chan struct{})}
@@ -93,7 +93,7 @@ func Call(ctx context.Context, path, operation string, request Request, timeout 
 	if reason == nil {
 		reason = Decode(stdout.buffer.Bytes(), &empty)
 	}
-	if reason == nil && (!empty.OK && empty.Error == nil || empty.OK && (empty.Error != nil || len(empty.Data) == 0)) {
+	if reason == nil && (!empty.OK && (empty.Error == nil || strings.TrimSpace(empty.Error.Code) == "" || strings.TrimSpace(empty.Error.Message) == "" || len(empty.Data) > 0) || empty.OK && (empty.Error != nil || len(empty.Data) == 0)) {
 		reason = fmt.Errorf("invalid plugin result envelope")
 	}
 	if reason != nil {

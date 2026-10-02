@@ -202,8 +202,11 @@ func readMetadata(path, home string, timeout time.Duration) (Metadata, error) {
 func killGroup(cmd *exec.Cmd) { _ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) }
 
 // Environment replaces supported Horizon values without duplicating them.
-func Environment(base []string, home, executable string) []string {
+func Environment(base []string, home, executable string, access ...string) []string {
 	values := map[string]string{"HORIZON_HOME": home, "HORIZON_EXECUTABLE": executable}
+	if len(access) > 0 {
+		values["HORIZON_INHERITED_ACCESS"] = access[0]
+	}
 	result := make([]string, 0, len(base)+2)
 	for _, item := range base {
 		name, _, ok := strings.Cut(item, "=")
@@ -214,5 +217,9 @@ func Environment(base []string, home, executable string) []string {
 		}
 		result = append(result, item)
 	}
-	return append(result, "HORIZON_HOME="+home, "HORIZON_EXECUTABLE="+executable)
+	result = append(result, "HORIZON_HOME="+home, "HORIZON_EXECUTABLE="+executable)
+	if len(access) > 0 {
+		result = append(result, "HORIZON_INHERITED_ACCESS="+access[0])
+	}
+	return result
 }

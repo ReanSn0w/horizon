@@ -97,7 +97,11 @@ func Prepare(ctx context.Context, home string, workspace session.Workspace, acce
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		entry := Inspect(home, name, nil)
+		metadataTimeout := MetadataTimeout
+		if deadline, ok := ctx.Deadline(); ok && time.Until(deadline) < metadataTimeout {
+			metadataTimeout = time.Until(deadline)
+		}
+		entry := InspectTimeout(home, name, nil, metadataTimeout)
 		if entry.Err != nil {
 			return nil, fmt.Errorf("agent plugin %s: %w", name, entry.Err)
 		}
@@ -115,6 +119,9 @@ func Prepare(ctx context.Context, home string, workspace session.Workspace, acce
 		}
 		if err = Decode(reply.Data, &extension.Description); err != nil {
 			return nil, fmt.Errorf("agent plugin %s describe: %w", name, err)
+		}
+		if extension.Description.Tools == nil {
+			return nil, fmt.Errorf("agent plugin %s: describe requires a tools array", name)
 		}
 		if extension.Description.MaintainEffect != "" && !validEffect(extension.Description.MaintainEffect) {
 			return nil, fmt.Errorf("agent plugin %s: invalid maintain effect", name)
@@ -147,15 +154,21 @@ func Prepare(ctx context.Context, home string, workspace session.Workspace, acce
 		if err != nil {
 			return nil, fmt.Errorf("agent plugin %s context: %w", name, err)
 		}
+		if !strings.HasPrefix(strings.TrimSpace(string(reply.Data)), "[") {
+			return nil, fmt.Errorf("agent plugin %s: context must be an array", name)
+		}
 		if err = Decode(reply.Data, &extension.Context); err != nil {
 			return nil, fmt.Errorf("agent plugin %s context: %w", name, err)
 		}
-		contextBytes += len(extension.Description.Instructions)
+		encodedContext, err := json.Marshal(extension.Context)
+		if err != nil {
+			return nil, err
+		}
+		contextBytes += len(extension.Description.Instructions) + len(encodedContext)
 		for _, block := range extension.Context {
 			if strings.TrimSpace(block.Source) == "" {
 				return nil, fmt.Errorf("agent plugin %s: context source is required", name)
 			}
-			contextBytes += len(block.Source) + len(block.Text)
 		}
 		if contextBytes > OutputLimit {
 			return nil, fmt.Errorf("agent plugin context exceeds %d bytes", OutputLimit)

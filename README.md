@@ -265,9 +265,27 @@ go test -race ./...
 [контракт JSON](plugins/decision/README.md).
 
 Плагин `telegram` связывает Telegram-бота с отдельными workspace и сессией
-на чат. `make install-plugins` устанавливает оба плагина; для отдельной
+на чат. `make install-plugins` устанавливает decision, telegram и memory; для отдельной
 установки используйте `make install-telegram`. Настройка начинается с
 `horizon telegram init`, запуск — `horizon telegram start`.
 `horizon telegram list` показывает ID рядом с названием чата,
 `horizon telegram send --chat ID` запускает генерацию нового сообщения.
 [Конфигурация, правила ответа и пользовательские службы](plugins/telegram/README.md).
+
+## Память агента
+
+Установите плагин `make install-memory` и добавьте в существующий config.yaml:
+
+```yaml
+agent_plugins: [memory]
+```
+
+Агент получает `memory__add` и `memory__read` для трёх уровней: agent, user и
+workspace. Память хранится локально отдельно от сессий. По умолчанию сжатие
+выполняется после 5 заметок или через 24 часа при следующем ходе/добавлении;
+для обслуживания в простое явно запускается `horizon memory watch`.
+Сжатие использует отдельный запрос к Responses-провайдеру и может быть платным.
+В read запись и обслуживание запрещены. Отключение сохраняет данные;
+без agent_plugins набор инструментов и снимок остаются прежними.
+
+[Настройки, команды, ограничения и хранение](plugins/memory/README.md).

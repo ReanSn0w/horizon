@@ -32,6 +32,7 @@ func (m *memoryStore) context() ([]plugins.Block, error) {
 	return m.contextScopes([]string{"agent", "user", "workspace"})
 }
 func (m *memoryStore) contextScopes(scopes []string) (blocks []plugins.Block, err error) {
+	blocks = make([]plugins.Block, 0, len(scopes))
 	for _, scope := range scopes {
 		s, err := m.read(scope)
 		if err != nil {

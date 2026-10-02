@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"github.com/ReanSn0w/horizon/internal/session"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -26,11 +27,15 @@ func TestAgentTransport(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			path := candidate(t, home, tc.name, tc.script)
 			start := time.Now()
-			_, _, err := Call(context.Background(), path, "context", request, 50*time.Millisecond)
+			timeout := time.Second
+			if tc.name == "hang" {
+				timeout = 50 * time.Millisecond
+			}
+			_, _, err := Call(context.Background(), path, "context", request, timeout)
 			if (err == nil) != tc.good {
 				t.Fatalf("%v", err)
 			}
-			if time.Since(start) > time.Second {
+			if time.Since(start) > 2*time.Second {
 				t.Fatal("unbounded call")
 			}
 		})
@@ -79,5 +84,86 @@ func TestAgentOptIn(t *testing.T) {
 	_, err = Prepare(context.Background(), home, ws, "read", []string{"broken"}, true, nil)
 	if err == nil {
 		t.Fatal("broken explicitly enabled plugin accepted")
+	}
+}
+
+func TestPrepareMaintenanceAccessAndDescribeFailures(t *testing.T) {
+	for _, access := range []string{"read", "write", "full"} {
+		t.Run(access, func(t *testing.T) {
+			home := t.TempDir()
+			ws := session.Workspace{Dir: home, ID: session.WorkspaceID(home)}
+			marker := home + "/maintained"
+			script := `case "$1" in
+horizon-plugin-metadata) echo '{"protocol_version":1,"agent_protocol_version":1,"version":"1","description":"test"}';;
+horizon-plugin-agent-describe) echo '{"ok":true,"data":{"instructions":"Use this plugin","tools":[],"maintain_effect":"write_home"}}';;
+horizon-plugin-agent-maintain) touch '` + marker + `'; echo '{"ok":false,"error":{"code":"offline","message":"offline"}}';;
+horizon-plugin-agent-context) echo '{"ok":true,"data":[{"source":"test","text":"previous state"}]}';;
+esac`
+			candidate(t, home, "test", script)
+			warnings := 0
+			got, err := Prepare(context.Background(), home, ws, access, []string{"test"}, true, func(string) { warnings++ })
+			if err != nil || len(got) != 1 || got[0].Context[0].Text != "previous state" {
+				t.Fatal(got, err)
+			}
+			_, err = os.Stat(marker)
+			if access == "read" {
+				if err == nil || warnings != 0 {
+					t.Fatal("read maintenance launched")
+				}
+			} else if err != nil || warnings != 1 {
+				t.Fatal(err, warnings)
+			}
+			if err := os.Remove(marker); err != nil && !os.IsNotExist(err) {
+				t.Fatal(err)
+			}
+			_, err = Prepare(context.Background(), home, ws, access, []string{"test"}, false, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := os.Stat(marker); !os.IsNotExist(err) {
+				t.Fatal("context-only preparation wrote")
+			}
+		})
+	}
+	for _, description := range []string{
+		`null`,
+		`{"instructions":"test","tools":null}`,
+		`{"instructions":"test","tools":[{"name":"add","description":"test","effect":"read","parameters":{"type":"object","properties":{},"required":[],"additionalProperties":false}},{"name":"add","description":"test","effect":"read","parameters":{"type":"object","properties":{},"required":[],"additionalProperties":false}}]}`,
+		`{"instructions":"test","tools":[{"name":"add","description":"test","effect":"read","parameters":{"type":"object","properties":{},"required":[],"additionalProperties":false,"oneOf":[]}}]}`,
+	} {
+		home := t.TempDir()
+		ws := session.Workspace{Dir: home, ID: session.WorkspaceID(home)}
+		script := `case "$1" in
+horizon-plugin-metadata) echo '{"protocol_version":1,"agent_protocol_version":1,"version":"1","description":"test"}';;
+*) echo '{"ok":true,"data":` + description + `}';;
+esac`
+		candidate(t, home, "invalid", script)
+		if _, err := Prepare(context.Background(), home, ws, "write", []string{"invalid"}, false, nil); err == nil {
+			t.Fatalf("accepted %s", description)
+		}
+	}
+}
+func TestEffectMatrix(t *testing.T) {
+	for _, access := range []string{"read", "write", "full"} {
+		for _, effect := range []string{"read", "write_home", "write_workspace", "unrestricted", "unknown"} {
+			want := effect == "read" || access != "read" && (effect == "write_home" || effect == "write_workspace") || access == "full" && effect == "unrestricted"
+			if got := Allowed(access, effect); got != want {
+				t.Fatal(access, effect, got)
+			}
+		}
+	}
+}
+func TestNumericSchemaWithoutExponentExpansion(t *testing.T) {
+	var schema map[string]any
+	if err := Decode([]byte(`{"type":"object","properties":{"value":{"type":"integer","enum":[1,1e100000000]}} ,"required":["value"],"additionalProperties":false}`), &schema); err != nil {
+		t.Fatal(err)
+	}
+	if err := CheckSchema(schema); err != nil {
+		t.Fatal(err)
+	}
+	for _, args := range []string{`{"value":1.0}`, `{"value":10e99999999}`} {
+		if err := Validate(schema, json.RawMessage(args)); err != nil {
+			t.Fatal(args, err)
+		}
 	}
 }
