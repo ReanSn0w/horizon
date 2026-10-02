@@ -12,6 +12,8 @@ Setup:
 New groups inherit group_defaults. owner_only filters the author independently
 of response_mode: false + mention allows any participant to address @bot_username.
 conversation evaluates other eligible messages through the decision plugin (Jev).
+conversation.bot_names lists names and nicknames Jev should recognize as addresses
+to this bot; context and reply_threshold still decide whether a reply is useful.
 Configure Horizon's provider, model and shared decision section before startup.
 Group rules reload for new jobs; token, owner and workspace changes need a restart.
 Disable Telegram Privacy Mode or make the bot an administrator to receive ordinary
@@ -47,6 +49,7 @@ plugins:
       owner_only: true
       response_mode: mention
     conversation:
+      bot_names: []
       history_messages: 20
       reply_threshold: 0.7
     max_parallel_chats: 2

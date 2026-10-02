@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/ReanSn0w/horizon/internal/config"
 	"gopkg.in/yaml.v3"
@@ -29,8 +30,9 @@ type settings struct {
 	GroupAccess   string        `yaml:"group_access"`
 	Defaults      groupSettings `yaml:"group_defaults"`
 	Conversation  struct {
-		History   int     `yaml:"history_messages"`
-		Threshold float64 `yaml:"reply_threshold"`
+		BotNames  []string `yaml:"bot_names"`
+		History   int      `yaml:"history_messages"`
+		Threshold float64  `yaml:"reply_threshold"`
 	} `yaml:"conversation"`
 	Parallel int                      `yaml:"max_parallel_chats"`
 	Groups   map[string]groupSettings `yaml:"groups"`
@@ -42,6 +44,7 @@ func defaults(home string) settings {
 	s.PrivateAccess = "write"
 	s.GroupAccess = "read"
 	s.Defaults = groupSettings{true, "mention"}
+	s.Conversation.BotNames = []string{}
 	s.Conversation.History = 20
 	s.Conversation.Threshold = .7
 	s.Parallel = 2
@@ -163,6 +166,14 @@ func (s settings) validate(ready bool) error {
 	}
 	if s.Defaults.ResponseMode != "mention" && s.Defaults.ResponseMode != "conversation" {
 		return errors.New("response_mode must be mention or conversation")
+	}
+	if len(s.Conversation.BotNames) > 32 {
+		return errors.New("plugins.telegram.conversation.bot_names must contain at most 32 names")
+	}
+	for _, name := range s.Conversation.BotNames {
+		if strings.TrimSpace(name) == "" || utf8.RuneCountInString(name) > 128 {
+			return errors.New("plugins.telegram.conversation.bot_names must contain non-empty names of at most 128 characters")
+		}
 	}
 	for id, g := range s.Groups {
 		n, err := strconv.ParseInt(id, 10, 64)

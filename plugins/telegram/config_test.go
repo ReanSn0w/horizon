@@ -86,6 +86,51 @@ func TestConfigValidation(t *testing.T) {
 	}
 }
 
+func TestConversationBotNamesConfig(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		yaml    string
+		want    []string
+		invalid bool
+	}{
+		{"legacy", "", []string{}, false},
+		{"empty", "bot_names: []", []string{}, false},
+		{"aliases", `bot_names: ["Курису", "Кристина", "Kurisu"]`, []string{"Курису", "Кристина", "Kurisu"}, false},
+		{"blank", `bot_names: ["  "]`, nil, true},
+		{"scalar", "bot_names: Kurisu", nil, true},
+		{"long", "bot_names: [" + strings.Repeat("я", 129) + "]", nil, true},
+		{"many", "bot_names: [" + strings.Repeat("Kurisu, ", 32) + "Курису]", nil, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			home := t.TempDir()
+			data := "plugins:\n  telegram:\n    conversation:\n      history_messages: 20\n"
+			if tc.yaml != "" {
+				data += "      " + tc.yaml + "\n"
+			}
+			if err := os.WriteFile(filepath.Join(home, "config.yaml"), []byte(data), 0600); err != nil {
+				t.Fatal(err)
+			}
+			cfg, err := loadSettings(home, false)
+			if tc.invalid {
+				if err == nil {
+					t.Fatal("accepted invalid bot_names")
+				}
+				return
+			}
+			if err != nil || !reflect.DeepEqual(cfg.Conversation.BotNames, tc.want) {
+				t.Fatalf("bot_names=%v err=%v", cfg.Conversation.BotNames, err)
+			}
+			if _, err := initSettings(home); err != nil {
+				t.Fatal(err)
+			}
+			after, err := loadSettings(home, false)
+			if err != nil || !reflect.DeepEqual(after.Conversation.BotNames, tc.want) {
+				t.Fatalf("init changed bot_names=%v err=%v", after.Conversation.BotNames, err)
+			}
+		})
+	}
+}
+
 func TestInitMigratesLegacyPluginName(t *testing.T) {
 	home := configHome(t)
 	path := filepath.Join(home, "config.yaml")

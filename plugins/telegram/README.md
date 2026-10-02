@@ -65,6 +65,7 @@ plugins:
       owner_only: true
       response_mode: mention
     conversation:
+      bot_names: []
       history_messages: 20
       reply_threshold: 0.7
     max_parallel_chats: 2
@@ -109,6 +110,26 @@ and known bot replies. A valid `should_reply.noul` at or above `reply_threshold`
 allows generation. An error, timeout or malformed result prevents that reply.
 Jev uses the shared top-level `decision` provider and model, not separate telegram
 credentials. Full decision requests are bounded to 32 KiB.
+
+Set `plugins.telegram.conversation.bot_names` to the names and nicknames people
+use for the bot, for example:
+
+```yaml
+    conversation:
+      bot_names: ["Курису", "Кристина", "Kurisu"]
+      history_messages: 20
+      reply_threshold: 0.7
+```
+
+The list applies to all conversation-mode groups and is passed to Jev as data.
+The evaluator is instructed to treat direct address as strong evidence that a
+reply is expected, considering case and natural name forms, while distinguishing
+it from quotes, incidental mentions or discussion of someone with the same name.
+Names do not bypass `owner_only` or `reply_threshold`, and do not change `mention`
+mode. This is contextual model evaluation, not a guaranteed keyword trigger.
+The default is an empty list; existing configurations need no migration.
+Up to 32 non-blank names of at most 128 characters each are accepted. Changes
+apply to new jobs without restarting the plugin.
 
 To observe ordinary group messages, disable Privacy Mode through BotFather or
 make the bot an administrator; see [Telegram's bot FAQ](https://core.telegram.org/bots/faq#what-messages-will-my-bot-get).
