@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 )
@@ -55,6 +56,7 @@ type diagnosticLog struct {
 	out, fallback io.Writer
 	runID         string
 	failed        bool
+	secrets       []string
 }
 
 func (l *diagnosticLog) event(level, name string, fields map[string]any) {
@@ -70,6 +72,11 @@ func (l *diagnosticLog) event(level, name string, fields map[string]any) {
 	}{1, time.Now().UTC(), level, name, l.runID, fields})
 	if err != nil {
 		return
+	}
+	for _, secret := range l.secrets {
+		if secret != "" {
+			data = []byte(strings.ReplaceAll(string(data), secret, "[redacted]"))
+		}
 	}
 	data = append(data, '\n')
 	if _, err = l.out.Write(data); err != nil {

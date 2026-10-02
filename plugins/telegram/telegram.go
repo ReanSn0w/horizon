@@ -192,7 +192,7 @@ func recordFor(m *tgMessage) record {
 	}
 	return r
 }
-func ingest(home string, s store, cfg settings, bot tgUser, u update) error {
+func ingest(home string, s store, cfg settings, bot tgUser, u update, observers ...func(string, map[string]any)) error {
 	// Config registration precedes the atomic cursor change and is idempotent.
 	var input *tgChat
 	if u.Message != nil {
@@ -217,24 +217,36 @@ func ingest(home string, s store, cfg settings, bot tgUser, u update) error {
 			return err
 		}
 	}
-	return s.update(func(v *state) error {
+	var event string
+	data := map[string]any{"update_id": u.ID, "offset": u.ID + 1}
+	err := s.update(func(v *state) error {
 		if u.ID < v.Offset {
 			return nil
 		}
 		if input == nil || !acceptChat(*input, cfg.Telegram.Owner) {
+			event = "update_filtered"
+			data["reason"] = "unsupported_or_foreign_chat"
 			v.Offset = u.ID + 1
 			return nil
 		}
 		if input.Type == "private" && (u.Message == nil || u.Message.From == nil || u.Message.From.ID != cfg.Telegram.Owner) {
+			event = "update_filtered"
+			data["reason"] = "foreign_private_author"
 			v.Offset = u.ID + 1
 			return nil
 		}
+		event = "update_saved"
+		data["chat_id"] = input.ID
 		c := upsertChat(v, *input)
 		if u.Membership != nil {
 			status := u.Membership.Member.Status
 			c.Available = status != "left" && status != "kicked"
 		}
 		if m := u.Message; m != nil {
+			if m.Text == "" || m.From == nil || m.From.Bot || m.SenderChat != nil {
+				event = "message_ignored"
+				data["reason"] = "unsupported_message"
+			}
 			if m.MigrateTo != 0 {
 				newID := strconv.FormatInt(m.MigrateTo, 10)
 				oldID := strconv.FormatInt(c.ID, 10)
@@ -280,6 +292,9 @@ func ingest(home string, s store, cfg settings, bot tgUser, u update) error {
 				}
 				r = appendHistory(c, r)
 				j.Input = r
+				event = "message_queued"
+				data["request_id"] = j.ID
+				data["message_id"] = m.ID
 				c.LastAt = time.Unix(m.Date, 0).UTC()
 				c.Thread = m.Thread
 				c.HasThread = true
@@ -289,4 +304,11 @@ func ingest(home string, s store, cfg settings, bot tgUser, u update) error {
 		v.Offset = u.ID + 1
 		return nil
 	})
+	if err == nil && event != "" {
+		for _, observe := range observers {
+			observe(event, data)
+			observe("offset_saved", map[string]any{"update_id": u.ID, "offset": u.ID + 1})
+		}
+	}
+	return err
 }

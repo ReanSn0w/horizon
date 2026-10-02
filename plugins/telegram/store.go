@@ -49,18 +49,19 @@ type chat struct {
 	Jobs       []*job    `yaml:"jobs"`
 }
 type job struct {
-	ID          string   `yaml:"id" json:"request_id"`
-	ChatID      int64    `yaml:"chat_id" json:"-"`
-	Status      string   `yaml:"status" json:"status"`
-	Error       string   `yaml:"error,omitempty" json:"error,omitempty"`
-	Input       record   `yaml:"input" json:"-"`
-	Manual      bool     `yaml:"manual" json:"-"`
-	Instruction string   `yaml:"instruction" json:"-"`
-	Thread      int64    `yaml:"thread" json:"-"`
-	Response    string   `yaml:"response,omitempty" json:"-"`
-	Parts       []string `yaml:"parts,omitempty" json:"-"`
-	Sent        []int64  `yaml:"sent,omitempty" json:"message_ids,omitempty"`
-	ContextSeq  int64    `yaml:"context_seq" json:"-"`
+	QueuedAt    time.Time `yaml:"queued_at,omitempty" json:"-"`
+	ID          string    `yaml:"id" json:"request_id"`
+	ChatID      int64     `yaml:"chat_id" json:"-"`
+	Status      string    `yaml:"status" json:"status"`
+	Error       string    `yaml:"error,omitempty" json:"error,omitempty"`
+	Input       record    `yaml:"input" json:"-"`
+	Manual      bool      `yaml:"manual" json:"-"`
+	Instruction string    `yaml:"instruction" json:"-"`
+	Thread      int64     `yaml:"thread" json:"-"`
+	Response    string    `yaml:"response,omitempty" json:"-"`
+	Parts       []string  `yaml:"parts,omitempty" json:"-"`
+	Sent        []int64   `yaml:"sent,omitempty" json:"message_ids,omitempty"`
+	ContextSeq  int64     `yaml:"context_seq" json:"-"`
 }
 type state struct {
 	Version int               `yaml:"version"`
@@ -245,6 +246,9 @@ func enqueue(v *state, c *chat, j *job) error {
 	}
 	if total >= 1000 || count >= 100 {
 		return errors.New("telegram queue is full")
+	}
+	if j.QueuedAt.IsZero() {
+		j.QueuedAt = time.Now().UTC()
 	}
 	c.Jobs = append(c.Jobs, j)
 	return nil

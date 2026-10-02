@@ -52,11 +52,28 @@ func shortened(text string, limit int) string {
 	}
 	return text[:limit] + " [truncated]"
 }
-func shouldReply(ctx context.Context, home string, cfg settings, c *chat, j *job, model string, run runProcess) (bool, error) {
+func shouldReply(ctx context.Context, home string, cfg settings, c *chat, j *job, model string, run runProcess, observers ...func(map[string]any)) (reply bool, err error) {
+	started := time.Now()
+	reason := "evaluation"
+	var score *float64
+	defer func() {
+		data := map[string]any{"reason": reason, "reply": reply, "threshold": cfg.Conversation.Threshold, "duration_ms": time.Since(started).Milliseconds()}
+		if score != nil {
+			data["score"] = *score
+		}
+		if err != nil {
+			data["error"] = err.Error()
+		}
+		for _, observe := range observers {
+			observe(data)
+		}
+	}()
 	if j.Manual {
+		reason = "manual"
 		return true, nil
 	}
 	if c.Type == "private" {
+		reason = "private_owner"
 		return j.Input.Author == cfg.Telegram.Owner, nil
 	}
 	g, ok := cfg.Groups[fmt.Sprint(c.ID)]
@@ -64,12 +81,15 @@ func shouldReply(ctx context.Context, home string, cfg settings, c *chat, j *job
 		g = cfg.Defaults
 	}
 	if j.Input.Author == 0 || j.Input.Bot || (g.OwnerOnly && j.Input.Author != cfg.Telegram.Owner) {
+		reason = "author_filtered"
 		return false, nil
 	}
 	if j.Input.Mention {
+		reason = "mention"
 		return true, nil
 	}
 	if g.ResponseMode != "conversation" {
+		reason = "mention_required"
 		return false, nil
 	}
 	rows := historyFor(c, j, cfg.Conversation.History, false)
@@ -124,6 +144,7 @@ func shouldReply(ctx context.Context, home string, cfg settings, c *chat, j *job
 	if !ok || item.Type != "noul" || item.Noul == nil || math.IsNaN(*item.Noul) || *item.Noul < 0 || *item.Noul > 1 {
 		return false, errors.New("decision result lacks a valid should_reply answer")
 	}
+	score = item.Noul
 	return *item.Noul >= cfg.Conversation.Threshold, nil
 }
 

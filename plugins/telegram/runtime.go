@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime/debug"
 	"strconv"
 	"strings"
 	"sync"
@@ -25,6 +26,7 @@ type bridge struct {
 	tg      *telegram
 	run     runProcess
 	log     io.Writer
+	journal *diagnosticLog
 	deliver func(context.Context, *chat, *job) error
 }
 
@@ -41,19 +43,44 @@ func (g *bridge) settings() (settings, error) {
 	}
 	return s, nil
 }
+func (g *bridge) emit(level, event string, data map[string]any) {
+	if g.journal != nil {
+		g.journal.event(level, event, data)
+	}
+}
+func jobFields(c *chat, j *job) map[string]any {
+	return map[string]any{"chat_id": c.ID, "message_id": j.Input.ID, "request_id": j.ID, "session_id": c.Session}
+}
 func (g *bridge) setJob(chatID int64, id string, edit func(*chat, *job) error) error {
-	return g.store.update(func(v *state) error {
+	var data map[string]any
+	err := g.store.update(func(v *state) error {
 		c, err := resolveChat(v, strconv.FormatInt(chatID, 10))
 		if err != nil {
 			return err
 		}
 		for _, j := range c.Jobs {
 			if j.ID == id {
-				return edit(c, j)
+				previous := j.Status
+				if err = edit(c, j); err != nil {
+					return err
+				}
+				if previous != j.Status {
+					data = jobFields(c, j)
+					data["status"] = j.Status
+					data["previous_status"] = previous
+					if j.Error != "" {
+						data["error"] = j.Error
+					}
+				}
+				return nil
 			}
 		}
 		return errors.New("telegram job disappeared")
 	})
+	if err == nil && data != nil {
+		g.emit("info", "job_status", data)
+	}
+	return err
 }
 func (g *bridge) process(ctx context.Context, c *chat, j *job, cfg settings) error {
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Minute)
@@ -79,7 +106,12 @@ func (g *bridge) process(ctx context.Context, c *chat, j *job, cfg settings) err
 	if err != nil {
 		return g.fail(c.ID, j.ID, errors.New("invalid Horizon configuration"), false)
 	}
-	reply, err := shouldReply(ctx, g.home, cfg, c, j, hc.Decision.Model, g.run)
+	reply, err := shouldReply(ctx, g.home, cfg, c, j, hc.Decision.Model, g.run, func(data map[string]any) {
+		for k, v := range jobFields(c, j) {
+			data[k] = v
+		}
+		g.emit("info", "reply_decision", data)
+	})
 	if err != nil {
 		return g.fail(c.ID, j.ID, err, false)
 	}
@@ -225,10 +257,13 @@ func (g *bridge) loop(ctx context.Context) error {
 			cfg, err := g.settings()
 			if err != nil {
 				if err.Error() != lastConfigError {
-					fmt.Fprintln(g.log, "telegram:", err)
+					g.emit("error", "configuration_paused", map[string]any{"error": err.Error()})
 					lastConfigError = err.Error()
 				}
 				continue
+			}
+			if lastConfigError != "" {
+				g.emit("info", "configuration_recovered", nil)
 			}
 			lastConfigError = ""
 			value, err := g.store.snapshot()
@@ -258,9 +293,24 @@ func (g *bridge) loop(ctx context.Context) error {
 					}
 					selected.Status = "evaluating"
 				}
+				if selected != nil {
+					data := jobFields(c, selected)
+					if !selected.QueuedAt.IsZero() {
+						data["queue_wait_ms"] = time.Since(selected.QueuedAt).Milliseconds()
+					}
+					g.emit("info", "job_started", data)
+				}
 				active[c.Origin] = true
 				wg.Add(1)
 				go func(c *chat, j *job, cfg settings) {
+					started := time.Now()
+					defer func() {
+						if j != nil {
+							data := jobFields(c, j)
+							data["duration_ms"] = time.Since(started).Milliseconds()
+							g.emit("info", "job_finished", data)
+						}
+					}()
 					defer wg.Done()
 					defer func() { done <- c.Origin }()
 					if j == nil {
@@ -287,6 +337,8 @@ func (g *bridge) loop(ctx context.Context) error {
 }
 func (g *bridge) poll(ctx context.Context) error {
 	backoff := time.Second
+	lastPollError := ""
+	queueFull := false
 	for ctx.Err() == nil {
 		cfg, err := g.settings()
 		if err != nil {
@@ -309,24 +361,47 @@ func (g *bridge) poll(ctx context.Context) error {
 			if errors.As(err, &api) && api.Retry > 0 {
 				delay = time.Duration(api.Retry) * time.Second
 			}
-			fmt.Fprintln(g.log, "telegram polling:", err)
+			if err.Error() != lastPollError {
+				g.emit("error", "polling_failed", map[string]any{"error": err.Error(), "backoff_ms": delay.Milliseconds()})
+				lastPollError = err.Error()
+			}
 			if !pause(ctx, delay) {
 				break
 			}
 			backoff = min(30*time.Second, backoff*2)
 			continue
 		}
+		if lastPollError != "" {
+			g.emit("info", "polling_recovered", nil)
+			lastPollError = ""
+		}
 		backoff = time.Second
 		for _, u := range updates {
-			if err = ingest(g.home, g.store, cfg, g.bot, u); err != nil {
+			if u.ID >= value.Offset {
+				data := map[string]any{"update_id": u.ID}
+				if u.Message != nil && acceptChat(u.Message.Chat, cfg.Telegram.Owner) {
+					data["chat_id"] = u.Message.Chat.ID
+					data["message_id"] = u.Message.ID
+				}
+				g.emit("info", "update_received", data)
+			}
+			if err = ingest(g.home, g.store, cfg, g.bot, u, func(name string, data map[string]any) { g.emit("info", name, data) }); err != nil {
 				// Back-pressure leaves this update unacknowledged.
 				if strings.Contains(err.Error(), "queue is full") {
+					if !queueFull {
+						g.emit("error", "queue_full", nil)
+						queueFull = true
+					}
 					if !pause(ctx, time.Second) {
 						break
 					}
 					break
 				}
 				return err
+			}
+			if queueFull {
+				g.emit("info", "queue_recovered", nil)
+				queueFull = false
 			}
 		}
 		if len(updates) == 0 && !pause(ctx, 100*time.Millisecond) {
@@ -402,10 +477,29 @@ func startTelegram(a *app) error {
 	if a.runner != nil {
 		run = a.runner
 	}
-	g := &bridge{home: a.home, cfg: cfg, store: s, bot: bot, tg: tg, run: run, log: a.errOut}
+	journal, _ := a.errOut.(*diagnosticLog)
+	if journal != nil {
+		journal.secrets = []string{cfg.Telegram.Token, hc.Provider.Key, hc.Decision.Provider.Key}
+	}
+	g := &bridge{journal: journal, home: a.home, cfg: cfg, store: s, bot: bot, tg: tg, run: run, log: a.errOut}
 	g.deliver = g.delivery
-	fmt.Fprintf(a.errOut, "telegram: Telegram @%s started\n", bot.Username)
-	return g.loop(a.ctx)
+	revision := "unavailable"
+	if build, ok := debug.ReadBuildInfo(); ok {
+		for _, item := range build.Settings {
+			if item.Key == "vcs.revision" {
+				revision = item.Value
+			}
+		}
+	}
+	plugin, _ := os.Executable()
+	g.emit("info", "daemon_started", map[string]any{"pid": os.Getpid(), "home": a.home, "horizon_binary": binary, "plugin_binary": plugin, "revision": revision})
+	err = g.loop(a.ctx)
+	reason := "completed"
+	if err != nil {
+		reason = err.Error()
+	}
+	g.emit("info", "daemon_stopped", map[string]any{"reason": reason})
+	return err
 }
 func atomicIdentity(home string, botID int64) error {
 	path := filepath.Join(home, "gateway", "identity")
