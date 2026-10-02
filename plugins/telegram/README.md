@@ -80,7 +80,9 @@ are stored locally in the telegram history and Horizon sessions.
 `workspace_dir` defaults to `<home>/workspaces/telegram`; relative paths are
 resolved against home. Access accepts `read`, `write` or `full`. Parallelism is
 1–32 chats; history is 1–100 messages and the reply threshold is 0–1. One chat's
-jobs always run in order. Each job has a ten-minute limit.
+jobs always run in order. Available chats are scheduled in round-robin order,
+so a busy group cannot indefinitely precede private chats. Each job and initial
+workspace preparation has a ten-minute limit.
 
 Private messages from anyone except the owner are discarded before registration
 or model use. Group settings are added to `groups` when a group is first observed.
@@ -171,7 +173,13 @@ horizon telegram service uninstall
 
 The LaunchAgent is installed in `~/Library/LaunchAgents`. It runs in the logged-in
 user's GUI domain, rather than as a system daemon; see [Apple's launchd documentation](https://developer.apple.com/library/archive/documentation/MacOSX/Conceptual/BPSystemStartup/Chapters/CreatingLaunchdJobs.html).
-Diagnostics go to `<home>/gateway/service.log`, rotated at 1 MiB with one backup.
+Diagnostics go to `<home>/gateway/service.log` as versioned JSONL, rotated at
+1 MiB with one backup. A legacy text journal is archived before JSONL starts.
+Early Horizon/plugin startup errors and fallback diagnostics go to
+`<home>/gateway/launchd.log`. The Horizon host bounds this fallback to 1 MiB by
+truncating the same open file; renaming a file would leave launchd writing to its
+old descriptor. A failure before Horizon can execute may require launchd's own
+diagnostics. New log files are private (`0600`).
 `stop` disables autostart until `start`, `restart` or `install` enables it again.
 
 On Linux use the same commands with `install --manager systemd`. The unit is
@@ -183,7 +191,9 @@ journalctl --user -u io.horizon.gateway.<home-hash>.service
 ```
 
 `status` prints the exact unit name, installation, enabled/running state and
-whether the telegram's process lock is held. A missing user manager is an error.
+whether the telegram's process lock is held. It also prints the installed log
+destinations, warnings about legacy definitions, and the daemon health snapshot.
+A missing user manager is an error.
 Running outside login sessions may require administrator-configured lingering;
 see [loginctl](https://www.freedesktop.org/software/systemd/man/latest/loginctl.html).
 The plugin does not change lingering policy. Unit paths follow
@@ -195,6 +205,66 @@ Reinstall after moving Horizon or changing the tool PATH. `install` enables futu
 autostart; `start` runs now. `uninstall` stops and removes only this telegram's
 service definition, preserving configuration, state and sessions. Do not run a
 foreground instance alongside a service: a home-wide lock prevents duplicates.
+
+## Diagnostics and upgrades
+
+After installing the new binaries, update an existing macOS service definition:
+
+```sh
+make install-all
+horizon telegram service install --manager launchd
+horizon telegram service restart
+horizon telegram service status
+```
+
+`restart` unloads the old launchd definition and loads the saved plist before
+starting the daemon. Merely replacing a binary or editing its plist does not
+change the arguments and stderr destination of an already loaded job. Use the
+same `--home` throughout when working with an alternative home. Foreground
+`start` writes JSONL to stderr; add `--log-file /absolute/path/service.log` to
+save it. An explicitly selected journal is checked before polling starts.
+Write/rotation failures are reported through the fallback rather than silently
+ignored; they never authorize repeating an external action.
+
+Events include daemon lifecycle, received updates, saved offsets, queued jobs,
+reply decisions, Horizon model/tool activity, delivery confirmations and errors.
+Correlate `data.chat_id` and `data.message_id` with `data.request_id`, then
+`data.session_id` and `data.turn_id`. `run_id` identifies one daemon run.
+`reply_decision` records the reason, threshold, duration and Jev score when
+available; a deliberate skip is distinct from an evaluation failure. Repeated
+polling/configuration errors are suppressed until their cause changes or recovers.
+
+Only selected metadata enters the journal: conversation text, generated answers,
+shell commands, raw tool output and API credentials are excluded. Full results
+remain in existing private sessions/artifacts. Bounded, credential-redacted
+child stderr is accessible through local Telegram state/`telegram list`; the
+service journal records the exit category instead of arbitrary provider text.
+Each journal record is limited to 64 KiB; oversized records are replaced by an
+explicit `diagnostic_record_oversized` event.
+
+`<home>/gateway/health.json` is an atomic snapshot updated about once per second,
+independently of the queue's state lock. `service status` shows last successful
+polling, last offset advance, observed queue size, occupied slots, current jobs
+and the time spent in polling/scheduler/job stages. Queue counts are the last
+observed counts and may be older if the scheduler is waiting on a lock. Snapshots
+older than three seconds or belonging to a stopped service are marked stale.
+An idle chat without messages is not evidence of a stuck daemon.
+
+`telegram list --json` retains existing fields and additionally exposes
+`current_request_id`, `current_stage`, `current_stage_since`, and
+`oldest_queue_wait_ms` when known. The current job is shown separately from
+the last queued job. Old saved jobs without a queue timestamp remain readable.
+
+Every generated reply starts a new Horizon process with a fresh skill catalog.
+A skill created or enabled between turns is available in the next turn without
+restarting Telegram; the running turn keeps its immutable snapshot.
+`horizon_turn_started` records skill IDs/names, the selected home and the SHA-256
+of the actual instructions sent to the provider, without logging their content.
+
+The starvation regression test demonstrated that sorting chats by numeric ID
+can postpone a private chat behind a group when one slot is available.
+Round-robin scheduling fixes this reproduced defect. The original October 1
+Mac Mini incident was not captured, so its exact cause remains unconfirmed.
 
 ## Persistence and failure handling
 
@@ -240,3 +310,27 @@ With a dedicated test bot and configured providers:
 
 The real-bot smoke test requires a supplied test bot and has not been executed
 as part of automated development checks.
+
+### Target Mac Mini smoke test
+
+Use a dedicated test bot/home on the Mac Mini M4; these steps are manual and
+require configured real providers. After updating binaries and reinstalling
+the LaunchAgent:
+
+1. Run `horizon telegram service status` and confirm the primary and fallback
+   destinations are present, the snapshot is fresh and polling advances.
+2. Send messages to a test conversation-mode group for which Jev returns a
+   negative score. Confirm `reply_decision` records a skip with its score.
+3. Send an owner private message while group jobs are pending. Confirm the
+   journal links receipt, queue, Horizon completion and confirmed delivery
+   without restarting the daemon. Inspect occupied slots and stage ages if late.
+4. Add a valid test skill under the selected home's `skills/` between turns.
+   Send a fresh private message and verify the new ID/name appears in the next
+   `horizon_turn_started`; ask the agent to read the skill and inspect the tool
+   result in its local session. Disable the skill and verify the following turn
+   omits it, with no daemon restart.
+5. Stop/start the service and verify a new run ID, preserved chat bindings and
+   no replay of unknown generation/sending outcomes.
+
+Local automated tests cover fake APIs, built binaries and substituted managers.
+They do not establish real launchd, Telegram or provider behavior on the target Mac.

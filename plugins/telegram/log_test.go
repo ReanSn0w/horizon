@@ -135,3 +135,17 @@ func TestMessageDiagnosticsCorrelateWithoutText(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestJournalBoundsRecordAndExcludesChildStderr(t *testing.T) {
+	var out bytes.Buffer
+	g := &bridge{journal: &diagnosticLog{out: &out, runID: "run"}}
+	g.emit("error", "job_status", map[string]any{"error": "Horizon session s: Horizon process failed (exit 1): PRIVATE_PROVIDER_MARKER"})
+	if bytes.Contains(out.Bytes(), []byte("PRIVATE_PROVIDER_MARKER")) || !bytes.Contains(out.Bytes(), []byte("exit 1")) {
+		t.Fatal(out.String())
+	}
+	out.Reset()
+	g.emit("info", "too_large", map[string]any{"metadata": strings.Repeat("x", 65*1024)})
+	if out.Len() > 64*1024 || !bytes.Contains(out.Bytes(), []byte("diagnostic_record_oversized")) {
+		t.Fatal("oversized record not replaced", out.Len())
+	}
+}

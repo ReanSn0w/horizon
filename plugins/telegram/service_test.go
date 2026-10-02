@@ -67,6 +67,9 @@ func TestLaunchAgentLifecycle(t *testing.T) {
 			t.Fatalf("%s: %v", action, err)
 		}
 	}
+	if strings.Count(strings.Join(calls, "\n"), "bootstrap ") < 2 {
+		t.Fatal("restart did not reload updated plist", calls)
+	}
 	if len(calls) == 0 {
 		t.Fatal("service manager not called")
 	}

@@ -47,6 +47,11 @@ func (g *bridge) settings() (settings, error) {
 	return s, nil
 }
 func (g *bridge) emit(level, event string, data map[string]any) {
+	for _, key := range []string{"error", "reason"} {
+		if value, ok := data[key].(string); ok {
+			data[key] = journalError(value)
+		}
+	}
 	if g.health != nil {
 		g.health.event(event, data)
 	}
@@ -247,19 +252,21 @@ func (g *bridge) loop(ctx context.Context) error {
 		g.health = newHealth(id)
 	}
 	g.store.ctx = ctx
+	pollDone := make(chan error, 1)
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() { defer wg.Done(); g.healthLoop(ctx) }()
+	defer func() { cancel(); wg.Wait() }()
+	g.health.phase(false, "state_recovery")
 	if err := g.store.recover(); err != nil {
 		return err
 	}
-	pollDone := make(chan error, 1)
-	var wg sync.WaitGroup
-	wg.Add(2)
-	go func() { defer wg.Done(); g.healthLoop(ctx) }()
+	wg.Add(1)
 	go func() { defer wg.Done(); pollDone <- g.poll(ctx) }()
 	active := map[int64]bool{}
 	var lastOrigin int64
 	done := make(chan int64, 32)
 	fatal := make(chan error, 32)
-	defer func() { cancel(); wg.Wait() }()
 	tick := time.NewTicker(250 * time.Millisecond)
 	defer tick.Stop()
 	lastConfigError := ""
@@ -342,6 +349,7 @@ func (g *bridge) loop(ctx context.Context) error {
 				active[c.Origin] = true
 				wg.Add(1)
 				go func(c *chat, j *job, cfg settings) {
+					defer wg.Done()
 					started := time.Now()
 					defer func() {
 						if j != nil {
@@ -350,7 +358,6 @@ func (g *bridge) loop(ctx context.Context) error {
 							g.emit("info", "job_finished", data)
 						}
 					}()
-					defer wg.Done()
 					defer func() { done <- c.Origin }()
 					if j == nil {
 						jobCtx, stop := context.WithTimeout(ctx, g.jobDuration())

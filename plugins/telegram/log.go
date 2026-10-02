@@ -20,6 +20,9 @@ type rotatingLog struct {
 func (l *rotatingLog) Write(p []byte) (int, error) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
+	if int64(len(p)) > l.limit {
+		return 0, fmt.Errorf("diagnostic record exceeds journal limit")
+	}
 	if err := os.MkdirAll(filepath.Dir(l.path), 0700); err != nil {
 		return 0, err
 	}
@@ -78,6 +81,9 @@ func (l *diagnosticLog) event(level, name string, fields map[string]any) {
 			data = []byte(strings.ReplaceAll(string(data), secret, "[redacted]"))
 		}
 	}
+	if len(data) > 64*1024 {
+		data, _ = json.Marshal(map[string]any{"schema_version": 1, "timestamp": time.Now().UTC(), "level": "error", "event": "diagnostic_record_oversized", "run_id": l.runID, "dropped_event": name})
+	}
 	data = append(data, '\n')
 	if _, err = l.out.Write(data); err != nil {
 		if !l.failed && l.fallback != nil {
@@ -95,7 +101,7 @@ func (l *diagnosticLog) event(level, name string, fields map[string]any) {
 	}
 }
 func (l *diagnosticLog) Write(p []byte) (int, error) {
-	l.event("error", "diagnostic", map[string]any{"message": string(p)})
+	l.event("error", "diagnostic", map[string]any{"message": journalError(string(p))})
 	return len(p), nil
 }
 func openDiagnosticLog(path string, fallback io.Writer) (*diagnosticLog, error) {
@@ -103,11 +109,20 @@ func openDiagnosticLog(path string, fallback io.Writer) (*diagnosticLog, error) 
 	if path != "" {
 		w := &rotatingLog{path: path, limit: 1024 * 1024}
 		// Archive old text journals before emitting the first JSONL record.
-		if data, err := os.ReadFile(path); err == nil && len(data) > 0 && data[0] != '{' {
-			if err = os.Rename(path, path+".1"); err != nil {
-				return nil, err
+		f, err := os.Open(path)
+		if err == nil {
+			var first [1]byte
+			n, readErr := f.Read(first[:])
+			_ = f.Close()
+			if readErr != nil && readErr != io.EOF {
+				return nil, readErr
 			}
-		} else if err != nil && !os.IsNotExist(err) {
+			if n > 0 && first[0] != '{' {
+				if err = os.Rename(path, path+".1"); err != nil {
+					return nil, err
+				}
+			}
+		} else if !os.IsNotExist(err) {
 			return nil, err
 		}
 		if _, err := w.Write(nil); err != nil {
@@ -119,4 +134,17 @@ func openDiagnosticLog(path string, fallback io.Writer) (*diagnosticLog, error) 
 		out = io.Discard
 	}
 	return &diagnosticLog{out: out, fallback: fallback, runID: requestID()}, nil
+}
+
+// Provider stderr can echo request data. Full bounded diagnostics remain in
+// local telegram state; the service journal records only the failure category.
+func journalError(value string) string {
+	for _, prefix := range []string{"Horizon process failed (exit ", "Telegram HTTP/API "} {
+		if i := strings.Index(value, prefix); i >= 0 {
+			if colon := strings.IndexByte(value[i:], ':'); colon >= 0 {
+				return value[:i+colon] + "; inspect local Telegram state/session"
+			}
+		}
+	}
+	return value
 }

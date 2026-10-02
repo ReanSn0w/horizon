@@ -235,10 +235,14 @@ func manageService(a *app, opt *serviceCommand, host serviceHost) error {
 		if _, err = host.run(a.ctx, "launchctl", "enable", label); err != nil {
 			return err
 		}
-		if !loaded() {
-			if _, err = host.run(a.ctx, "launchctl", "bootstrap", domain, target); err != nil {
+		// kickstart alone reuses the loaded definition, even after plist edits.
+		if loaded() {
+			if _, err = host.run(a.ctx, "launchctl", "bootout", label); err != nil {
 				return err
 			}
+		}
+		if _, err = host.run(a.ctx, "launchctl", "bootstrap", domain, target); err != nil {
+			return err
 		}
 		_, err = host.run(a.ctx, "launchctl", "kickstart", "-k", label)
 	case "stop", "uninstall":
