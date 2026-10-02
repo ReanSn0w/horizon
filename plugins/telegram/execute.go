@@ -19,11 +19,11 @@ func execute(a *app, name string, value any) error {
 	}
 	if name == "start" {
 		opt := value.(*startCommand)
-		if opt.LogFile != "" {
-			a.errOut = &rotatingLog{path: opt.LogFile, limit: 1024 * 1024}
-		} else {
-			a.errOut = &synchronizedWriter{out: a.errOut}
+		journal, err := openDiagnosticLog(opt.LogFile, a.errOut)
+		if err != nil {
+			return err
 		}
+		a.errOut = journal
 		return startTelegram(a)
 	}
 	if name == "list" {

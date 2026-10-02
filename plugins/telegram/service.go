@@ -67,8 +67,8 @@ func launchPlist(name, binary, home, path string) []byte {
 	}
 	b.WriteString("</array>\n")
 	b.WriteString("<key>RunAtLoad</key><true/>\n<key>KeepAlive</key><dict><key>SuccessfulExit</key><false/></dict>\n<key>ThrottleInterval</key><integer>10</integer>\n")
-	b.WriteString("<key>EnvironmentVariables</key><dict><key>PATH</key><string>" + xmlText(path) + "</string></dict>\n")
-	b.WriteString("<key>StandardOutPath</key><string>/dev/null</string>\n<key>StandardErrorPath</key><string>/dev/null</string>\n</dict></plist>\n")
+	b.WriteString("<key>EnvironmentVariables</key><dict><key>PATH</key><string>" + xmlText(path) + "</string><key>HORIZON_SERVICE_LOG</key><string>1</string></dict>\n")
+	b.WriteString("<key>StandardOutPath</key><string>/dev/null</string>\n<key>StandardErrorPath</key><string>" + xmlText(filepath.Join(home, "gateway", "launchd.log")) + "</string>\n</dict></plist>\n")
 	return []byte(b.String())
 }
 func manageService(a *app, opt *serviceCommand, host serviceHost) error {
@@ -161,6 +161,12 @@ func manageService(a *app, opt *serviceCommand, host serviceHost) error {
 		if err = os.MkdirAll(filepath.Dir(target), 0700); err != nil {
 			return err
 		}
+		if manager == "launchd" {
+			w := &rotatingLog{path: filepath.Join(home, "gateway", "launchd.log"), limit: 1024 * 1024}
+			if _, err = w.Write(nil); err != nil {
+				return err
+			}
+		}
 		if err = atomicFile(target, content, 0600); err != nil {
 			return err
 		}
@@ -212,6 +218,7 @@ func manageService(a *app, opt *serviceCommand, host serviceHost) error {
 			enabled = false
 		}
 		fmt.Fprintf(a.out, "Service: %s\nInstalled: true\nEnabled: %t\nLoaded: %t\nRunning: %t\n", name, enabled, loaded(), telegramRunning(home))
+		printServiceLogs(a, current, home)
 		return nil
 	case "start":
 		if _, err = host.run(a.ctx, "launchctl", "enable", label); err != nil {
@@ -250,4 +257,59 @@ func manageService(a *app, opt *serviceCommand, host serviceHost) error {
 		}
 	}
 	return err
+}
+
+func printServiceLogs(a *app, plist []byte, home string) {
+	// Decode keys and values in order, including custom --log-file paths.
+	decoder := xml.NewDecoder(bytes.NewReader(plist))
+	var key string
+	var arguments []string
+	var fallback string
+	for {
+		token, err := decoder.Token()
+		if err != nil {
+			break
+		}
+		start, ok := token.(xml.StartElement)
+		if !ok {
+			continue
+		}
+		if start.Name.Local == "key" {
+			_ = decoder.DecodeElement(&key, &start)
+		}
+		if start.Name.Local == "string" {
+			var value string
+			_ = decoder.DecodeElement(&value, &start)
+			if key == "ProgramArguments" {
+				arguments = append(arguments, value)
+			}
+			if key == "StandardErrorPath" {
+				fallback = value
+			}
+		}
+	}
+	path := ""
+	for i, value := range arguments {
+		if value == "--log-file" && i+1 < len(arguments) {
+			path = arguments[i+1]
+		}
+	}
+	if path == "" {
+		fmt.Fprintln(a.out, "Diagnostic log: not configured (reinstall service)")
+	} else {
+		state := "readable"
+		f, err := os.Open(path)
+		if os.IsNotExist(err) {
+			state = "missing"
+		} else if err != nil {
+			state = "unavailable"
+		} else {
+			_ = f.Close()
+		}
+		fmt.Fprintf(a.out, "Diagnostic log: %s (%s)\n", path, state)
+	}
+	fmt.Fprintf(a.out, "Fallback stderr: %s\n", fallback)
+	if fallback == "/dev/null" || !bytes.Contains(plist, []byte("HORIZON_SERVICE_LOG")) {
+		fmt.Fprintln(a.out, "Service definition: legacy; reinstall service to preserve bounded startup diagnostics")
+	}
 }

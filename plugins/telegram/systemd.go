@@ -53,6 +53,7 @@ func systemdLifecycle(a *app, action string, info serviceInfo, descriptor string
 			active = "inactive"
 		}
 		fmt.Fprintf(a.out, "Service: %s\nInstalled: true\nEnabled: %s\nActive: %s\nRunning: %t\n", name, strings.TrimSpace(enabled), strings.TrimSpace(active), telegramRunning(a.home))
+		fmt.Fprintf(a.out, "Diagnostic log: journalctl --user -u %s\n", name)
 		return nil
 	case "start", "stop", "restart":
 		_, err := call(action, name)

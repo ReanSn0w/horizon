@@ -58,7 +58,7 @@ func TestLaunchAgentLifecycle(t *testing.T) {
 			break
 		}
 	}
-	if !bytes.Contains(data, []byte("--log-file")) || bytes.Contains(data, []byte("bot_token")) {
+	if !bytes.Contains(data, []byte("--log-file")) || !bytes.Contains(data, []byte("launchd.log")) || !bytes.Contains(data, []byte("HORIZON_SERVICE_LOG")) || bytes.Contains(data, []byte("bot_token")) {
 		t.Fatal("bad service arguments")
 	}
 	for _, action := range []string{"install", "start", "status", "stop", "restart", "uninstall", "uninstall"} {
