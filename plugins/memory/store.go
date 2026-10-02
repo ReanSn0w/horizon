@@ -36,16 +36,17 @@ type operation struct {
 	At     time.Time `json:"at"`
 }
 type state struct {
-	FormatVersion   int         `json:"format_version"`
-	Scope           string      `json:"scope"`
-	Workspace       string      `json:"workspace,omitempty"`
-	Revision        uint64      `json:"revision"`
-	Generation      string      `json:"generation"`
-	Summary         string      `json:"summary"`
-	Pending         []note      `json:"pending"`
-	Operations      []operation `json:"operations"`
-	LastCompactedAt *time.Time  `json:"last_compacted_at,omitempty"`
-	LastAttemptAt   *time.Time  `json:"last_attempt_at,omitempty"`
+	FormatVersion     int         `json:"format_version"`
+	Scope             string      `json:"scope"`
+	Workspace         string      `json:"workspace,omitempty"`
+	Revision          uint64      `json:"revision"`
+	Generation        string      `json:"generation"`
+	Summary           string      `json:"summary"`
+	Pending           []note      `json:"pending"`
+	Operations        []operation `json:"operations"`
+	LastCompactedAt   *time.Time  `json:"last_compacted_at,omitempty"`
+	AttemptIncomplete bool        `json:"attempt_incomplete,omitempty"`
+	LastAttemptAt     *time.Time  `json:"last_attempt_at,omitempty"`
 }
 type memoryStore struct {
 	home, workspace string
@@ -215,6 +216,7 @@ func (m *memoryStore) clear(ctx context.Context, scope string) error {
 		s.Pending = []note{}
 		s.LastCompactedAt = nil
 		s.LastAttemptAt = nil
+		s.AttemptIncomplete = false
 		return nil
 	})
 }
