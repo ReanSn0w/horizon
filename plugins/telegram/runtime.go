@@ -19,17 +19,18 @@ import (
 )
 
 type bridge struct {
-	health  *diagnosticHealth
-	home    string
-	cfg     settings
-	store   store
-	bot     tgUser
-	tg      *telegram
-	run     runProcess
-	log     io.Writer
-	journal *diagnosticLog
-	resume  func(context.Context, string, []string, string, func(childEvent)) (string, error)
-	deliver func(context.Context, *chat, *job) error
+	jobTimeout time.Duration
+	health     *diagnosticHealth
+	home       string
+	cfg        settings
+	store      store
+	bot        tgUser
+	tg         *telegram
+	run        runProcess
+	log        io.Writer
+	journal    *diagnosticLog
+	resume     func(context.Context, string, []string, string, func(childEvent)) (string, error)
+	deliver    func(context.Context, *chat, *job) error
 }
 
 func (g *bridge) settings() (settings, error) {
@@ -88,7 +89,7 @@ func (g *bridge) setJob(chatID int64, id string, edit func(*chat, *job) error) e
 	return err
 }
 func (g *bridge) process(ctx context.Context, c *chat, j *job, cfg settings) error {
-	ctx, cancel := context.WithTimeout(ctx, 10*time.Minute)
+	ctx, cancel := context.WithTimeout(ctx, g.jobDuration())
 	defer cancel()
 	c, err := workspace(ctx, g.home, cfg, g.store, c, g.run)
 	if err != nil {
@@ -245,6 +246,7 @@ func (g *bridge) loop(ctx context.Context) error {
 		}
 		g.health = newHealth(id)
 	}
+	g.store.ctx = ctx
 	if err := g.store.recover(); err != nil {
 		return err
 	}
@@ -254,6 +256,7 @@ func (g *bridge) loop(ctx context.Context) error {
 	go func() { defer wg.Done(); g.healthLoop(ctx) }()
 	go func() { defer wg.Done(); pollDone <- g.poll(ctx) }()
 	active := map[int64]bool{}
+	var lastOrigin int64
 	done := make(chan int64, 32)
 	fatal := make(chan error, 32)
 	defer func() { cancel(); wg.Wait() }()
@@ -305,7 +308,7 @@ func (g *bridge) loop(ctx context.Context) error {
 			}
 			g.health.mu.Unlock()
 			g.health.phase(false, "scheduling")
-			for _, c := range sortedChats(value) {
+			for _, c := range schedulingOrder(value, lastOrigin) {
 				if len(active) >= cfg.Parallel {
 					break
 				}
@@ -335,6 +338,7 @@ func (g *bridge) loop(ctx context.Context) error {
 					}
 					g.emit("info", "job_started", data)
 				}
+				lastOrigin = c.Origin
 				active[c.Origin] = true
 				wg.Add(1)
 				go func(c *chat, j *job, cfg settings) {
@@ -349,7 +353,9 @@ func (g *bridge) loop(ctx context.Context) error {
 					defer wg.Done()
 					defer func() { done <- c.Origin }()
 					if j == nil {
-						_, err := workspace(ctx, g.home, cfg, g.store, c, g.run)
+						jobCtx, stop := context.WithTimeout(ctx, g.jobDuration())
+						defer stop()
+						_, err := workspace(jobCtx, g.home, cfg, g.store, c, g.run)
 						if err != nil {
 							_ = g.store.update(func(v *state) error {
 								current, e := resolveChat(v, fmt.Sprint(c.ID))
@@ -560,4 +566,22 @@ func atomicIdentity(home string, botID int64) error {
 		return err
 	}
 	return atomicFile(path, []byte(fmt.Sprint(botID)), 0600)
+}
+
+// Rotate across chats; sorting alone indefinitely favors negative group IDs.
+func schedulingOrder(value state, lastOrigin int64) []*chat {
+	chats := sortedChats(value)
+	for i, c := range chats {
+		if c.Origin == lastOrigin {
+			return append(chats[i+1:], chats[:i+1]...)
+		}
+	}
+	return chats
+}
+
+func (g *bridge) jobDuration() time.Duration {
+	if g.jobTimeout > 0 {
+		return g.jobTimeout
+	}
+	return 10 * time.Minute
 }

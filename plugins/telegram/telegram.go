@@ -202,18 +202,18 @@ func ingest(home string, s store, cfg settings, bot tgUser, u update, observers 
 	}
 	if m := u.Message; m != nil {
 		if m.MigrateTo != 0 {
-			if err := migrateGroup(home, m.Chat.ID, m.MigrateTo); err != nil {
+			if err := migrateGroup(home, m.Chat.ID, m.MigrateTo, s.ctx); err != nil {
 				return err
 			}
 		}
 		if m.MigrateFrom != 0 {
-			if err := migrateGroup(home, m.MigrateFrom, m.Chat.ID); err != nil {
+			if err := migrateGroup(home, m.MigrateFrom, m.Chat.ID, s.ctx); err != nil {
 				return err
 			}
 		}
 	}
 	if input != nil && acceptChat(*input, cfg.Telegram.Owner) && input.Type != "private" {
-		if _, err := ensureGroup(home, input.ID); err != nil {
+		if _, err := ensureGroup(home, input.ID, s.ctx); err != nil {
 			return err
 		}
 	}

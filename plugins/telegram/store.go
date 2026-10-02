@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
@@ -71,12 +72,13 @@ type state struct {
 	Aliases map[string]string `yaml:"aliases"`
 }
 type store struct {
+	ctx   context.Context
 	dir   string
 	botID int64
 }
 
 func newStore(home string, botID int64) store {
-	return store{filepath.Join(home, "gateway", "telegram", strconv.FormatInt(botID, 10)), botID}
+	return store{dir: filepath.Join(home, "gateway", "telegram", strconv.FormatInt(botID, 10)), botID: botID}
 }
 func (s store) read() (state, error) {
 	data, err := os.ReadFile(filepath.Join(s.dir, "state.yaml"))
@@ -146,6 +148,9 @@ func atomicFile(path string, data []byte, mode os.FileMode) error {
 	return err
 }
 func lockFile(path string, nonblock bool) (*os.File, error) {
+	return lockFileContext(nil, path, nonblock)
+}
+func lockFileContext(ctx context.Context, path string, nonblock bool) (*os.File, error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
 		return nil, err
 	}
@@ -157,15 +162,36 @@ func lockFile(path string, nonblock bool) (*os.File, error) {
 	if nonblock {
 		flags |= syscall.LOCK_NB
 	}
-	if err = syscall.Flock(int(f.Fd()), flags); err != nil {
-		f.Close()
-		return nil, err
+	if ctx == nil {
+		if err = syscall.Flock(int(f.Fd()), flags); err != nil {
+			f.Close()
+			return nil, err
+		}
+	} else {
+		for {
+			if err = ctx.Err(); err != nil {
+				f.Close()
+				return nil, err
+			}
+			err = syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)
+			if err == nil {
+				break
+			}
+			if nonblock || (!errors.Is(err, syscall.EWOULDBLOCK) && !errors.Is(err, syscall.EAGAIN)) {
+				f.Close()
+				return nil, err
+			}
+			if !pause(ctx, 20*time.Millisecond) {
+				f.Close()
+				return nil, ctx.Err()
+			}
+		}
 	}
 	return f, nil
 }
 func unlock(f *os.File) { _ = syscall.Flock(int(f.Fd()), syscall.LOCK_UN); _ = f.Close() }
 func (s store) update(edit func(*state) error) error {
-	f, err := lockFile(filepath.Join(s.dir, "state.lock"), false)
+	f, err := lockFileContext(s.ctx, filepath.Join(s.dir, "state.lock"), false)
 	if err != nil {
 		return err
 	}
@@ -190,7 +216,7 @@ func (s store) snapshot() (state, error) {
 	if _, err := os.Stat(s.dir); errors.Is(err, os.ErrNotExist) {
 		return s.read()
 	}
-	f, err := lockFile(filepath.Join(s.dir, "state.lock"), false)
+	f, err := lockFileContext(s.ctx, filepath.Join(s.dir, "state.lock"), false)
 	if err != nil {
 		return state{}, err
 	}

@@ -1,14 +1,18 @@
 package config
 
 import (
+	"context"
 	"errors"
+	"gopkg.in/yaml.v3"
 	"os"
 	"path/filepath"
 	"reflect"
 	"slices"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
+	"time"
 )
 
 func TestDisabledSkillConfig(t *testing.T) {
@@ -153,5 +157,37 @@ func TestFullConfigAndUpdatePreserveValues(t *testing.T) {
 	after.DisabledSkills = nil
 	if !reflect.DeepEqual(before, after) {
 		t.Fatal("unrelated config values changed")
+	}
+}
+
+func TestConfigLockWaitCanBeCancelled(t *testing.T) {
+	home := t.TempDir()
+	path := filepath.Join(home, "config.yaml")
+	if err := os.WriteFile(path, []byte("mode: unit\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	lock, err := os.OpenFile(path+".lock", os.O_CREATE|os.O_RDWR, 0600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lock.Close()
+	if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_EX); err != nil {
+		t.Fatal(err)
+	}
+	defer syscall.Flock(int(lock.Fd()), syscall.LOCK_UN)
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() {
+		_, err := UpdateDocumentContext(ctx, home, func(*yaml.Node) (bool, error) { t.Error("edit ran while lock held"); return false, nil })
+		done <- err
+	}()
+	cancel()
+	select {
+	case err := <-done:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatal(err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("config lock ignored cancellation")
 	}
 }
