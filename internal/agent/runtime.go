@@ -2,6 +2,8 @@ package agent
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -85,7 +87,12 @@ func (r *Runtime) Run(ctx context.Context, message string) (Result, error) {
 	if err := r.Locked.StartTurn(turn); err != nil {
 		return Result{}, fmt.Errorf("start turn: %w", err)
 	}
-	r.publish("turn_started", turnID, map[string]any{"model_profile": r.ProfileName, "model": r.Profile.Model})
+	skills := make([]map[string]string, 0)
+	for _, skill := range r.Instructions.Skills.Summaries() {
+		skills = append(skills, map[string]string{"id": skill.ID, "name": skill.Name})
+	}
+	fingerprint := sha256.Sum256([]byte(r.Instructions.Prompt))
+	r.publish("turn_started", turnID, map[string]any{"model_profile": r.ProfileName, "model": r.Profile.Model, "home": r.Store.Home, "skills": skills, "instructions_sha256": hex.EncodeToString(fingerprint[:])})
 
 	input, err := BuildInput(r.Session)
 	if err != nil {
