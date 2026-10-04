@@ -21,6 +21,7 @@ type App struct {
 	interactive func() bool
 	editor      MessageEditor
 	workingDir  func() (string, error)
+	reserved    []string
 }
 
 type globalOptions struct {
@@ -81,6 +82,7 @@ func (a *App) Run(args []string) int {
 		return ExitFailure
 	}
 	reserved := commandNames(parser)
+	a.reserved = reserved
 	if index, homeFlag, ok := pluginCommandIndex(args); ok {
 		home, err := config.ResolveHome(homeFlag)
 		if err != nil {

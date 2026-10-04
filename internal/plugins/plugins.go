@@ -25,10 +25,11 @@ var ErrMetadataTimeout = errors.New("metadata command timed out")
 var validName = regexp.MustCompile(`^[a-z][a-z0-9-]*$`)
 
 type Metadata struct {
-	ProtocolVersion      int    `json:"protocol_version"`
-	AgentProtocolVersion int    `json:"agent_protocol_version,omitempty"`
-	Version              string `json:"version"`
-	Description          string `json:"description"`
+	ProtocolVersion       int    `json:"protocol_version"`
+	AgentProtocolVersion  int    `json:"agent_protocol_version,omitempty"`
+	ConfigProtocolVersion int    `json:"config_protocol_version,omitempty"`
+	Version               string `json:"version"`
+	Description           string `json:"description"`
 }
 
 type Entry struct {
