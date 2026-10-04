@@ -9,15 +9,17 @@
 make install-memory
 # Для другого home:
 make install-memory HORIZON_HOME=/path/to/home
+horizon --home /path/to/home init
 ```
 
-В существующий `<home>/config.yaml` добавьте:
+`horizon init` добавит недостающие настройки памяти в `<home>/config.yaml`, не
+заменяя уже заданные. Для включения расширения добавьте:
 
 ```yaml
 agent_plugins: [memory]
 ```
 
-Настройки необязательны; ниже показаны значения по умолчанию:
+Ниже показаны значения по умолчанию (поле `model` можно добавить вручную):
 
 ```yaml
 plugins:

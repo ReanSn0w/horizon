@@ -6,6 +6,10 @@
 
 Можно установить symlink на исполняемый файл. Для удаления достаточно удалить
 `<home>/plugins/horizon-<имя>`. `init` плагины автоматически не устанавливает.
+После установки выполните `horizon init` с тем же home: он добавит недостающие
+настройки всех поддерживающих протокол установленных плагинов, сохранив
+существующие значения. Старый сторонний плагин без шаблона будет пропущен с
+сообщением. Инициализация не добавляет имя в `agent_plugins`.
 Протокол описан в [docs/PLUGINS.md](../docs/PLUGINS.md).
 
 ## Decision
@@ -45,7 +49,7 @@ Telegram-бот с отдельным workspace и закреплённой се
 
 ```sh
 make install-telegram HORIZON_HOME=/path/to/home
-horizon --home /path/to/home telegram init
+horizon --home /path/to/home init
 # Edit plugins.telegram.telegram in /path/to/home/config.yaml.
 horizon --home /path/to/home telegram start
 ```
@@ -64,11 +68,13 @@ horizon --home /path/to/home telegram start
 ## Memory
 
 `make install-memory` устанавливает отдельный плагин памяти. Включение контекста
-и инструментов: `agent_plugins: [memory]` в config.yaml; настройки — plugins.memory.
+и инструментов: `agent_plugins: [memory]` в config.yaml; настройки — plugins.memory,
+которую дополняет повторный `horizon init`.
 [Команды, сжатие и уровни памяти](memory/README.md).
 
 ## Browser
 
 `make install-browser` устанавливает плагин удалённого браузера Browser Use.
-Включение инструментов: `agent_plugins: [browser]`, настройки — `plugins.browser`.
+Повторный `horizon init` добавляет `plugins.browser` с пустым `api_key`.
+Включение инструментов: `agent_plugins: [browser]`.
 [Конфигурация, команды и очистка после сбоя](browser/README.md).

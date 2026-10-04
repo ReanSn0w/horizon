@@ -23,8 +23,25 @@ type settings struct {
 	interval, apiTimeout, retryInterval time.Duration
 }
 
+func defaultSettings(model string) settings {
+	return settings{Threshold: 5, Interval: "24h", Model: model, NoteLimit: 4096, SummaryLimit: 16384, ContextLimit: 16000, APITimeout: "45s", RetryInterval: "5m", MaxPendingNotes: 256, MaxPendingBytes: 262144}
+}
+
+func memoryConfigTemplate() (map[string]any, error) {
+	data, err := yaml.Marshal(defaultSettings(""))
+	if err != nil {
+		return nil, err
+	}
+	var section map[string]any
+	if err := yaml.Unmarshal(data, &section); err != nil {
+		return nil, err
+	}
+	delete(section, "model") // An absent model follows the current default_model.
+	return section, nil
+}
+
 func loadSettings(cfg config.Config) (settings, error) {
-	s := settings{Threshold: 5, Interval: "24h", Model: cfg.DefaultModel, NoteLimit: 4096, SummaryLimit: 16384, ContextLimit: 16000, APITimeout: "45s", RetryInterval: "5m", MaxPendingNotes: 256, MaxPendingBytes: 262144}
+	s := defaultSettings(cfg.DefaultModel)
 	if node, ok := cfg.Plugins["memory"]; ok {
 		data, err := yaml.Marshal(&node)
 		if err != nil {

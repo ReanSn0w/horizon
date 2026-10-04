@@ -42,6 +42,10 @@ func (command *initCommand) Execute(args []string) error {
 	if err != nil {
 		return failure(err.Error(), err)
 	}
+	statuses, skipped, err := initializePluginConfig(home, command.app.reserved)
+	if err != nil {
+		return failure(fmt.Sprintf("initialize plugin configuration: %v", err), err)
+	}
 	fmt.Fprintf(command.app.out, "Horizon home: %s\n", home)
 	configPath := filepath.Join(home, "config.yaml")
 	if result.ConfigCreated {
@@ -50,6 +54,12 @@ func (command *initCommand) Execute(args []string) error {
 		fmt.Fprintf(command.app.out, "Существующая конфигурация сохранена: %s.\n", configPath)
 	}
 	fmt.Fprintf(command.app.out, "При необходимости добавьте инструкции агента в %s.\n", filepath.Join(home, "AGENTS.md"))
+	for _, name := range sortedKeys(statuses) {
+		fmt.Fprintf(command.app.out, "Плагин %s: %s.\n", name, statuses[name])
+	}
+	for _, name := range skipped {
+		fmt.Fprintf(command.app.errOut, "horizon: настройки плагина %s пропущены (шаблон недоступен).\n", name)
+	}
 	return nil
 }
 

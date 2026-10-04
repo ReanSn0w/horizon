@@ -34,7 +34,17 @@ func main() {
 func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	fail := func(code int, err error) int { fmt.Fprintf(stderr, "browser: %s\n", err); return code }
 	if len(args) == 1 && args[0] == "horizon-plugin-metadata" {
-		if err := json.NewEncoder(stdout).Encode(plugins.Metadata{ProtocolVersion: 1, AgentProtocolVersion: 1, Version: "1.0.0", Description: "Remote Browser Use browser"}); err != nil {
+		if err := json.NewEncoder(stdout).Encode(plugins.Metadata{ProtocolVersion: 1, AgentProtocolVersion: 1, ConfigProtocolVersion: 1, Version: "1.0.0", Description: "Remote Browser Use browser"}); err != nil {
+			return fail(1, err)
+		}
+		return 0
+	}
+	if len(args) == 1 && args[0] == "horizon-plugin-config-template" {
+		section, err := browserConfigTemplate()
+		if err != nil {
+			return fail(1, err)
+		}
+		if err := json.NewEncoder(stdout).Encode(map[string]any{"config_protocol_version": 1, "section": section}); err != nil {
 			return fail(1, err)
 		}
 		return 0

@@ -44,9 +44,11 @@ horizon init
 
 Команда создаст `~/.horizon/config.yaml`, `~/.horizon/AGENTS.md` с общими
 инструкциями для агента и стартовые навыки `skill-creator` и `filesystem`,
-затем выведет пути к файлам для настройки. Текст начальных инструкций находится
-в [internal/bootstrap/assets/AGENTS.md](internal/bootstrap/assets/AGENTS.md); по умолчанию он
-задаёт общение на русском.
+затем добавит недостающие настройки установленных плагинов и выведет пути к
+файлам для настройки. Повторите `horizon init` после установки нового плагина:
+уже заданные значения и комментарии сохраняются. Текст начальных инструкций
+находится в [internal/bootstrap/assets/AGENTS.md](internal/bootstrap/assets/AGENTS.md);
+по умолчанию он задаёт общение на русском.
 В `config.yaml` укажите:
 
 - `provider.url` — базовый URL API, например `https://api.openai.com/v1`;
@@ -243,7 +245,8 @@ horizon --home /path/to/home decision request.json
 `HORIZON_HOME` также выбирает home, а явный `--home` имеет приоритет.
 Плагин можно установить symlink на исполняемый файл; для удаления удалите
 `<home>/plugins/horizon-<имя>`. `init` создаёт каталог `plugins/`, но не
-устанавливает плагины. Запрос метаданных для справки и перед запуском тоже
+устанавливает плагины; при наличии установленных файлов он выполняет их запросы
+метаданных и шаблонов настроек. Запрос метаданных для справки и перед запуском тоже
 исполняет сторонний код с вашими правами. Протокол, лимиты и коды завершения —
 в [docs/PLUGINS.md](docs/PLUGINS.md).
 
@@ -274,15 +277,17 @@ go test -race ./...
 
 Плагин `telegram` связывает Telegram-бота с отдельными workspace и сессией
 на чат. `make install-plugins` устанавливает decision, telegram и memory; для отдельной
-установки используйте `make install-telegram`. Настройка начинается с
-`horizon telegram init`, запуск — `horizon telegram start`.
+установки используйте `make install-telegram`. После установки повторите
+`horizon init`, заполните `plugins.telegram.telegram.bot_token` и
+`owner_user_id`, затем запустите `horizon telegram start`.
 `horizon telegram list` показывает ID рядом с названием чата,
 `horizon telegram send --chat ID` запускает генерацию нового сообщения.
 [Конфигурация, правила ответа и пользовательские службы](plugins/telegram/README.md).
 
 ## Память агента
 
-Установите плагин `make install-memory` и добавьте в существующий config.yaml:
+Установите плагин `make install-memory`, выполните `horizon init` для добавления
+настроек и включите расширение в существующем config.yaml:
 
 ```yaml
 agent_plugins: [memory]
@@ -300,8 +305,8 @@ workspace. Память хранится локально отдельно от 
 
 ## Браузер
 
-Установите `make install-browser`, сохраните ключ Browser Use в
-`plugins.browser.api_key` и добавьте `browser` в `agent_plugins`:
+Установите `make install-browser`, повторите `horizon init`, сохраните ключ
+Browser Use в `plugins.browser.api_key` и добавьте `browser` в `agent_plugins`:
 
 ```yaml
 agent_plugins: [browser]
