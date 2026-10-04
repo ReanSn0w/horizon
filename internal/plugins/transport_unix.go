@@ -37,7 +37,7 @@ func Decode(data []byte, target any) error {
 func Call(ctx context.Context, path, operation string, request Request, timeout time.Duration) (Reply, string, error) {
 	var empty Reply
 	switch operation {
-	case "describe", "context", "maintain", "tool":
+	case "describe", "context", "maintain", "tool", "finalize":
 	default:
 		return empty, "", fmt.Errorf("invalid agent operation")
 	}

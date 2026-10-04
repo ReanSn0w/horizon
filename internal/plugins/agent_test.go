@@ -128,6 +128,7 @@ esac`
 	for _, description := range []string{
 		`null`,
 		`{"instructions":"test","tools":null}`,
+		`{"instructions":"test","tools":[],"finalize_effect":"network"}`,
 		`{"instructions":"test","tools":[{"name":"add","description":"test","effect":"read","parameters":{"type":"object","properties":{},"required":[],"additionalProperties":false}},{"name":"add","description":"test","effect":"read","parameters":{"type":"object","properties":{},"required":[],"additionalProperties":false}}]}`,
 		`{"instructions":"test","tools":[{"name":"add","description":"test","effect":"read","parameters":{"type":"object","properties":{},"required":[],"additionalProperties":false,"oneOf":[]}}]}`,
 	} {

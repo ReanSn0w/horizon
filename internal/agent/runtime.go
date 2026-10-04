@@ -89,6 +89,7 @@ func (r *Runtime) Run(ctx context.Context, message string) (Result, error) {
 	if err := r.Locked.StartTurn(turn); err != nil {
 		return Result{}, fmt.Errorf("start turn: %w", err)
 	}
+	defer r.finalizeTurn(turnID)
 	skills := make([]map[string]string, 0)
 	for _, skill := range r.Instructions.Skills.Summaries() {
 		skills = append(skills, map[string]string{"id": skill.ID, "name": skill.Name})
@@ -213,6 +214,28 @@ func (r *Runtime) Run(ctx context.Context, message string) (Result, error) {
 		}
 		r.publish("turn_completed", turnID, completionData)
 		return Result{SessionID: r.Session.SessionID, TurnID: turnID, Text: text}, nil
+	}
+}
+
+func (r *Runtime) finalizeTurn(turnID string) {
+	if len(r.Extensions) == 0 {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	for _, extension := range r.Extensions {
+		if extension.Description.FinalizeEffect == "" || !plugins.Allowed(r.Access, extension.Description.FinalizeEffect) {
+			continue
+		}
+		request := extension.Request
+		request.SessionID = r.Session.SessionID
+		request.TurnID = turnID
+		request.Access = r.Access
+		request.OperationID = r.Session.SessionID + ":" + turnID + ":finalize"
+		_, _, err := plugins.Call(ctx, extension.Path, "finalize", request, 10*time.Second)
+		if err != nil {
+			r.publish("plugin_finalize_failed", turnID, map[string]any{"plugin": extension.Name, "message": err.Error()})
+		}
 	}
 }
 

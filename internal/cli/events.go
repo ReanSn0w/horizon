@@ -11,7 +11,12 @@ import (
 
 func newEventPublisher(mode string, verbose bool, out, errOut io.Writer) eventstream.Publish {
 	if mode == "plain" {
-		return func(eventstream.Event) {}
+		return func(event eventstream.Event) {
+			if event.Type == "plugin_finalize_failed" {
+				data, _ := event.Data.(map[string]any)
+				fmt.Fprintf(errOut, "Horizon: завершение плагина %v: %v\n", value(data, "plugin"), value(data, "message"))
+			}
+		}
 	}
 	if mode == "jsonl" {
 		encoder := json.NewEncoder(out)
@@ -21,6 +26,8 @@ func newEventPublisher(mode string, verbose bool, out, errOut io.Writer) eventst
 	return func(event eventstream.Event) {
 		data, _ := event.Data.(map[string]any)
 		switch event.Type {
+		case "plugin_finalize_failed":
+			fmt.Fprintf(errOut, "Horizon: завершение плагина %v: %v\n", value(data, "plugin"), value(data, "message"))
 		case "turn_started":
 			fmt.Fprintf(errOut, "Horizon: ход %v, модель %v\n", value(data, "model_profile"), value(data, "model"))
 		case "tool_started":

@@ -16,6 +16,7 @@ import (
 	"github.com/ReanSn0w/horizon/internal/decision"
 	"github.com/ReanSn0w/horizon/internal/eventstream"
 	"github.com/ReanSn0w/horizon/internal/instructions"
+	"github.com/ReanSn0w/horizon/internal/plugins"
 	"github.com/ReanSn0w/horizon/internal/responses"
 	"github.com/ReanSn0w/horizon/internal/session"
 )
@@ -115,6 +116,96 @@ func TestRuntimeDistinguishesCancellationAndTimeout(t *testing.T) {
 	runtime.MaxDuration = time.Millisecond
 	_, err = runtime.Run(context.Background(), "timeout")
 	assertRuntimeCode(t, err, "turn_timeout")
+}
+
+func TestTurnFinalization(t *testing.T) {
+	final := json.RawMessage(`{"type":"message","content":[{"type":"output_text","text":"done"}]}`)
+	for _, tc := range []struct {
+		name       string
+		client     *fakeClient
+		cancel     bool
+		maxTime    time.Duration
+		wantError  string
+		finalize   bool
+		failFinish bool
+	}{
+		{name: "success", client: &fakeClient{outputs: [][]json.RawMessage{{final}}}, finalize: true},
+		{name: "legacy", client: &fakeClient{outputs: [][]json.RawMessage{{final}}}},
+		{name: "failure", client: &fakeClient{}, wantError: "model_request_failed", finalize: true},
+		{name: "cancel", client: &fakeClient{wait: true}, cancel: true, wantError: "turn_cancelled", finalize: true},
+		{name: "timeout", client: &fakeClient{wait: true}, maxTime: time.Millisecond, wantError: "turn_timeout", finalize: true},
+		{name: "finalize failure", client: &fakeClient{outputs: [][]json.RawMessage{{final}}}, finalize: true, failFinish: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			runtime, cleanup := testRuntime(t, tc.client)
+			defer cleanup()
+			runtime.Access = "full"
+			runtime.MaxDuration = tc.maxTime
+			marker := filepath.Join(t.TempDir(), "finalize.json")
+			script := "#!/bin/sh\ncase \"$1\" in\nhorizon-plugin-agent-finalize) cat > '" + marker + "'; "
+			if tc.failFinish {
+				script += "echo '{\"ok\":false,\"error\":{\"code\":\"offline\",\"message\":\"offline\"}}';;\n"
+			} else {
+				script += "echo '{\"ok\":true,\"data\":{}}';;\n"
+			}
+			script += "esac\n"
+			path := filepath.Join(t.TempDir(), "plugin")
+			if err := os.WriteFile(path, []byte(script), 0700); err != nil {
+				t.Fatal(err)
+			}
+			effect := ""
+			if tc.finalize {
+				effect = "unrestricted"
+			}
+			runtime.Extensions = []plugins.Extension{{Name: "test", Path: path, Request: plugins.Request{Home: runtime.Store.Home, Workspace: runtime.Workspace.Dir, WorkspaceID: runtime.Workspace.ID}, Description: plugins.Description{FinalizeEffect: effect}}}
+			var events []eventstream.Event
+			runtime.Publish = func(event eventstream.Event) { events = append(events, event) }
+			ctx := context.Background()
+			if tc.cancel {
+				var cancel context.CancelFunc
+				ctx, cancel = context.WithCancel(ctx)
+				cancel()
+			}
+			result, err := runtime.Run(ctx, "test")
+			if tc.wantError == "" {
+				if err != nil || result.Text != "done" {
+					t.Fatalf("result=%+v err=%v", result, err)
+				}
+			} else if tc.wantError == "model_request_failed" {
+				if err == nil {
+					t.Fatal("expected model error")
+				}
+			} else {
+				assertRuntimeCode(t, err, tc.wantError)
+			}
+			data, readErr := os.ReadFile(marker)
+			if !tc.finalize {
+				if !os.IsNotExist(readErr) {
+					t.Fatalf("legacy plugin finalized: %v", readErr)
+				}
+				return
+			}
+			if readErr != nil {
+				t.Fatal(readErr)
+			}
+			var request plugins.Request
+			if err := plugins.Decode(data, &request); err != nil {
+				t.Fatal(err)
+			}
+			if request.Home != runtime.Store.Home || request.Workspace != runtime.Workspace.Dir || request.WorkspaceID != runtime.Workspace.ID || request.SessionID != runtime.Session.SessionID || request.TurnID == "" || request.Access != "full" || request.OperationID == "" {
+				t.Fatalf("finalize context = %+v", request)
+			}
+			failEvents := 0
+			for _, event := range events {
+				if event.Type == "plugin_finalize_failed" {
+					failEvents++
+				}
+			}
+			if (failEvents == 1) != tc.failFinish {
+				t.Fatalf("finalize failure events=%d", failEvents)
+			}
+		})
+	}
 }
 
 func TestAutomaticCompactionPrunesOnlyWorkingWindowAfterSuccess(t *testing.T) {
