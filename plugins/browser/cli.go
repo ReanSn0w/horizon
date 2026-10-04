@@ -140,7 +140,9 @@ func (b browserLifecycle) closeStaleCLI(ctx context.Context, homeID string, out 
 		return err
 	}
 	closed := 0
+	seen := map[string]bool{}
 	for _, item := range remote {
+		seen[item.ID] = true
 		status, err := b.remoteState(item, records)
 		if err != nil {
 			return err
@@ -158,6 +160,22 @@ func (b browserLifecycle) closeStaleCLI(ctx context.Context, homeID string, out 
 		}
 		closed++
 	}
-	fmt.Fprintf(out, "closed %d stale browsers\n", closed)
+	removed := 0
+	for _, record := range records {
+		if seen[record.ID] {
+			continue
+		}
+		busy, err := b.state.turnBusy(record.SessionID, record.WorkspaceID, record.TurnID)
+		if err != nil {
+			return err
+		}
+		if !busy {
+			if err := b.state.remove(record.TurnID); err != nil {
+				return err
+			}
+			removed++
+		}
+	}
+	fmt.Fprintf(out, "closed %d stale browsers, removed %d local records\n", closed, removed)
 	return nil
 }

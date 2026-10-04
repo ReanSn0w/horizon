@@ -15,11 +15,13 @@ func TestBrowserSettings(t *testing.T) {
 		name, yaml string
 		good       bool
 	}{
-		{"valid", "api_key: test\n", true},
+		{"valid", "api_key: sentinel-secret-123\n", true},
 		{"missing key", "timeout_minutes: 10\n", false},
-		{"unknown", "api_key: test\nextra: value\n", false},
-		{"bad timeout", "api_key: test\ntimeout_minutes: 241\n", false},
-		{"bad URL", "api_key: test\napi_url: file:///tmp/a\n", false},
+		{"unknown", "api_key: sentinel-secret-123\nextra: value\n", false},
+		{"bad timeout", "api_key: sentinel-secret-123\ntimeout_minutes: 241\n", false},
+		{"bad URL", "api_key: sentinel-secret-123\napi_url: file:///tmp/a\n", false},
+		{"insecure remote URL", "api_key: sentinel-secret-123\napi_url: http://example.com/api/v4\n", false},
+		{"local test URL", "api_key: sentinel-secret-123\napi_url: http://127.0.0.1:1234/api/v4\n", true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var node yaml.Node
@@ -30,7 +32,7 @@ func TestBrowserSettings(t *testing.T) {
 			if (err == nil) != tc.good {
 				t.Fatal(err)
 			}
-			if err != nil && strings.Contains(err.Error(), "test") {
+			if err != nil && strings.Contains(err.Error(), "sentinel-secret-123") {
 				t.Fatalf("diagnostic leaked token: %v", err)
 			}
 		})

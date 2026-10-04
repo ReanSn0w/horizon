@@ -1,9 +1,12 @@
-# Browser Use plugin
+# Браузер через Browser Use
 
-`make install-browser HORIZON_HOME=/path/to/home` installs the plugin as
-`<home>/plugins/horizon-browser`. It is not part of the default plugin set.
+Плагин управляет удалённым Chromium через [Browser Use Browsers API v4](https://docs.browser-use.com/cloud/openapi/v4.json) и CDP. Локальный браузер не устанавливается. Плагин не входит в набор `make install-plugins` по умолчанию.
 
-Add to `<home>/config.yaml`:
+```sh
+make install-browser HORIZON_HOME=/path/to/home
+```
+
+Добавьте в существующий `<home>/config.yaml`:
 
 ```yaml
 agent_plugins: [browser]
@@ -13,15 +16,28 @@ plugins:
     timeout_minutes: 10
 ```
 
-Use `horizon resume --access full` for browser tools. The token stays in the
-Horizon config. `api_url` defaults to `https://api.browser-use.com/api/v4` and
-`action_timeout` defaults to `30s`. The plugin validates its own section
-strictly. The metadata and help commands work without a configured home.
+Если уже включены другие расширения, добавьте `browser` в существующий список `agent_plugins`. Ключ остаётся в приватном config.yaml. Параметры `plugins.browser` проверяются строго: `api_key` обязателен, `timeout_minutes` от 1 до 240; `action_timeout` по умолчанию `30s`, допустимы 1–60 секунд. `api_url` по умолчанию `https://api.browser-use.com/api/v4`; HTTP разрешён только для локального тестового сервера. Метаданные и справка плагина не требуют настроенного home или сети.
 
-The browser is created when the model first navigates to a URL in a turn and
-stopped when that turn ends. After a crash, use `horizon browser list` and
-`horizon browser close <id>` or `horizon browser close --stale` to inspect and
-stop remaining sessions. Active remote browsers may incur provider charges.
-`SIGKILL` and power loss can prevent immediate cleanup. If the API is
-unavailable, the plugin cannot confirm whether a remote session is still
-active; retry inspection once the API is reachable.
+```sh
+horizon resume --access full -m 'Открой https://example.com и прочитай страницу'
+```
+
+Модель получает `browser__navigate`, `browser__snapshot`, `browser__click` и `browser__type`. Все имеют эффект `unrestricted`; в `read` и `write` вызовы будут отклонены. `navigate` принимает только HTTP(S) URL и создаёт браузер при первом вызове в ходе. Остальные инструменты до первого URL возвращают ошибку. Результат содержит URL, заголовок, текст до 6 тысяч символов и до 50 ссылок на элементы. При ограничении результата возвращается `truncated: true`. Ссылки действуют только для указанного `snapshot_id`; после перехода или действия нужно использовать новый снимок.
+
+Каждый вызов плагина — отдельный процесс, который подключается к тому же браузеру и вкладке. Состояние хранится в приватных файлах `<home>/browser/`; CDP URL не выводится в результаты инструментов. После успешного, ошибочного или отменённого хода Horizon автоматически отправляет запрос остановки браузера. Повторный ход начинает без него. Активная удалённая сессия тарифицируется Browser Use; остановка производится API-запросом, а закрытия CDP-соединения недостаточно.
+
+После `SIGKILL`, потери питания или сетевого сбоя проверьте удалённое состояние вручную:
+
+```sh
+horizon browser list
+horizon browser close BROWSER_ID
+horizon browser close --stale
+```
+
+`list` показывает активные браузеры с меткой текущего home и отдельно локальные записи без удалённой сессии. `close <id>` повторно проверяет метку и закрывает выбранный браузер, даже если его ход ещё выполняется. `close --stale` пропускает подтверждённо активный ход и удаляет локальные записи, для которых API подтвердил отсутствие активного браузера; если состояние хода нельзя подтвердить, запись сохраняется. Эти команды работают с установленным плагином и без `agent_plugins: [browser]`. При недоступном API список помечается «состояние не проверено»; повторите команду после восстановления связи. Если создание браузера имело неизвестный исход, новый `POST` не отправляется вслепую.
+
+Первая версия предназначена для публичных страниц и обычного текста. Скриншоты, загрузка файлов, профили и ввод секретов не поддерживаются. Не передавайте пароли и токены в `browser__type`: аргументы инструментов сохраняются в журнале Horizon. Время жизни удалённого браузера дополнительно ограничено `timeout_minutes` на стороне Browser Use. Реальный API с личным токеном не вызывается обычными тестами. Отдельная явно включаемая проверка создаёт оплачиваемую сессию на одну минуту и останавливает её:
+
+```sh
+HORIZON_BROWSER_API_CHECK=1 go test ./plugins/browser -run TestConfiguredBrowserUseAPI -v
+```

@@ -154,3 +154,14 @@ func TestUnknownCreateOutcomeIsNotRetriedBlindly(t *testing.T) {
 		t.Fatalf("finalization erased uncertain creation: %v", err)
 	}
 }
+
+func TestBrowserStopRequiresConfirmedStatus(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]string{"id": "browser", "status": "active"})
+	}))
+	defer server.Close()
+	a := newBrowserAPI(settings{APIKey: "test", APIURL: server.URL})
+	if err := a.stop(context.Background(), "browser"); err == nil {
+		t.Fatal("unconfirmed stop accepted")
+	}
+}

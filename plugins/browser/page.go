@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/url"
 	"strconv"
@@ -54,13 +55,14 @@ const snapshotScript = `(() => {
     }
     return parts.join(' > ');
   };
-  const fingerprint = el => [el.tagName, el.id, el.className, el.getAttribute('type') || '', (el.textContent || '').trim().slice(0,100)].join('|');
-  const elements = all.slice(0,80).filter(el => !['password','file','hidden'].includes(el.getAttribute('type'))).map((el, i) => ({
+  const fingerprint = el => [el.tagName, el.id.slice(0,100), String(el.className).slice(0,100), el.getAttribute('type') || '', (el.textContent || '').trim().slice(0,100)].join('|');
+  const chosen = all.slice(0,50).filter(el => !['password','file','hidden'].includes(el.getAttribute('type')));
+  const elements = chosen.map((el, i) => ({
     ref: 'e' + (i+1), selector: selector(el), fingerprint: fingerprint(el),
-    role: el.getAttribute('role') || el.tagName.toLowerCase(),
-    name: (el.getAttribute('aria-label') || el.getAttribute('placeholder') || el.innerText || '').trim().slice(0,120)
-  }));
-  return {url: location.href.slice(0,2048), title: document.title.slice(0,512), text: text.slice(0,12000), elements, truncated: text.length > 12000 || all.length > 80};
+    role: (el.getAttribute('role') || el.tagName.toLowerCase()).slice(0,24),
+    name: (el.getAttribute('aria-label') || el.getAttribute('placeholder') || el.innerText || '').trim().slice(0,64)
+  })).filter(item => item.selector.length <= 1024);
+  return {url: location.href.slice(0,1024), title: document.title.slice(0,256), text: text.slice(0,6000), elements, truncated: text.length > 6000 || all.length > 50 || elements.length < chosen.length};
 })()`
 
 func (b browserLifecycle) tool(ctx context.Context, request plugins.Request) (any, error) {
@@ -117,7 +119,7 @@ func (b browserLifecycle) tool(ctx context.Context, request plugins.Request) (an
 			return nil, fmt.Errorf("browser text exceeds 4096 characters")
 		}
 		var current string
-		check := `(() => { const el = document.querySelector(` + strconv.Quote(selected.Selector) + `); return el ? [el.tagName, el.id, el.className, el.getAttribute('type') || '', (el.textContent || '').trim().slice(0,100)].join('|') : ''; })()`
+		check := `(() => { const el = document.querySelector(` + strconv.Quote(selected.Selector) + `); return el ? [el.tagName, el.id.slice(0,100), String(el.className).slice(0,100), el.getAttribute('type') || '', (el.textContent || '').trim().slice(0,100)].join('|') : ''; })()`
 		actions = append(actions, chromedp.Evaluate(check, &current), chromedp.ActionFunc(func(context.Context) error {
 			if current != selected.Fingerprint {
 				return fmt.Errorf("stale browser element; call browser__snapshot")
@@ -158,6 +160,21 @@ func renderPage(page pageData, snapshotID string) pageResult {
 			Role string `json:"role"`
 			Name string `json:"name"`
 		}{element.Ref, element.Role, element.Name})
+	}
+	for {
+		encoded, err := json.Marshal(result)
+		if err == nil && len(encoded) <= 48<<10 {
+			break
+		}
+		result.Truncated = true
+		if len(result.Text) > 0 {
+			runes := []rune(result.Text)
+			result.Text = string(runes[:len(runes)/2])
+		} else if len(result.Elements) > 0 {
+			result.Elements = result.Elements[:len(result.Elements)-1]
+		} else {
+			break
+		}
 	}
 	return result
 }

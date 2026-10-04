@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"fmt"
+	"net"
 	"net/url"
 	"strings"
 	"time"
@@ -38,6 +39,13 @@ func loadSettings(cfg config.Config) (settings, error) {
 	u, err := url.Parse(s.APIURL)
 	if err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" {
 		return s, fmt.Errorf("plugins.browser.api_url must be an HTTP(S) URL")
+	}
+	if u.Scheme == "http" {
+		host := u.Hostname()
+		ip := net.ParseIP(host)
+		if host != "localhost" && (ip == nil || !ip.IsLoopback()) {
+			return s, fmt.Errorf("plugins.browser.api_url requires HTTPS except for loopback tests")
+		}
 	}
 	if s.TimeoutMinutes < 1 || s.TimeoutMinutes > 240 {
 		return s, fmt.Errorf("plugins.browser.timeout_minutes must be 1..240")

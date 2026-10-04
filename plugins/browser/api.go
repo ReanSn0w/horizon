@@ -125,5 +125,12 @@ func (a browserAPI) get(ctx context.Context, id string) (browserSession, error) 
 }
 
 func (a browserAPI) stop(ctx context.Context, id string) error {
-	return a.do(ctx, http.MethodPatch, "/browsers/"+url.PathEscape(id), map[string]string{"action": "stop"}, nil)
+	var result browserSession
+	if err := a.do(ctx, http.MethodPatch, "/browsers/"+url.PathEscape(id), map[string]string{"action": "stop"}, &result); err != nil {
+		return err
+	}
+	if result.Status != "stopped" {
+		return fmt.Errorf("Browser Use did not confirm browser stop")
+	}
+	return nil
 }

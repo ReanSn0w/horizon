@@ -92,6 +92,10 @@ func TestBrowserCLIListsLocalRecordWithoutRemoteSession(t *testing.T) {
 	if err := b.listCLI(context.Background(), homeID, &out); err != nil || !strings.Contains(out.String(), "локальная запись без активного браузера") || strings.Contains(out.String(), "ws://private") {
 		t.Fatalf("list=%q err=%v", out.String(), err)
 	}
+	out.Reset()
+	if err := b.closeStaleCLI(context.Background(), homeID, &out); err != nil || !strings.Contains(out.String(), "removed 1 local records") {
+		t.Fatalf("close stale=%q err=%v", out.String(), err)
+	}
 }
 
 func TestCloseStaleSkipsLockedTurn(t *testing.T) {

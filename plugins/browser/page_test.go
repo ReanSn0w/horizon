@@ -43,3 +43,15 @@ func TestRenderPageOmitsSelectorsAndFingerprint(t *testing.T) {
 		t.Fatalf("result=%s err=%v", encoded, err)
 	}
 }
+
+func TestRenderPageBoundsEncodedBytes(t *testing.T) {
+	page := pageData{Text: strings.Repeat("<😊", 6000)}
+	for i := 0; i < 50; i++ {
+		page.Elements = append(page.Elements, elementRef{Ref: "e", Role: strings.Repeat("<", 24), Name: strings.Repeat("<", 64)})
+	}
+	result := renderPage(page, "snapshot")
+	encoded, err := json.Marshal(result)
+	if err != nil || len(encoded) > 48<<10 || !result.Truncated {
+		t.Fatalf("encoded bytes=%d truncated=%t err=%v", len(encoded), result.Truncated, err)
+	}
+}
