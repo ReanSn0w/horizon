@@ -10,7 +10,6 @@ for each chat, and sends only successful final responses. The plugin follows
 ```sh
 make install-all
 horizon init
-horizon telegram init
 # Edit ~/.horizon/config.yaml, then:
 horizon telegram start
 ```
@@ -18,18 +17,17 @@ horizon telegram start
 Use `make install-telegram` to install only this plugin. `decision` is needed
 for conversation mode. Horizon's normal provider, model and shared `decision`
 settings must also be configured; the default read/write access modes require
-Jev for shell command evaluation. `telegram init` adds missing fields without
-requiring API keys and preserves existing values, comments and file permissions.
-Telegram settings are written as block YAML. Running `telegram init` again also
-expands an existing inline telegram section into readable YAML without changing
-its configured values. Empty `groups: {}` remains valid until a group is added.
+Jev for shell command evaluation. `horizon init` adds missing Telegram fields
+without requiring API keys and preserves existing values, comments and file
+permissions. Run it again after installing the plugin into an existing home.
+Empty `groups: {}` remains valid until a group is added.
 
 ### Upgrade from gateway
 
 The plugin command and executable are now `telegram` and `horizon-telegram`.
 Stop the old foreground process or run `horizon gateway service stop` before
 switching. Install the new binary with `make install-telegram`, then run
-`horizon telegram init`: it renames `plugins.gateway` to `plugins.telegram`
+`horizon init`: it renames `plugins.gateway` to `plugins.telegram`
 under the configuration lock, preserving values and comments. If both sections
 exist, init refuses to choose one; keep the intended section before retrying.
 
@@ -46,7 +44,6 @@ An alternative home must be used consistently:
 ```sh
 make install-plugins HORIZON_HOME=/absolute/path/to/home
 horizon --home /absolute/path/to/home init
-horizon --home /absolute/path/to/home telegram init
 horizon --home /absolute/path/to/home telegram start
 ```
 

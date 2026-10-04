@@ -4,9 +4,11 @@
 
 ```sh
 make install-browser HORIZON_HOME=/path/to/home
+horizon --home /path/to/home init
 ```
 
-Добавьте в существующий `<home>/config.yaml`:
+`horizon init` добавит `plugins.browser` с пустым `api_key`, не затрагивая
+существующие значения. Заполните ключ и включите инструменты модели:
 
 ```yaml
 agent_plugins: [browser]
