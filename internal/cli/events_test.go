@@ -95,3 +95,18 @@ func TestOutputModes(t *testing.T) {
 		}
 	}
 }
+
+func TestFinalizeFailureDiagnostic(t *testing.T) {
+	for _, mode := range []string{"text", "plain", "jsonl"} {
+		var out, diagnostics bytes.Buffer
+		publish := newEventPublisher(mode, false, &out, &diagnostics)
+		publish(eventstream.New("plugin_finalize_failed", "s", nil, map[string]any{"plugin": "browser", "message": "offline"}))
+		if mode == "jsonl" {
+			if !bytes.Contains(out.Bytes(), []byte("plugin_finalize_failed")) || diagnostics.Len() != 0 {
+				t.Fatalf("jsonl: %q %q", out.String(), diagnostics.String())
+			}
+		} else if out.Len() != 0 || !bytes.Contains(diagnostics.Bytes(), []byte("browser")) || !bytes.Contains(diagnostics.Bytes(), []byte("offline")) {
+			t.Fatalf("%s: %q %q", mode, out.String(), diagnostics.String())
+		}
+	}
+}

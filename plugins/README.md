@@ -2,7 +2,7 @@
 
 Каждый плагин хранится в отдельном каталоге `plugins/<имя>/`. Этот каталог
 содержит исходники и не сканируется Horizon. Доступные плагины — `decision`
-`telegram` и `memory`.
+`telegram`, `memory` и `browser`.
 
 Можно установить symlink на исполняемый файл. Для удаления достаточно удалить
 `<home>/plugins/horizon-<имя>`. `init` плагины автоматически не устанавливает.
@@ -66,3 +66,9 @@ horizon --home /path/to/home telegram start
 `make install-memory` устанавливает отдельный плагин памяти. Включение контекста
 и инструментов: `agent_plugins: [memory]` в config.yaml; настройки — plugins.memory.
 [Команды, сжатие и уровни памяти](memory/README.md).
+
+## Browser
+
+`make install-browser` устанавливает плагин удалённого браузера Browser Use.
+Включение инструментов: `agent_plugins: [browser]`, настройки — `plugins.browser`.
+[Конфигурация, команды и очистка после сбоя](browser/README.md).

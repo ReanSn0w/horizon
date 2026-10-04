@@ -50,6 +50,7 @@ type Description struct {
 	Instructions   string `json:"instructions"`
 	Tools          []Tool `json:"tools"`
 	MaintainEffect string `json:"maintain_effect,omitempty"`
+	FinalizeEffect string `json:"finalize_effect,omitempty"`
 }
 type Block struct {
 	Source string `json:"source"`
@@ -125,6 +126,9 @@ func Prepare(ctx context.Context, home string, workspace session.Workspace, acce
 		}
 		if extension.Description.MaintainEffect != "" && !validEffect(extension.Description.MaintainEffect) {
 			return nil, fmt.Errorf("agent plugin %s: invalid maintain effect", name)
+		}
+		if extension.Description.FinalizeEffect != "" && !validEffect(extension.Description.FinalizeEffect) {
+			return nil, fmt.Errorf("agent plugin %s: invalid finalize effect", name)
 		}
 		for _, tool := range extension.Description.Tools {
 			full := ToolName(name, tool.Name)

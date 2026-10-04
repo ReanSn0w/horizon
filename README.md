@@ -297,3 +297,22 @@ workspace. Память хранится локально отдельно от 
 без agent_plugins набор инструментов и снимок остаются прежними.
 
 [Настройки, команды, ограничения и хранение](plugins/memory/README.md).
+
+## Браузер
+
+Установите `make install-browser`, сохраните ключ Browser Use в
+`plugins.browser.api_key` и добавьте `browser` в `agent_plugins`:
+
+```yaml
+agent_plugins: [browser]
+plugins:
+  browser:
+    api_key: YOUR_BROWSER_USE_API_KEY
+```
+
+При `horizon resume --access full` модель получает инструменты перехода,
+текстового снимка, нажатия и ввода. Удалённый браузер создаётся только при первом
+переходе к URL в ходе и автоматически останавливается после хода. После сбоя
+используйте `horizon browser list`, `horizon browser close ID` или
+`horizon browser close --stale`. Активные сессии Browser Use тарифицируются.
+[Настройка, жизненный цикл и ограничения](plugins/browser/README.md).
