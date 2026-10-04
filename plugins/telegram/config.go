@@ -89,36 +89,6 @@ func putNode(n *yaml.Node, key string, value *yaml.Node) {
 }
 func encodedNode(value any) *yaml.Node { var n yaml.Node; _ = n.Encode(value); return &n }
 
-func blockStyle(n *yaml.Node) bool {
-	changed := false
-	if (n.Kind == yaml.MappingNode || n.Kind == yaml.SequenceNode) && len(n.Content) > 0 && n.Style&yaml.FlowStyle != 0 {
-		n.Style &^= yaml.FlowStyle
-		changed = true
-	}
-	for _, child := range n.Content {
-		if blockStyle(child) {
-			changed = true
-		}
-	}
-	return changed
-}
-
-func mergeMissing(target, source *yaml.Node) bool {
-	changed := false
-	for i := 0; i < len(source.Content); i += 2 {
-		k := source.Content[i].Value
-		v := nodeValue(target, k)
-		if v == nil {
-			putNode(target, k, source.Content[i+1])
-			changed = true
-		} else if v.Kind == yaml.MappingNode && source.Content[i+1].Kind == yaml.MappingNode {
-			if mergeMissing(v, source.Content[i+1]) {
-				changed = true
-			}
-		}
-	}
-	return changed
-}
 func loadSettings(home string, ready bool) (settings, error) {
 	data, err := os.ReadFile(filepath.Join(home, "config.yaml"))
 	if err != nil {
@@ -138,7 +108,7 @@ func loadSettings(home string, ready bool) (settings, error) {
 	}
 	section := nodeValue(nodeValue(document.Content[0], "plugins"), "telegram")
 	if section == nil {
-		return settings{}, errors.New("plugins.telegram is missing; run 'horizon telegram init'")
+		return settings{}, errors.New("plugins.telegram is missing; run 'horizon init'")
 	}
 	if section.Kind != yaml.MappingNode {
 		return settings{}, errors.New("plugins.telegram must be a mapping")
@@ -198,59 +168,12 @@ func (s settings) validate(ready bool) error {
 	}
 	return nil
 }
-func initSettings(home string) (bool, error) {
-	return config.UpdateDocument(home, func(doc *yaml.Node) (bool, error) {
-		root := doc.Content[0]
-		plugins := nodeValue(root, "plugins")
-		if plugins == nil {
-			plugins = encodedNode(map[string]any{})
-			putNode(root, "plugins", plugins)
-		}
-		if plugins.Kind != yaml.MappingNode {
-			return false, errors.New("plugins must be a mapping")
-		}
-		changed := plugins.Style&yaml.FlowStyle != 0
-		plugins.Style &^= yaml.FlowStyle
-		telegram := nodeValue(plugins, "telegram")
-		legacy := nodeValue(plugins, "gateway")
-		if legacy != nil {
-			if telegram != nil {
-				return false, errors.New("both plugins.telegram and plugins.gateway exist; keep only the intended configuration before init")
-			}
-			if legacy.Kind != yaml.MappingNode {
-				return false, errors.New("plugins.gateway must be a mapping before migration")
-			}
-			for i := 0; i < len(plugins.Content); i += 2 {
-				if plugins.Content[i].Value == "gateway" {
-					plugins.Content[i].Value = "telegram"
-					break
-				}
-			}
-			telegram = legacy
-			changed = true
-		}
-		if telegram == nil {
-			putNode(plugins, "telegram", encodedNode(defaults(home)))
-			return true, nil
-		}
-		if telegram.Kind != yaml.MappingNode {
-			return false, errors.New("plugins.telegram must be a mapping")
-		}
-		if mergeMissing(telegram, encodedNode(defaults(home))) {
-			changed = true
-		}
-		if blockStyle(telegram) {
-			changed = true
-		}
-		return changed, nil
-	})
-}
 func ensureGroup(home string, id int64, contexts ...context.Context) (groupSettings, error) {
 	var result groupSettings
 	_, err := config.UpdateDocumentContext(optionalContext(contexts), home, func(doc *yaml.Node) (bool, error) {
 		telegram := nodeValue(nodeValue(doc.Content[0], "plugins"), "telegram")
 		if telegram == nil {
-			return false, errors.New("run telegram init")
+			return false, errors.New("run horizon init")
 		}
 		s, err := loadSettings(home, false)
 		if err != nil {

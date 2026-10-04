@@ -34,10 +34,6 @@ func (c *command) call(value any, args []string) error {
 	return c.app.dispatch(c.name, value)
 }
 
-type initCommand struct{ command }
-
-func (c *initCommand) Execute(args []string) error { return c.call(c, args) }
-
 type startCommand struct {
 	command
 	LogFile string `long:"log-file" description:"Write diagnostics to a rotating private log file"`
@@ -116,7 +112,6 @@ func runCLI(ctx context.Context, args []string, out, errOut io.Writer) int {
 		name, short, description string
 		value                    any
 	}{
-		{"init", "Add telegram configuration", "Add missing plugins.telegram defaults without overwriting existing values.", &initCommand{command: command{a, "init"}}},
 		{"start", "Run the Telegram integration", "Run in the foreground with long polling. Only the owner is accepted in private chats.", &startCommand{command: command{a, "start"}}},
 		{"list", "List known chats", "Print CHAT ID beside human-readable NAME. JSON output is suitable for other plugins.", &listCommand{command: command{a, "list"}}},
 		{"send", "Generate and send a new message", "Enqueue a Horizon turn using the chat's history. Requires a running telegram. The message option is an instruction, not literal Telegram text.", &sendCommand{command: command{a, "send"}}},
@@ -157,7 +152,7 @@ func runCLI(ctx context.Context, args []string, out, errOut io.Writer) int {
 
 func writeHelp(parser *flags.Parser, out io.Writer) {
 	parser.WriteHelp(out)
-	if parser.Active == nil || parser.Active.Name == "init" || parser.Active.Name == "start" {
+	if parser.Active == nil || parser.Active.Name == "start" {
 		fmt.Fprint(out, telegramConfigHelp)
 	}
 }

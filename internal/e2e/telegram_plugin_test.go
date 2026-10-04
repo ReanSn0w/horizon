@@ -185,8 +185,8 @@ plugins:
 	if err := os.WriteFile(filepath.Join(home, "config.yaml"), []byte(cfg), 0600); err != nil {
 		t.Fatal(err)
 	}
-	if out, diag, err := run(binary, cwd, "", "--home", home, "telegram", "init"); err != nil {
-		t.Fatalf("telegram init %v %s %s", err, out, diag)
+	if out, diag, err := run(binary, cwd, "", "--home", home, "init"); err != nil {
+		t.Fatalf("repeat horizon init %v %s %s", err, out, diag)
 	}
 	start := func() func() {
 		cmd := exec.Command(binary, "--home", home, "telegram", "start", "--log-file", filepath.Join(home, "gateway", "service.log"))

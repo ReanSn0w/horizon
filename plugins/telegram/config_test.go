@@ -19,15 +19,32 @@ func configHome(t *testing.T) string {
 	if err := os.WriteFile(filepath.Join(home, "config.yaml"), []byte("# keep\nmode: unit\ndisabled_skills: []\nplugins:\n  other:\n    custom: value\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := initSettings(home); err != nil {
+	if _, err := applyTemplateForTest(home); err != nil {
 		t.Fatal(err)
 	}
 	return home
 }
+
+func applyTemplateForTest(home string) (bool, error) {
+	section, err := telegramConfigTemplate(home)
+	if err != nil {
+		return false, err
+	}
+	data, err := yaml.Marshal(section)
+	if err != nil {
+		return false, err
+	}
+	var doc yaml.Node
+	if err := yaml.Unmarshal(data, &doc); err != nil {
+		return false, err
+	}
+	status, err := config.MergePluginTemplates(home, []config.PluginTemplate{{Name: "telegram", Section: doc.Content[0], LegacyNames: []string{"gateway"}}})
+	return status["telegram"] == "added" || status["telegram"] == "updated", err
+}
 func TestConfigPreservation(t *testing.T) {
 	home := configHome(t)
 	before, _ := os.ReadFile(filepath.Join(home, "config.yaml"))
-	if changed, err := initSettings(home); err != nil || changed {
+	if changed, err := applyTemplateForTest(home); err != nil || changed {
 		t.Fatalf("%t %v", changed, err)
 	}
 	var wg sync.WaitGroup
@@ -120,7 +137,7 @@ func TestConversationBotNamesConfig(t *testing.T) {
 			if err != nil || !reflect.DeepEqual(cfg.Conversation.BotNames, tc.want) {
 				t.Fatalf("bot_names=%v err=%v", cfg.Conversation.BotNames, err)
 			}
-			if _, err := initSettings(home); err != nil {
+			if _, err := applyTemplateForTest(home); err != nil {
 				t.Fatal(err)
 			}
 			after, err := loadSettings(home, false)
@@ -142,7 +159,7 @@ func TestInitMigratesLegacyPluginName(t *testing.T) {
 	if err := os.WriteFile(path, data, 0600); err != nil {
 		t.Fatal(err)
 	}
-	if changed, err := initSettings(home); err != nil || !changed {
+	if changed, err := applyTemplateForTest(home); err != nil || !changed {
 		t.Fatalf("migration: changed=%t err=%v", changed, err)
 	}
 	after, err := os.ReadFile(path)
@@ -155,7 +172,7 @@ func TestInitMigratesLegacyPluginName(t *testing.T) {
 	if _, err := loadSettings(home, false); err != nil {
 		t.Fatal(err)
 	}
-	if changed, err := initSettings(home); err != nil || changed {
+	if changed, err := applyTemplateForTest(home); err != nil || changed {
 		t.Fatalf("second init: changed=%t err=%v", changed, err)
 	}
 }
@@ -171,7 +188,7 @@ func TestInitRejectsConflictingPluginNames(t *testing.T) {
 	if err := os.WriteFile(path, data, 0600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := initSettings(home); err == nil {
+	if _, err := applyTemplateForTest(home); err == nil {
 		t.Fatal("accepted conflicting configurations")
 	}
 	after, err := os.ReadFile(path)
@@ -180,7 +197,7 @@ func TestInitRejectsConflictingPluginNames(t *testing.T) {
 	}
 }
 
-func TestInitWritesBlockYAMLAndExpandsExistingInlineSettings(t *testing.T) {
+func TestTemplateMergePreservesExistingInlineSettings(t *testing.T) {
 	for _, initial := range []string{
 		"mode: unit\n",
 		"mode: unit\nplugins: {}\n",
@@ -201,7 +218,7 @@ func TestInitWritesBlockYAMLAndExpandsExistingInlineSettings(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			if changed, err := initSettings(home); err != nil || !changed {
+			if changed, err := applyTemplateForTest(home); err != nil || !changed {
 				t.Fatalf("init changed=%t err=%v", changed, err)
 			}
 			data, err := os.ReadFile(path)
@@ -214,10 +231,8 @@ func TestInitWritesBlockYAMLAndExpandsExistingInlineSettings(t *testing.T) {
 			}
 			plugins := nodeValue(doc.Content[0], "plugins")
 			telegram := nodeValue(plugins, "telegram")
-			for _, node := range []*yaml.Node{plugins, telegram, nodeValue(telegram, "telegram"), nodeValue(telegram, "group_defaults"), nodeValue(telegram, "conversation")} {
-				if node == nil || node.Style&yaml.FlowStyle != 0 {
-					t.Fatal("settings still use inline YAML")
-				}
+			if telegram == nil {
+				t.Fatal("telegram settings missing")
 			}
 			if legacy {
 				after, err := loadSettings(home, false)
@@ -231,7 +246,7 @@ func TestInitWritesBlockYAMLAndExpandsExistingInlineSettings(t *testing.T) {
 					t.Fatal("reformatted another plugin's own section")
 				}
 			}
-			if changed, err := initSettings(home); err != nil || changed {
+			if changed, err := applyTemplateForTest(home); err != nil || changed {
 				t.Fatalf("repeated init changed=%t err=%v", changed, err)
 			}
 			again, _ := os.ReadFile(path)
@@ -249,8 +264,8 @@ func TestInitWritesBlockYAMLAndExpandsExistingInlineSettings(t *testing.T) {
 				t.Fatal(err)
 			}
 			groups := nodeValue(nodeValue(nodeValue(doc.Content[0], "plugins"), "telegram"), "groups")
-			if groups.Style&yaml.FlowStyle != 0 || nodeValue(groups, "-123") == nil {
-				t.Fatal("new group settings were written inline")
+			if nodeValue(groups, "-123") == nil {
+				t.Fatal("new group settings missing")
 			}
 			info, err := os.Stat(path)
 			if err != nil || info.Mode().Perm() != 0600 {
