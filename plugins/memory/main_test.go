@@ -172,3 +172,28 @@ func TestCLIInheritedReadAndWatcherCancellation(t *testing.T) {
 		t.Fatal("empty watcher created files")
 	}
 }
+
+func TestCLIFlagsAndHelp(t *testing.T) {
+	home, workspace := fixture(t)
+	t.Setenv("HORIZON_HOME", home)
+	var out, diag bytes.Buffer
+	if code := run(context.Background(), []string{"add", "--scope", "workspace", "--workspace", workspace, "--text", "saved note", "--id", "test-id"}, nil, &out, &diag); code != 0 {
+		t.Fatalf("add: code=%d stderr=%s", code, diag.String())
+	}
+	out.Reset()
+	if code := run(context.Background(), []string{"show", "--scope", "workspace", "--workspace", workspace}, nil, &out, &diag); code != 0 || !strings.Contains(out.String(), "saved note") {
+		t.Fatalf("show: code=%d stdout=%s stderr=%s", code, out.String(), diag.String())
+	}
+	for _, args := range [][]string{{"show", "--text", "unexpected"}, {"watch", "--scope", "user"}, {"add", "--scope", "user", "extra"}} {
+		out.Reset()
+		diag.Reset()
+		if code := run(context.Background(), args, nil, &out, &diag); code != 2 {
+			t.Fatalf("accepted %v: code=%d stdout=%s stderr=%s", args, code, out.String(), diag.String())
+		}
+	}
+	out.Reset()
+	diag.Reset()
+	if code := run(context.Background(), []string{"add", "--help"}, nil, &out, &diag); code != 0 || !strings.Contains(out.String(), "Usage:") || diag.Len() != 0 {
+		t.Fatalf("help: code=%d stdout=%s stderr=%s", code, out.String(), diag.String())
+	}
+}

@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"flag"
 	"fmt"
 	"io"
 	"os"
@@ -17,7 +16,24 @@ import (
 	"github.com/ReanSn0w/horizon/internal/config"
 	"github.com/ReanSn0w/horizon/internal/plugins"
 	"github.com/ReanSn0w/horizon/internal/session"
+	flags "github.com/umputun/go-flags"
 )
+
+type memoryOptions struct {
+	Scope     string `long:"scope" description:"Memory scope"`
+	Workspace string `long:"workspace" description:"Workspace directory"`
+}
+
+type addOptions struct {
+	memoryOptions
+	Text string `long:"text" description:"Note"`
+	ID   string `long:"id" description:"Deduplication ID"`
+}
+
+type watchOptions struct {
+	memoryOptions
+	Period string `long:"period" default:"1m" description:"Watch interval"`
+}
 
 const usage = `Usage: horizon memory <add|show|compact|clear|watch> [options]
   --scope agent|user|workspace   Required except for watch (all existing scopes).
@@ -69,31 +85,42 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 	default:
 		return fail(2, fmt.Errorf("unknown command %q", command))
 	}
-	flags := flag.NewFlagSet("memory "+command, flag.ContinueOnError)
-	flags.SetOutput(stderr)
-	scope := flags.String("scope", "", "memory scope")
-	workspace := flags.String("workspace", "", "workspace directory")
-	var text, id, period string
+	var common memoryOptions
+	var add addOptions
+	var watchArgs watchOptions
+	var options any = &common
 	if command == "add" {
-		flags.StringVar(&text, "text", "", "note")
-		flags.StringVar(&id, "id", "", "deduplication ID")
+		options = &add
 	}
 	if command == "watch" {
-		flags.StringVar(&period, "period", "1m", "watch interval")
+		options = &watchArgs
 	}
-	if err := flags.Parse(args[1:]); err != nil {
-		if errors.Is(err, flag.ErrHelp) {
+	parser := flags.NewParser(options, flags.HelpFlag|flags.PassDoubleDash)
+	parser.Name = "horizon memory " + command
+	remaining, err := parser.ParseArgs(args[1:])
+	if err != nil {
+		var flagErr *flags.Error
+		if errors.As(err, &flagErr) && flagErr.Type == flags.ErrHelp {
+			if _, err := io.WriteString(stdout, usage); err != nil {
+				return fail(1, err)
+			}
 			return 0
 		}
-		return 2
+		return fail(2, err)
 	}
-	if flags.NArg() != 0 {
+	if len(remaining) != 0 {
 		return fail(2, fmt.Errorf("unexpected arguments"))
 	}
-	if command != "watch" && *scope == "" {
+	if command == "add" {
+		common = add.memoryOptions
+	}
+	if command == "watch" {
+		common = watchArgs.memoryOptions
+	}
+	if command != "watch" && common.Scope == "" {
 		return fail(2, fmt.Errorf("--scope is required"))
 	}
-	if command == "watch" && *scope != "" {
+	if command == "watch" && common.Scope != "" {
 		return fail(2, fmt.Errorf("watch operates on all existing scopes; omit --scope"))
 	}
 	access, err := effectiveAccess("write")
@@ -111,7 +138,7 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 	if err != nil {
 		return fail(2, err)
 	}
-	dir := *workspace
+	dir := common.Workspace
 	if dir == "" {
 		dir, err = os.Getwd()
 		if err != nil {
@@ -127,21 +154,21 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 	var result any
 	switch command {
 	case "show":
-		result, err = m.read(*scope)
+		result, err = m.read(common.Scope)
 	case "clear":
-		err = m.clear(ctx, *scope)
-		result = map[string]any{"cleared": err == nil, "scope": *scope}
+		err = m.clear(ctx, common.Scope)
+		result = map[string]any{"cleared": err == nil, "scope": common.Scope}
 	case "compact":
-		result, err = m.compact(ctx, *scope, true, summarize)
+		result, err = m.compact(ctx, common.Scope, true, summarize)
 	case "add":
-		if id == "" {
-			id, err = session.NewID()
+		if add.ID == "" {
+			add.ID, err = session.NewID()
 		}
 		if err == nil {
-			result, err = addAndCompact(ctx, m, *scope, text, id, summarize)
+			result, err = addAndCompact(ctx, m, common.Scope, add.Text, add.ID, summarize)
 		}
 	case "watch":
-		interval, e := time.ParseDuration(period)
+		interval, e := time.ParseDuration(watchArgs.Period)
 		if e != nil || interval < time.Second || interval > 24*time.Hour {
 			return fail(2, fmt.Errorf("--period must be between 1s and 24h"))
 		}

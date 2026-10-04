@@ -15,6 +15,7 @@ import (
 
 	"github.com/ReanSn0w/horizon/internal/config"
 	"github.com/ReanSn0w/horizon/internal/decision"
+	flags "github.com/umputun/go-flags"
 )
 
 const usage = `Usage: horizon decision <request.json|-> [-o result.json]
@@ -90,14 +91,15 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 		}
 		return 0
 	}
-	if len(args) == 1 && (args[0] == "--help" || args[0] == "-h") {
-		if _, err := io.WriteString(stdout, usage); err != nil {
-			return fail(1, err)
-		}
-		return 0
-	}
 	input, output, err := parseArgs(args)
 	if err != nil {
+		var flagErr *flags.Error
+		if errors.As(err, &flagErr) && flagErr.Type == flags.ErrHelp {
+			if _, err := io.WriteString(stdout, usage); err != nil {
+				return fail(1, err)
+			}
+			return 0
+		}
 		return fail(2, err)
 	}
 	reader := stdin
@@ -160,34 +162,27 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 }
 
 func parseArgs(args []string) (string, string, error) {
-	var input, output string
-	positional := false
-	for i := 0; i < len(args); i++ {
-		arg := args[i]
-		if !positional && arg == "--" {
-			positional = true
-			continue
-		}
-		if !positional && arg == "-o" {
-			if output != "" || i+1 == len(args) || args[i+1] == "" {
-				return "", "", errors.New("-o requires one output path")
-			}
-			i++
-			output = args[i]
-			continue
-		}
-		if !positional && strings.HasPrefix(arg, "-") && arg != "-" {
-			return "", "", fmt.Errorf("unknown option %q", arg)
-		}
-		if input != "" || arg == "" {
-			return "", "", errors.New("expected exactly one input path")
-		}
-		input = arg
+	var options struct {
+		Output []string `short:"o" description:"Write the response to a file"`
 	}
-	if input == "" {
+	parser := flags.NewNamedParser("horizon decision", flags.HelpFlag|flags.PassDoubleDash)
+	if _, err := parser.AddGroup("Output", "", &options); err != nil {
+		return "", "", err
+	}
+	positional, err := parser.ParseArgs(args)
+	if err != nil {
+		return "", "", err
+	}
+	if len(options.Output) > 1 || len(options.Output) == 1 && options.Output[0] == "" {
+		return "", "", errors.New("-o requires one output path")
+	}
+	if len(positional) != 1 || positional[0] == "" {
 		return "", "", errors.New("expected an input path or - for stdin")
 	}
-	return input, output, nil
+	if len(options.Output) == 1 {
+		return positional[0], options.Output[0], nil
+	}
+	return positional[0], "", nil
 }
 
 func readRequest(reader io.Reader) (decision.Request, error) {
