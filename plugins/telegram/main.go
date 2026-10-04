@@ -87,7 +87,23 @@ func main() {
 }
 func runCLI(ctx context.Context, args []string, out, errOut io.Writer) int {
 	if len(args) == 1 && args[0] == "horizon-plugin-metadata" {
-		if json.NewEncoder(out).Encode(map[string]any{"protocol_version": 1, "version": "1.0.0", "description": "Telegram integration for Horizon"}) != nil {
+		if json.NewEncoder(out).Encode(map[string]any{"protocol_version": 1, "config_protocol_version": 1, "version": "1.0.0", "description": "Telegram integration for Horizon"}) != nil {
+			return 1
+		}
+		return 0
+	}
+	if len(args) == 1 && args[0] == "horizon-plugin-config-template" {
+		home, err := config.ResolveHome("")
+		if err != nil {
+			fmt.Fprintln(errOut, "telegram: cannot resolve home")
+			return 2
+		}
+		section, err := telegramConfigTemplate(home)
+		if err != nil {
+			fmt.Fprintln(errOut, "telegram: cannot prepare config template")
+			return 1
+		}
+		if err := json.NewEncoder(out).Encode(map[string]any{"config_protocol_version": 1, "section": section, "legacy_names": []string{"gateway"}}); err != nil {
 			return 1
 		}
 		return 0

@@ -51,6 +51,18 @@ func defaults(home string) settings {
 	s.Groups = map[string]groupSettings{}
 	return s
 }
+
+func telegramConfigTemplate(home string) (map[string]any, error) {
+	data, err := yaml.Marshal(defaults(home))
+	if err != nil {
+		return nil, err
+	}
+	var section map[string]any
+	if err := yaml.Unmarshal(data, &section); err != nil {
+		return nil, err
+	}
+	return section, nil
+}
 func nodeValue(n *yaml.Node, key string) *yaml.Node {
 	if n == nil || n.Kind != yaml.MappingNode {
 		return nil

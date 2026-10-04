@@ -20,8 +20,24 @@ type settings struct {
 	actionTimeout  time.Duration
 }
 
+func defaultSettings() settings {
+	return settings{APIURL: "https://api.browser-use.com/api/v4", TimeoutMinutes: 10, ActionTimeout: "30s"}
+}
+
+func browserConfigTemplate() (map[string]any, error) {
+	data, err := yaml.Marshal(defaultSettings())
+	if err != nil {
+		return nil, err
+	}
+	var section map[string]any
+	if err := yaml.Unmarshal(data, &section); err != nil {
+		return nil, err
+	}
+	return section, nil
+}
+
 func loadSettings(cfg config.Config) (settings, error) {
-	s := settings{APIURL: "https://api.browser-use.com/api/v4", TimeoutMinutes: 10, ActionTimeout: "30s"}
+	s := defaultSettings()
 	if node, ok := cfg.Plugins["browser"]; ok {
 		data, err := yaml.Marshal(&node)
 		if err != nil {
