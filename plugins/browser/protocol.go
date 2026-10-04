@@ -5,12 +5,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"net/url"
 	"strings"
 
 	"github.com/ReanSn0w/horizon/internal/plugins"
 	"github.com/ReanSn0w/horizon/internal/session"
-	"github.com/chromedp/chromedp"
 )
 
 func protocol(ctx context.Context, op string, stdin io.Reader, stdout, stderr io.Writer) int {
@@ -39,7 +37,7 @@ func protocol(ctx context.Context, op string, stdin io.Reader, stdout, stderr io
 		if err == nil {
 			switch op {
 			case "describe":
-				result = plugins.Description{Tools: []plugins.Tool{}, FinalizeEffect: "unrestricted"}
+				result = browserTools()
 			case "context":
 				result = []plugins.Block{}
 			case "finalize":
@@ -50,37 +48,7 @@ func protocol(ctx context.Context, op string, stdin io.Reader, stdout, stderr io
 					result = map[string]bool{"stopped": err == nil}
 				}
 			case "tool":
-				if request.Access != "full" {
-					err = fmt.Errorf("browser tools require full access")
-				} else if request.Tool != "navigate" {
-					err = fmt.Errorf("unsupported browser tool")
-				} else {
-					var args struct {
-						URL string `json:"url"`
-					}
-					err = plugins.Decode(request.Arguments, &args)
-					if err == nil {
-						var parsed *url.URL
-						parsed, err = url.Parse(args.URL)
-						if err == nil && (parsed.Scheme != "http" && parsed.Scheme != "https" || parsed.Host == "" || parsed.User != nil) {
-							err = fmt.Errorf("browser URL must be HTTP(S)")
-						}
-					}
-					if err == nil {
-						lifecycle := newBrowserLifecycle(home, settings)
-						var record browserRecord
-						record, err = lifecycle.open(ctx, request)
-						if err == nil {
-							var targetID string
-							targetID, err = runCDP(ctx, record, settings.actionTimeout, chromedp.Navigate(args.URL))
-							if err == nil {
-								record.TargetID = targetID
-								err = lifecycle.state.withLock(func() error { return lifecycle.state.save(record) })
-								result = map[string]string{"url": args.URL}
-							}
-						}
-					}
-				}
+				result, err = newBrowserLifecycle(home, settings).tool(ctx, request)
 			default:
 				err = fmt.Errorf("unsupported browser operation")
 			}

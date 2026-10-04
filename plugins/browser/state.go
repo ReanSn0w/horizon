@@ -16,12 +16,14 @@ import (
 )
 
 type browserRecord struct {
-	ID          string `json:"id"`
-	CDPURL      string `json:"cdp_url"`
-	TargetID    string `json:"target_id,omitempty"`
-	SessionID   string `json:"session_id"`
-	TurnID      string `json:"turn_id"`
-	WorkspaceID string `json:"workspace_id"`
+	ID          string       `json:"id"`
+	CDPURL      string       `json:"cdp_url"`
+	TargetID    string       `json:"target_id,omitempty"`
+	SnapshotID  string       `json:"snapshot_id,omitempty"`
+	Elements    []elementRef `json:"elements,omitempty"`
+	SessionID   string       `json:"session_id"`
+	TurnID      string       `json:"turn_id"`
+	WorkspaceID string       `json:"workspace_id"`
 }
 
 type browserState struct {
