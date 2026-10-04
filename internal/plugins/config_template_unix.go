@@ -76,6 +76,7 @@ func ReadConfigTemplate(entry Entry, home string) (config.PluginTemplate, error)
 			return empty, fmt.Errorf("config template section must be an object or null")
 		}
 		template.Section = document.Content[0]
+		clearTemplateFlow(template.Section)
 	}
 	seen := map[string]bool{}
 	for _, name := range template.LegacyNames {
@@ -88,4 +89,16 @@ func ReadConfigTemplate(entry Entry, home string) (config.PluginTemplate, error)
 		return empty, fmt.Errorf("config template without section cannot migrate legacy names")
 	}
 	return template, nil
+}
+
+func clearTemplateFlow(node *yaml.Node) {
+	node.Style &^= yaml.FlowStyle
+	if node.Kind == yaml.MappingNode {
+		for i := 0; i+1 < len(node.Content); i += 2 {
+			node.Content[i].Style = 0
+		}
+	}
+	for _, child := range node.Content {
+		clearTemplateFlow(child)
+	}
 }

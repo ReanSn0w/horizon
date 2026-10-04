@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"gopkg.in/yaml.v3"
@@ -57,5 +58,82 @@ func TestMergePluginTemplatesConflictDoesNotWrite(t *testing.T) {
 	data, _ := os.ReadFile(path)
 	if err == nil || string(data) != initial {
 		t.Fatalf("conflict err=%v data=%s", err, data)
+	}
+}
+
+func TestMergePluginTemplatesMigratesLegacyAndPreservesSymlink(t *testing.T) {
+	realHome, aliasHome := t.TempDir(), t.TempDir()
+	path := filepath.Join(realHome, "config.yaml")
+	initial := "# keep\nmode: unit\nplugins:\n  # legacy comment\n  gateway:\n    telegram:\n      bot_token: private-token\n"
+	if err := os.WriteFile(path, []byte(initial), 0640); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(path, filepath.Join(aliasHome, "config.yaml")); err != nil {
+		t.Fatal(err)
+	}
+	status, err := MergePluginTemplates(aliasHome, []PluginTemplate{pluginTemplate(t, "telegram", "telegram:\n  bot_token: ''\n  owner_user_id: 0\n", "gateway")})
+	if err != nil || status["telegram"] != "updated" {
+		t.Fatalf("status=%v err=%v", status, err)
+	}
+	data, _ := os.ReadFile(path)
+	for _, want := range []string{"# keep", "# legacy comment", "private-token", "owner_user_id: 0", "telegram:"} {
+		if !strings.Contains(string(data), want) {
+			t.Fatalf("missing %q: %s", want, data)
+		}
+	}
+	if strings.Contains(string(data), "gateway:") {
+		t.Fatal("legacy section not migrated")
+	}
+	info, err := os.Lstat(filepath.Join(aliasHome, "config.yaml"))
+	if err != nil || info.Mode()&os.ModeSymlink == 0 {
+		t.Fatal("symlink replaced")
+	}
+	info, err = os.Stat(path)
+	if err != nil || info.Mode().Perm() != 0640 {
+		t.Fatalf("mode changed: %v %v", info, err)
+	}
+}
+
+func TestMergePluginTemplatesRejectsInvalidSectionWithoutPartialWrite(t *testing.T) {
+	home := t.TempDir()
+	path := filepath.Join(home, "config.yaml")
+	initial := "mode: unit\nplugins:\n  beta: null\n"
+	if err := os.WriteFile(path, []byte(initial), 0600); err != nil {
+		t.Fatal(err)
+	}
+	templates := []PluginTemplate{pluginTemplate(t, "alpha", "value: 1"), pluginTemplate(t, "beta", "value: 2")}
+	if _, err := MergePluginTemplates(home, templates); err == nil || !strings.Contains(err.Error(), "plugins.beta") {
+		t.Fatalf("invalid section accepted: %v", err)
+	}
+	data, _ := os.ReadFile(path)
+	if string(data) != initial {
+		t.Fatal("partial update")
+	}
+}
+
+func TestMergePluginTemplatesConcurrentWithSkills(t *testing.T) {
+	home := t.TempDir()
+	path := filepath.Join(home, "config.yaml")
+	if err := os.WriteFile(path, []byte("mode: unit\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	template := pluginTemplate(t, "alpha", "value: 1")
+	var wg sync.WaitGroup
+	for i := 0; i < 8; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if _, err := MergePluginTemplates(home, []PluginTemplate{template}); err != nil {
+				t.Error(err)
+			}
+			if _, err := UpdateDisabledSkills(home, "sample", true, nil); err != nil {
+				t.Error(err)
+			}
+		}()
+	}
+	wg.Wait()
+	data, _ := os.ReadFile(path)
+	if !strings.Contains(string(data), "alpha:") || !strings.Contains(string(data), "sample") {
+		t.Fatalf("lost concurrent update: %s", data)
 	}
 }
