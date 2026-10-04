@@ -103,12 +103,3 @@ func protocol(ctx context.Context, op string, stdin io.Reader, stdout, stderr io
 	}
 	return 0
 }
-
-func browserCLI(_ context.Context, command string, args []string, stale bool, _ io.Writer, stderr io.Writer) int {
-	if command == "list" && (len(args) != 0 || stale) || command == "close" && (stale && len(args) != 0 || !stale && len(args) != 1) {
-		fmt.Fprintln(stderr, "browser: invalid arguments")
-		return 2
-	}
-	fmt.Fprintln(stderr, "browser: command is not yet implemented")
-	return 1
-}

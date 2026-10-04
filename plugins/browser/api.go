@@ -94,6 +94,7 @@ func (a browserAPI) list(ctx context.Context, homeID string) ([]browserSession, 
 			Items      []browserSession `json:"items"`
 			TotalItems int              `json:"totalItems"`
 			PageNumber int              `json:"pageNumber"`
+			PageSize   int              `json:"pageSize"`
 		}
 		if err := a.do(ctx, http.MethodGet, "/browsers?"+query.Encode(), nil, &result); err != nil {
 			return nil, err
@@ -103,7 +104,10 @@ func (a browserAPI) list(ctx context.Context, homeID string) ([]browserSession, 
 				all = append(all, item)
 			}
 		}
-		if len(result.Items) == 0 || page*100 >= result.TotalItems {
+		if result.PageSize <= 0 || result.PageNumber != page {
+			return nil, fmt.Errorf("invalid Browser Use pagination response")
+		}
+		if len(result.Items) == 0 || page*result.PageSize >= result.TotalItems {
 			return all, nil
 		}
 		if page >= 1000 {
