@@ -18,6 +18,7 @@ help:
 	  'make install-decision        Install the decision plugin' \
 	  'make install-telegram        Install the Telegram integration plugin' \
 	  'make install-memory          Install the memory plugin' \
+	  'make install-browser         Install the Browser Use plugin' \
 	  'make install-all             Install Horizon and selected plugins' \
 	  'Overrides: GO, BIN_DIR, HORIZON_HOME, PLUGINS'
 
