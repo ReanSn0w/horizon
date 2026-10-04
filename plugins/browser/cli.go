@@ -88,7 +88,11 @@ func (b browserLifecycle) remoteState(item browserSession, records []browserReco
 	if sessionID == "" || workspaceID == "" {
 		return "состояние хода не определено", nil
 	}
-	busy, err := b.state.turnBusy(sessionID, workspaceID)
+	turnID := item.Metadata["horizon_turn"]
+	if record != nil {
+		turnID = record.TurnID
+	}
+	busy, err := b.state.turnBusy(sessionID, workspaceID, turnID)
 	if err != nil {
 		return "", err
 	}

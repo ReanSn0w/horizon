@@ -133,9 +133,10 @@ func (b browserLifecycle) finish(ctx context.Context, request plugins.Request) e
 					if err := b.api.stop(ctx, item.ID); err != nil {
 						return err
 					}
+					return os.Remove(attempt)
 				}
 			}
-			return os.Remove(attempt)
+			return fmt.Errorf("browser creation outcome is unknown; inspect browser list and retry cleanup later")
 		}
 		if err != nil {
 			return err

@@ -55,7 +55,7 @@ const snapshotScript = `(() => {
     return parts.join(' > ');
   };
   const fingerprint = el => [el.tagName, el.id, el.className, el.getAttribute('type') || '', (el.textContent || '').trim().slice(0,100)].join('|');
-  const elements = all.slice(0,80).filter(el => el.getAttribute('type') !== 'password').map((el, i) => ({
+  const elements = all.slice(0,80).filter(el => !['password','file','hidden'].includes(el.getAttribute('type'))).map((el, i) => ({
     ref: 'e' + (i+1), selector: selector(el), fingerprint: fingerprint(el),
     role: el.getAttribute('role') || el.tagName.toLowerCase(),
     name: (el.getAttribute('aria-label') || el.getAttribute('placeholder') || el.innerText || '').trim().slice(0,120)

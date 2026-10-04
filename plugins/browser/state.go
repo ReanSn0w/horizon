@@ -31,12 +31,17 @@ type browserState struct {
 	dir  string
 }
 
+const maxBrowserStateBytes = 256 << 10
+
 func newBrowserState(home string) browserState {
 	return browserState{home: home, dir: filepath.Join(home, "browser")}
 }
 
 func (s browserState) withLock(action func() error) error {
 	if err := os.MkdirAll(s.dir, 0700); err != nil {
+		return err
+	}
+	if err := os.Chmod(s.dir, 0700); err != nil {
 		return err
 	}
 	f, err := os.OpenFile(filepath.Join(s.dir, "state.lock"), os.O_CREATE|os.O_RDWR, 0600)
@@ -55,6 +60,9 @@ func (s browserState) homeID() (string, error) {
 	path := filepath.Join(s.dir, "home-id")
 	data, err := os.ReadFile(path)
 	if err == nil {
+		if err := os.Chmod(path, 0600); err != nil {
+			return "", err
+		}
 		id := strings.TrimSpace(string(data))
 		if id == "" || len(id) > 128 {
 			return "", fmt.Errorf("invalid browser home ID")
@@ -91,8 +99,8 @@ func (s browserState) load(turnID string) (browserRecord, error) {
 		return browserRecord{}, err
 	}
 	defer f.Close()
-	data, err := io.ReadAll(io.LimitReader(f, 16385))
-	if err != nil || len(data) > 16384 {
+	data, err := io.ReadAll(io.LimitReader(f, maxBrowserStateBytes+1))
+	if err != nil || len(data) > maxBrowserStateBytes {
 		return browserRecord{}, fmt.Errorf("invalid browser state")
 	}
 	var record browserRecord
@@ -113,6 +121,9 @@ func (s browserState) save(record browserRecord) error {
 	data, err := json.Marshal(record)
 	if err != nil {
 		return err
+	}
+	if len(data) > maxBrowserStateBytes {
+		return fmt.Errorf("browser state exceeds limit")
 	}
 	f, err := os.CreateTemp(s.dir, ".turn-*.tmp")
 	if err != nil {
@@ -166,7 +177,7 @@ func (s browserState) records() ([]browserRecord, error) {
 	return result, nil
 }
 
-func (s browserState) turnBusy(sessionID, workspaceID string) (bool, error) {
+func (s browserState) turnBusy(sessionID, workspaceID, turnID string) (bool, error) {
 	if sessionID == "" || workspaceID == "" || strings.ContainsAny(sessionID, `/\\.`) || strings.ContainsAny(workspaceID, `/\\.`) {
 		return false, fmt.Errorf("invalid browser session reference")
 	}
@@ -181,6 +192,31 @@ func (s browserState) turnBusy(sessionID, workspaceID string) (bool, error) {
 	defer f.Close()
 	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
 		if errors.Is(err, syscall.EWOULDBLOCK) || errors.Is(err, syscall.EAGAIN) {
+			// The session may be locked by a later turn. Only the browser's
+			// specific active turn prevents stale cleanup.
+			storedFile, openErr := os.Open(filepath.Join(s.home, "dialogs", workspaceID, sessionID+".json"))
+			if openErr != nil {
+				return true, nil
+			}
+			data, readErr := io.ReadAll(io.LimitReader(storedFile, (32<<20)+1))
+			_ = storedFile.Close()
+			if readErr != nil || len(data) > 32<<20 {
+				return true, nil
+			}
+			var stored struct {
+				Turns []struct {
+					ID     string         `json:"id"`
+					Status session.Status `json:"status"`
+				} `json:"turns"`
+			}
+			if json.Unmarshal(data, &stored) != nil {
+				return true, nil
+			}
+			for _, turn := range stored.Turns {
+				if turn.ID == turnID {
+					return turn.Status == session.StatusActive, nil
+				}
+			}
 			return true, nil
 		}
 		return false, err
@@ -209,14 +245,14 @@ func (s browserState) cleanupStale(ctx context.Context, api browserAPI, homeID s
 	}
 	for _, item := range remote {
 		record := s.findRemoteRecord(item, records)
-		sessionID, workspaceID := item.Metadata["horizon_session"], item.Metadata["horizon_workspace"]
+		sessionID, workspaceID, turnID := item.Metadata["horizon_session"], item.Metadata["horizon_workspace"], item.Metadata["horizon_turn"]
 		if record != nil {
-			sessionID, workspaceID = record.SessionID, record.WorkspaceID
+			sessionID, workspaceID, turnID = record.SessionID, record.WorkspaceID, record.TurnID
 		}
 		if sessionID == "" || workspaceID == "" {
 			continue
 		}
-		busy, err := s.turnBusy(sessionID, workspaceID)
+		busy, err := s.turnBusy(sessionID, workspaceID, turnID)
 		if err != nil {
 			return err
 		}

@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/ReanSn0w/horizon/internal/plugins"
 )
@@ -75,5 +76,81 @@ func TestBrowserAPIErrorsHideSecrets(t *testing.T) {
 	_, err := a.create(context.Background(), "home", "turn", "session", "workspace", 10)
 	if err == nil || strings.Contains(err.Error(), "secret") || strings.Contains(err.Error(), "cdp") {
 		t.Fatalf("error=%v", err)
+	}
+}
+
+func TestBrowserListPaginationAndHomeFilter(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		page := r.URL.Query().Get("pageNumber")
+		if r.URL.Query().Get("metadata") != "horizon_home=ours" || r.URL.Query().Get("filterBy") != "active" {
+			t.Errorf("list query=%s", r.URL.RawQuery)
+		}
+		items := []any{}
+		if page == "1" {
+			for i := 0; i < 100; i++ {
+				items = append(items, map[string]any{"id": "ours", "status": "active", "metadata": map[string]string{"horizon_home": "ours"}})
+			}
+		} else if page == "2" {
+			items = append(items, map[string]any{"id": "second", "status": "active", "metadata": map[string]string{"horizon_home": "ours"}})
+			items = append(items, map[string]any{"id": "foreign", "status": "active", "metadata": map[string]string{"horizon_home": "other"}})
+		} else {
+			t.Errorf("unexpected page %s", page)
+		}
+		pageNumber := 1
+		if page == "2" {
+			pageNumber = 2
+		}
+		json.NewEncoder(w).Encode(map[string]any{"items": items, "totalItems": 101, "pageNumber": pageNumber, "pageSize": 100})
+	}))
+	defer server.Close()
+	a := newBrowserAPI(settings{APIKey: "test", APIURL: server.URL})
+	items, err := a.list(context.Background(), "ours")
+	if err != nil || len(items) != 101 || items[len(items)-1].ID != "second" {
+		t.Fatalf("items=%d err=%v", len(items), err)
+	}
+}
+
+func TestBrowserAPITimeoutHasNoSecret(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		<-r.Context().Done()
+	}))
+	defer server.Close()
+	a := newBrowserAPI(settings{APIKey: "secret-token", APIURL: server.URL})
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+	defer cancel()
+	_, err := a.list(ctx, "home")
+	if err == nil || strings.Contains(err.Error(), "secret-token") || strings.Contains(err.Error(), server.URL) {
+		t.Fatalf("timeout err=%v", err)
+	}
+}
+
+func TestUnknownCreateOutcomeIsNotRetriedBlindly(t *testing.T) {
+	created := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost {
+			created++
+			conn, _, err := w.(http.Hijacker).Hijack()
+			if err != nil {
+				t.Error(err)
+				return
+			}
+			conn.Close()
+			return
+		}
+		json.NewEncoder(w).Encode(map[string]any{"items": []any{}, "totalItems": 0, "pageNumber": 1, "pageSize": 100})
+	}))
+	defer server.Close()
+	b := newBrowserLifecycle(t.TempDir(), settings{APIKey: "test", APIURL: server.URL, TimeoutMinutes: 10})
+	req := plugins.Request{SessionID: "session", TurnID: "turn", WorkspaceID: "workspace"}
+	for i := 0; i < 2; i++ {
+		if _, err := b.open(context.Background(), req); err == nil {
+			t.Fatal("unknown creation accepted")
+		}
+	}
+	if created != 1 {
+		t.Fatalf("browser created %d times", created)
+	}
+	if err := b.finish(context.Background(), req); err == nil || !strings.Contains(err.Error(), "unknown") {
+		t.Fatalf("finalization erased uncertain creation: %v", err)
 	}
 }
