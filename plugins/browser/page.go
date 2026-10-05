@@ -99,7 +99,7 @@ func (b browserLifecycle) tool(ctx context.Context, request plugins.Request) (an
 	actions := []chromedp.Action{}
 	switch request.Tool {
 	case "navigate":
-		actions = append(actions, chromedp.Navigate(args.URL))
+		actions = append(actions, cdpAction("navigate", navigateDocument(args.URL)))
 	case "snapshot":
 	case "click", "type":
 		var selected *elementRef
@@ -127,14 +127,14 @@ func (b browserLifecycle) tool(ctx context.Context, request plugins.Request) (an
 			return nil
 		}))
 		if request.Tool == "click" {
-			actions = append(actions, chromedp.Click(selected.Selector))
+			actions = append(actions, cdpAction("click", chromedp.Click(selected.Selector)))
 		} else {
-			actions = append(actions, chromedp.Clear(selected.Selector), chromedp.SendKeys(selected.Selector, args.Text))
+			actions = append(actions, cdpAction("type", chromedp.Clear(selected.Selector)), cdpAction("type", chromedp.SendKeys(selected.Selector, args.Text)))
 		}
 	default:
 		return nil, fmt.Errorf("unsupported browser tool")
 	}
-	actions = append(actions, chromedp.Evaluate(snapshotScript, &page))
+	actions = append(actions, cdpAction("snapshot", chromedp.Evaluate(snapshotScript, &page)))
 	targetID, err := runCDP(ctx, record, b.s.actionTimeout, actions...)
 	if err != nil {
 		return nil, err
