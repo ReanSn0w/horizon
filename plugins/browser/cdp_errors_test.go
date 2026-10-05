@@ -32,7 +32,7 @@ func TestSafeCDPErrors(t *testing.T) {
 		{"dns", &net.DNSError{Name: secret, Err: secret}, "DNS lookup failed"},
 		{"refused", &net.OpError{Op: secret, Err: syscall.ECONNREFUSED}, "connection refused"},
 		{"unknown", errors.New("wss://" + secret + "?key=" + secret), "unclassified error"},
-		{"navigation", errors.New("net::ERR_TUNNEL_CONNECTION_FAILED"), "net::ERR_TUNNEL_CONNECTION_FAILED"},
+		{"navigation", errors.New("page load error net::ERR_TUNNEL_CONNECTION_FAILED"), "net::ERR_TUNNEL_CONNECTION_FAILED"},
 		{"untrusted navigation", errors.New("net::ERR_TUNNEL_CONNECTION_FAILED " + secret), "unclassified error"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -96,5 +96,41 @@ func TestCDPConnectTimeoutAndCancel(t *testing.T) {
 	_, err = runCDP(ctx, record, time.Second)
 	if err == nil || err.Error() != "remote browser connect failed: canceled" {
 		t.Fatalf("%v", err)
+	}
+}
+
+func TestCDPDiscoveryErrorsAndDirectWebSocket(t *testing.T) {
+	for _, endpoint := range []string{"wss://example.test/devtools/browser/private?token=secret", "ws://127.0.0.1:1234/tab"} {
+		got, err := resolveCDPURL(context.Background(), endpoint)
+		if err != nil || got != endpoint {
+			t.Fatalf("direct websocket changed: %v", err)
+		}
+	}
+	for _, test := range []struct {
+		name, body, want string
+		status           int
+	}{
+		{"missing", `{}`, "invalid WebSocket endpoint", 200},
+		{"invalid", `secret`, "invalid discovery response", 200},
+		{"scheme", `{"webSocketDebuggerUrl":"https://secret"}`, "invalid WebSocket endpoint", 200},
+		{"credentials", `{"webSocketDebuggerUrl":"wss://user:secret@example.test"}`, "invalid WebSocket endpoint", 200},
+		{"status", `secret`, "HTTP 403", 403},
+		{"redirect", `secret`, "HTTP 302", 302},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path != "/json/version" || r.URL.Query().Get("token") != "private" {
+					t.Errorf("discovery lost path or query")
+				}
+				w.Header().Set("Location", "https://secret.example")
+				w.WriteHeader(test.status)
+				_, _ = w.Write([]byte(test.body))
+			}))
+			defer server.Close()
+			_, err := resolveCDPURL(context.Background(), server.URL+"/?token=private")
+			if err == nil || err.Error() != "remote browser discovery failed: "+test.want {
+				t.Fatalf("%v", err)
+			}
+		})
 	}
 }

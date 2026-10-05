@@ -288,6 +288,7 @@ func serveBrowserCDP(t *testing.T, w http.ResponseWriter, r *http.Request) {
 			for _, event := range []map[string]any{
 				{"method": "Page.frameNavigated", "sessionId": call.SessionID, "params": map[string]any{"frame": map[string]any{"id": "frame-1", "loaderId": "loader-2", "url": "https://example.com", "securityOrigin": "https://example.com", "mimeType": "text/html"}}},
 				{"method": "Page.lifecycleEvent", "sessionId": call.SessionID, "params": map[string]any{"frameId": "frame-1", "loaderId": "loader-2", "name": "init", "timestamp": 1}},
+				{"method": "Page.lifecycleEvent", "sessionId": call.SessionID, "params": map[string]any{"frameId": "frame-1", "loaderId": "loader-2", "name": "DOMContentLoaded", "timestamp": 2}},
 				{"method": "Page.loadEventFired", "sessionId": call.SessionID, "params": map[string]any{"timestamp": 2}},
 			} {
 				encoded, _ := json.Marshal(event)

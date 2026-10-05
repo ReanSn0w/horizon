@@ -18,7 +18,12 @@ import (
 func TestRemoteCDPWithoutLocalBrowser(t *testing.T) {
 	var methods []string
 	var mu sync.Mutex
+	var endpoint string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/json/version" {
+			json.NewEncoder(w).Encode(map[string]string{"webSocketDebuggerUrl": strings.Replace(endpoint, "http://", "ws://", 1) + "/devtools/browser/test"})
+			return
+		}
 		conn, _, _, err := ws.UpgradeHTTP(r, w)
 		if err != nil {
 			t.Error(err)
@@ -75,7 +80,7 @@ func TestRemoteCDPWithoutLocalBrowser(t *testing.T) {
 				for _, event := range []map[string]any{
 					{"method": "Page.frameNavigated", "sessionId": call.SessionID, "params": map[string]any{"frame": map[string]any{"id": "frame-1", "loaderId": "loader-2", "url": "https://example.com", "securityOrigin": "https://example.com", "mimeType": "text/html"}}},
 					{"method": "Page.lifecycleEvent", "sessionId": call.SessionID, "params": map[string]any{"frameId": "frame-1", "loaderId": "loader-2", "name": "init", "timestamp": 1}},
-					{"method": "Page.loadEventFired", "sessionId": call.SessionID, "params": map[string]any{"timestamp": 2}},
+					{"method": "Page.lifecycleEvent", "sessionId": call.SessionID, "params": map[string]any{"frameId": "frame-1", "loaderId": "loader-2", "name": "DOMContentLoaded", "timestamp": 2}},
 				} {
 					encoded, _ := json.Marshal(event)
 					if err := wsutil.WriteServerText(conn, encoded); err != nil {
@@ -86,8 +91,9 @@ func TestRemoteCDPWithoutLocalBrowser(t *testing.T) {
 		}
 	}))
 	defer server.Close()
+	endpoint = server.URL
 	var page pageData
-	target, err := runCDP(context.Background(), browserRecord{CDPURL: strings.Replace(server.URL, "http://", "ws://", 1)}, 3*time.Second, chromedp.Navigate("https://example.com"), chromedp.Evaluate(snapshotScript, &page))
+	target, err := runCDP(context.Background(), browserRecord{CDPURL: server.URL}, 3*time.Second, navigateDocument("https://example.com"), chromedp.Evaluate(snapshotScript, &page))
 	if err != nil || target != "tab-1" || page.Title != "Example" {
 		t.Fatalf("target=%q page=%+v err=%v methods=%v", target, page, err, methods)
 	}

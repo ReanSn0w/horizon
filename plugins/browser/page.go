@@ -99,7 +99,7 @@ func (b browserLifecycle) tool(ctx context.Context, request plugins.Request) (an
 	actions := []chromedp.Action{}
 	switch request.Tool {
 	case "navigate":
-		actions = append(actions, cdpAction("navigate", chromedp.Navigate(args.URL)))
+		actions = append(actions, cdpAction("navigate", navigateDocument(args.URL)))
 	case "snapshot":
 	case "click", "type":
 		var selected *elementRef
