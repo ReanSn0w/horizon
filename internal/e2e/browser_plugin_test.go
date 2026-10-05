@@ -83,6 +83,7 @@ func TestBuiltBrowserPluginTurnAndCleanup(t *testing.T) {
 		call := responses
 		mu.Unlock()
 		var modelRequest struct {
+			Input []json.RawMessage `json:"input"`
 			Tools []struct {
 				Name string `json:"name"`
 			} `json:"tools"`
@@ -101,7 +102,11 @@ func TestBuiltBrowserPluginTurnAndCleanup(t *testing.T) {
 		case 1:
 			writeCompleted(w, call, []json.RawMessage{json.RawMessage(`{"type":"function_call","call_id":"nav","name":"browser__navigate","arguments":"{\"url\":\"https://example.com\"}"}`)})
 		case 2:
+			checkBrowserToolOutput(t, modelRequest.Input, "nav", "")
 			writeCompleted(w, call, []json.RawMessage{json.RawMessage(`{"type":"function_call","call_id":"snap","name":"browser__snapshot","arguments":"{}"}`)})
+		case 3:
+			checkBrowserToolOutput(t, modelRequest.Input, "snap", "")
+			writeCompleted(w, call, message("done"))
 		default:
 			writeCompleted(w, call, message("done"))
 		}
@@ -296,7 +301,7 @@ func serveBrowserCDP(t *testing.T, w http.ResponseWriter, r *http.Request) {
 
 func TestBuiltBrowserPluginFinalizesFailedAndCancelledTurns(t *testing.T) {
 	binary := buildBinary(t)
-	for _, mode := range []string{"failure", "cancel"} {
+	for _, mode := range []string{"failure", "cancel", "cdp-failure"} {
 		t.Run(mode, func(t *testing.T) {
 			home, workspace := t.TempDir(), t.TempDir()
 			if err := os.Mkdir(filepath.Join(home, "plugins"), 0700); err != nil {
@@ -307,7 +312,13 @@ func TestBuiltBrowserPluginFinalizesFailedAndCancelledTurns(t *testing.T) {
 			if output, err := build.CombinedOutput(); err != nil {
 				t.Fatalf("build browser plugin: %v %s", err, output)
 			}
-			cdp := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { serveBrowserCDP(t, w, r) }))
+			cdp := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if mode == "cdp-failure" {
+					http.Error(w, "secret", http.StatusForbidden)
+					return
+				}
+				serveBrowserCDP(t, w, r)
+			}))
 			defer cdp.Close()
 			var mu sync.Mutex
 			stopped := 0
@@ -336,6 +347,17 @@ func TestBuiltBrowserPluginFinalizesFailedAndCancelledTurns(t *testing.T) {
 				mu.Unlock()
 				if call == 1 {
 					writeCompleted(w, call, []json.RawMessage{json.RawMessage(`{"type":"function_call","call_id":"nav","name":"browser__navigate","arguments":"{\"url\":\"https://example.com\"}"}`)})
+					return
+				}
+				if mode == "cdp-failure" {
+					var request struct {
+						Input []json.RawMessage `json:"input"`
+					}
+					if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+						t.Error(err)
+					}
+					checkBrowserToolOutput(t, request.Input, "nav", "remote browser connect failed: WebSocket handshake HTTP 403")
+					writeCompleted(w, call, message("done"))
 					return
 				}
 				if mode == "cancel" {
@@ -379,6 +401,55 @@ func TestBuiltBrowserPluginFinalizesFailedAndCancelledTurns(t *testing.T) {
 			if gotStopped != 1 {
 				t.Fatalf("%s: browser stops=%d", mode, gotStopped)
 			}
+
+			if mode == "cdp-failure" {
+				journals, err := filepath.Glob(filepath.Join(home, "dialogs", "*", "*.json"))
+				if err != nil || len(journals) != 1 {
+					t.Fatalf("journals=%v err=%v", journals, err)
+				}
+				saved, err := os.ReadFile(journals[0])
+				if err != nil || !strings.Contains(string(saved), "remote browser connect failed: WebSocket handshake HTTP 403") {
+					t.Fatal("diagnosed failure was not saved in session history")
+				}
+			}
 		})
 	}
+}
+
+func checkBrowserToolOutput(t *testing.T, input []json.RawMessage, callID, failure string) {
+	t.Helper()
+	for _, raw := range input {
+		var item struct {
+			Type, Output string
+			CallID       string `json:"call_id"`
+		}
+		if err := json.Unmarshal(raw, &item); err != nil {
+			t.Error(err)
+			continue
+		}
+		if item.Type != "function_call_output" || item.CallID != callID {
+			continue
+		}
+		var result struct {
+			OK   bool
+			Data struct {
+				URL, Text  string
+				SnapshotID string `json:"snapshot_id"`
+			}
+			Error struct{ Code, Message string }
+		}
+		if err := json.Unmarshal([]byte(item.Output), &result); err != nil {
+			t.Error(err)
+			return
+		}
+		if failure != "" {
+			if result.OK || result.Error.Code != "browser_error" || result.Error.Message != failure {
+				t.Errorf("unexpected browser failure: %s", item.Output)
+			}
+		} else if !result.OK || result.Data.URL != "https://example.com" || result.Data.Text != "Hello" || result.Data.SnapshotID == "" {
+			t.Errorf("missing browser page content: %s", item.Output)
+		}
+		return
+	}
+	t.Errorf("missing browser output %s", callID)
 }

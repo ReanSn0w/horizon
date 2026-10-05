@@ -3,11 +3,13 @@ package main
 import (
 	"context"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/ReanSn0w/horizon/internal/config"
 	"github.com/ReanSn0w/horizon/internal/session"
+	"github.com/chromedp/chromedp"
 )
 
 // This test creates a billable Browser Use session. It never runs by default.
@@ -28,7 +30,7 @@ func TestConfiguredBrowserUseAPI(t *testing.T) {
 		t.Fatal(err)
 	}
 	api := newBrowserAPI(s)
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
 	created, err := api.create(ctx, "horizon-api-check", id, id, id, 1)
 	if created.ID != "" {
@@ -45,5 +47,23 @@ func TestConfiguredBrowserUseAPI(t *testing.T) {
 	}
 	if created.ID == "" || created.CDPURL == "" {
 		t.Fatal("Browser Use did not return browser ID and CDP URL")
+	}
+	record := browserRecord{ID: created.ID, CDPURL: created.CDPURL}
+	var page pageData
+	targetID, err := runCDP(ctx, record, s.actionTimeout, cdpAction("navigate", chromedp.Navigate("https://example.com")), cdpAction("snapshot", chromedp.Evaluate(snapshotScript, &page)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if page.URL != "https://example.com/" || !strings.Contains(page.Text, "Example Domain") {
+		t.Fatal("navigation did not return expected page content")
+	}
+	record.TargetID = targetID
+	var second pageData
+	secondID, err := runCDP(ctx, record, s.actionTimeout, cdpAction("snapshot", chromedp.Evaluate(snapshotScript, &second)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if secondID != targetID || second.URL != page.URL || !strings.Contains(second.Text, "Example Domain") {
+		t.Fatal("reattachment did not retain expected page content")
 	}
 }
