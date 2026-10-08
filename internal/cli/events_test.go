@@ -51,6 +51,18 @@ func TestTextEventPublisherShowsTargetShellStatusAndVerboseLogs(t *testing.T) {
 	}
 }
 
+func TestTextEventPublisherShowsManagedProcessRunning(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	publish := newEventPublisher("text", false, &stdout, &stderr)
+	publish(eventstream.New("tool_completed", "session", nil, map[string]any{
+		"name": "shell_exec", "duration_ms": int64(5),
+		"result": json.RawMessage(`{"ok":true,"data":{"status":"running","process_id":"proc_test","exit_code":null}}`),
+	}))
+	if stdout.Len() != 0 || !bytes.Contains(stderr.Bytes(), []byte("работает")) || bytes.Contains(stderr.Bytes(), []byte("готово")) {
+		t.Fatalf("managed status stdout=%q stderr=%q", stdout.String(), stderr.String())
+	}
+}
+
 func TestTextEventPublisherFiltersModelStreamAndUsage(t *testing.T) {
 	for _, verbose := range []bool{false, true} {
 		var out, diagnostics bytes.Buffer

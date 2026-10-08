@@ -112,6 +112,10 @@ func shellExecSyncHandler(ctx context.Context, arguments json.RawMessage, env en
 	command.Stderr = io.MultiWriter(stderrFile, stderrEdge)
 	command.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	command.WaitDelay = 2 * time.Second
+	if err := ctx.Err(); err != nil {
+		cleanup()
+		return outcome{Error: &ToolError{Code: "cancelled", Message: err.Error()}}
+	}
 	startedAt := time.Now()
 	if err := command.Start(); err != nil {
 		cleanup()

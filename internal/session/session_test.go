@@ -315,6 +315,45 @@ func TestAtomicWriteFailureAndUnknownToolOutcome(t *testing.T) {
 	}
 }
 
+func TestManagedStartResultWriteFailureRecoversAsUnknown(t *testing.T) {
+	store, workspace := testStore(t)
+	created, err := store.Create(workspace)
+	if err != nil {
+		t.Fatal(err)
+	}
+	locked, err := store.LockSession(workspace, created.SessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	turnID := strings.Repeat("f", 32)
+	if err := locked.StartTurn(Turn{ID: turnID, Status: StatusActive, StartedAt: now, Model: testModel()}); err != nil {
+		t.Fatal(err)
+	}
+	if err := locked.RecordToolCall(turnID, ToolCall{CallID: "start", Name: "shell_exec", Arguments: json.RawMessage(`{"command":"sleep 5","timeout_ms":null,"max_output_chars":null,"yield_time_ms":1}`), StartedAt: now}); err != nil {
+		t.Fatal(err)
+	}
+	originalWrite := store.writeJSON
+	store.writeJSON = func(string, any) error { return errors.New("injected result write failure") }
+	err = locked.RecordToolResult(turnID, "start", json.RawMessage(`{"ok":true,"data":{"status":"running","process_id":"proc_test"}}`), now, nil)
+	store.writeJSON = originalWrite
+	if err == nil {
+		t.Fatal("result write unexpectedly succeeded")
+	}
+	if err := locked.Close(); err != nil {
+		t.Fatal(err)
+	}
+	locked, recovered, err := store.AcquireForResume(workspace, created.SessionID, "continue")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer locked.Close()
+	call := recovered.Turns[len(recovered.Turns)-1].ToolCalls[0]
+	if call.ResultState != ToolResultUnknown || len(call.Result) != 0 {
+		t.Fatalf("interrupted start call = %+v", call)
+	}
+}
+
 func TestFailedCompactionWriteKeepsPreviousWindow(t *testing.T) {
 	store, workspace := testStore(t)
 	created, err := store.Create(workspace)

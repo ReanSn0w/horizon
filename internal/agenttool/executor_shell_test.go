@@ -29,6 +29,13 @@ func (r reviewStub) Review(context.Context, decision.Command) (decision.Verdict,
 
 type forbiddenReviewer struct{ calls int }
 
+type countingReviewer struct{ calls int }
+
+func (r *countingReviewer) Review(context.Context, decision.Command) (decision.Verdict, error) {
+	r.calls++
+	return decision.Verdict{Allowed: true, ID: "managed-decision"}, nil
+}
+
 func (r *forbiddenReviewer) Review(context.Context, decision.Command) (decision.Verdict, error) {
 	r.calls++
 	return decision.Verdict{}, errors.New("full mode must not call Jev")
@@ -75,6 +82,59 @@ func TestExecutorFullRunsWithoutJev(t *testing.T) {
 	}
 	if reviewer.calls != 0 {
 		t.Fatalf("Jev reviewer called %d times", reviewer.calls)
+	}
+}
+
+func TestExecutorManagedShellReviewsOnlyLaunchAndJournalsWait(t *testing.T) {
+	store := session.NewStore(t.TempDir())
+	workspace, err := store.ResolveWorkspace(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	created, err := store.Create(workspace)
+	if err != nil {
+		t.Fatal(err)
+	}
+	locked, err := store.LockSession(workspace, created.SessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer locked.Close()
+	turnID := strings.Repeat("a", 32)
+	if err := locked.StartTurn(session.Turn{ID: turnID, Status: session.StatusActive, StartedAt: time.Now().UTC(), Model: session.ModelProfile{Name: "test", Model: "test", CompactThreshold: 1000}}); err != nil {
+		t.Fatal(err)
+	}
+	executor := NewExecutor(workspace.Dir, store.ArtifactsDir(workspace, created.SessionID), locked, turnID)
+	defer executor.Close()
+	reviewer := &countingReviewer{}
+	executor.SetHome(store.Home)
+	executor.SetCommandReview("write", reviewer)
+	started, err := executor.Execute(context.Background(), "start", ShellExec, json.RawMessage(`{"command":"sleep 1; printf done","timeout_ms":null,"max_output_chars":null,"yield_time_ms":1}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var first struct {
+		OK   bool             `json:"ok"`
+		Data managedShellData `json:"data"`
+	}
+	if err := json.Unmarshal(started, &first); err != nil || !first.OK || first.Data.Status != "running" || first.Data.DecisionID != "managed-decision" {
+		t.Fatalf("start = %s, %v", started, err)
+	}
+	waitArgs, _ := json.Marshal(shellWaitArgs{ProcessID: first.Data.ProcessID, WaitMS: 2000})
+	finished, err := executor.Execute(context.Background(), "wait", ShellWait, waitArgs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var final struct {
+		OK   bool             `json:"ok"`
+		Data managedShellData `json:"data"`
+	}
+	if err := json.Unmarshal(finished, &final); err != nil || !final.OK || final.Data.Status != "completed" || final.Data.Stdout != "done" || reviewer.calls != 1 {
+		t.Fatalf("wait=%s reviews=%d err=%v", finished, reviewer.calls, err)
+	}
+	value, err := locked.Load()
+	if err != nil || len(value.Turns[0].ToolCalls) != 2 || value.Turns[0].ToolCalls[0].ResultState != session.ToolResultKnown || value.Turns[0].ToolCalls[1].ResultState != session.ToolResultKnown {
+		t.Fatalf("journal = %+v, %v", value, err)
 	}
 }
 
