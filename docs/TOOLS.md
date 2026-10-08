@@ -1,7 +1,8 @@
 # Инструменты Horizon
 
-По умолчанию модель получает два последовательных function tools: `skill_read` и
-`shell_exec`. Их схемы и исполнение находятся в `internal/agenttool`.
+По умолчанию модель получает четыре последовательных function tools: `skill_read`,
+`shell_exec`, `shell_wait` и `shell_cancel`. Их схемы и исполнение находятся в
+`internal/agenttool`.
 Используется `strict: true`, `additionalProperties: false` и
 `parallel_tool_calls: false`. Результат возвращается в
 `function_call_output` с исходным `call_id` и сохраняется в журнале сессии.
@@ -25,7 +26,7 @@
 ## `shell_exec`
 
 ```json
-{"command":"rg --files","timeout_ms":10000,"max_output_chars":16000}
+{"command":"rg --files","timeout_ms":10000,"max_output_chars":16000,"yield_time_ms":null}
 ```
 
 `command` — непустая строка для `/bin/sh -c`. `timeout_ms` — положительное
@@ -75,6 +76,12 @@ CLI-команда установленного плагина вызывает�
 и допускает `null`. `yield_time_ms` ограничивает только первое ожидание;
 `timeout_ms` по-прежнему ограничивает всё время жизни команды.
 
+Например, начать команду с ожиданием до одной секунды:
+
+```json
+{"command":"go test ./...","timeout_ms":120000,"max_output_chars":16000,"yield_time_ms":1000}
+```
+
 Если команда успела завершиться, возвращается прежний окончательный результат.
 Иначе `data` содержит `status: "running"`, непрозрачный `process_id`, уже
 полученные `stdout` и `stderr`, а также пути к полным артефактам. `ok: true`
@@ -86,6 +93,15 @@ CLI-команда установленного плагина вызывает�
 `shell_wait` принимает `process_id` и `wait_ms` от 1 до 60000. Он возвращается
 при завершении команды или истечении времени ожидания — что наступит раньше.
 `shell_cancel` принимает `process_id` и завершает управляемую группу процессов.
+
+```json
+{"process_id":"proc_...","wait_ms":10000}
+```
+
+```json
+{"process_id":"proc_..."}
+```
+
 Оба инструмента возвращают `status: "running"` либо `status: "completed"`,
 окончательный `exit_code` или `signal`, `timed_out`, длительность и только новый
 stdout/stderr с предыдущего успешного получения результата. Повторное ожидание
