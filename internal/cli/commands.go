@@ -310,10 +310,11 @@ func (command *sessionsDeleteCommand) Execute(args []string) error {
 }
 
 type sessionsCompactCommand struct {
-	app    *App
-	global *globalOptions
-	ID     string `long:"id" description:"session ID; defaults to the most recently accessed session"`
-	Mode   string `short:"o" long:"mode" default:"text" choice:"text" choice:"jsonl" description:"output format"`
+	app       *App
+	global    *globalOptions
+	ID        string `long:"id" description:"session ID; defaults to the most recently accessed session"`
+	Mode      string `short:"o" long:"mode" default:"text" choice:"text" choice:"jsonl" description:"output format"`
+	IfNewTurn bool   `long:"if-new-turn" description:"skip if the latest completed turn was already compacted"`
 }
 
 type sessionsCommand struct{}
@@ -332,7 +333,8 @@ func (command *sessionsCompactCommand) Execute(args []string) error {
 	}
 	defer locked.Close()
 	publish := newEventPublisher(command.Mode, command.global.Verbose, command.app.out, command.app.errOut)
-	if _, ok := value.LastCompletedTurn(); !ok {
+	_, hasCompleted := value.LastCompletedTurn()
+	if !hasCompleted || (command.IfNewTurn && value.LatestCompletedTurnCompacted()) {
 		if command.Mode == "jsonl" {
 			publish(eventstream.New("compaction_completed", value.SessionID, nil, map[string]any{"compacted": false}))
 		} else {

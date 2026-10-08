@@ -523,6 +523,25 @@ func TestRawAPIFieldsSurviveReadWriteAndUnknownVersionIsUntouched(t *testing.T) 
 	}
 }
 
+func TestLatestCompletedTurnCompacted(t *testing.T) {
+	s := &Session{Turns: []Turn{{ID: "first", Status: StatusCompleted}}}
+	if s.LatestCompletedTurnCompacted() {
+		t.Fatal("uncompacted turn was reported as compacted")
+	}
+	s.Compactions = []Compaction{{BoundaryTurnID: "first"}}
+	if !s.LatestCompletedTurnCompacted() {
+		t.Fatal("latest completed turn was not recognized")
+	}
+	s.Turns = append(s.Turns, Turn{ID: "failed", Status: StatusFailed})
+	if !s.LatestCompletedTurnCompacted() {
+		t.Fatal("failed turn changed the compacted boundary")
+	}
+	s.Turns = append(s.Turns, Turn{ID: "second", Status: StatusCompleted})
+	if s.LatestCompletedTurnCompacted() {
+		t.Fatal("new completed turn was treated as already compacted")
+	}
+}
+
 func testStore(t *testing.T) (*Store, Workspace) {
 	t.Helper()
 	store := NewStore(t.TempDir())

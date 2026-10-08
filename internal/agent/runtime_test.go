@@ -267,6 +267,31 @@ func TestManualCompactionReplacesWindowWithoutCreatingTurn(t *testing.T) {
 	}
 }
 
+func TestInterruptedCompactionKeepsPreviousWindow(t *testing.T) {
+	final := json.RawMessage(`{"type":"message","id":"msg-1","content":[{"type":"output_text","text":"done"}]}`)
+	runtime, cleanup := testRuntime(t, &fakeClient{outputs: [][]json.RawMessage{{final}}})
+	defer cleanup()
+	if _, err := runtime.Run(context.Background(), "task"); err != nil {
+		t.Fatal(err)
+	}
+	before, err := runtime.Locked.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := Compact(ctx, fakeCompactClient{err: context.Canceled}, runtime.Locked, before, "instructions", 0, nil); err == nil {
+		t.Fatal("interrupted compaction succeeded")
+	}
+	after, err := runtime.Locked.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(after.Compactions) != 0 || len(after.Turns) != len(before.Turns) || len(after.Checkpoints) != len(before.Checkpoints) {
+		t.Fatal("interrupted compaction changed the session")
+	}
+}
+
 func TestRuntimeHTTPToolChainPersistsOpaqueItems(t *testing.T) {
 	requests := 0
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
