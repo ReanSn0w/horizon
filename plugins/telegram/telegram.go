@@ -296,6 +296,7 @@ func ingest(home string, s store, cfg settings, bot tgUser, u update, observers 
 				data["request_id"] = j.ID
 				data["message_id"] = m.ID
 				c.LastAt = time.Unix(m.Date, 0).UTC()
+				c.LastReceivedAt = time.Now().UTC()
 				c.Thread = m.Thread
 				c.HasThread = true
 				c.Available = true

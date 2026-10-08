@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestIngestFilteringAndMigration(t *testing.T) {
@@ -32,6 +33,9 @@ func TestIngestFilteringAndMigration(t *testing.T) {
 	c := v.Chats["-4"]
 	if len(c.Jobs) != 1 || !c.Jobs[0].Input.Mention || chatName(c) != "Имя" {
 		t.Fatal("incorrect ingest")
+	}
+	if c.LastReceivedAt.IsZero() || time.Since(c.LastReceivedAt) > time.Minute {
+		t.Fatal("receive time was not saved")
 	}
 	c.Workspace = "unused"
 	s.update(func(v *state) error { v.Chats["-4"].Workspace = "original"; return nil })
