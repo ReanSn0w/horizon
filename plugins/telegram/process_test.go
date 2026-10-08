@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -62,6 +63,22 @@ func TestStreamedRunnerObservesBeforeExitAndFiltersContent(t *testing.T) {
 	}
 	if strings.Contains(journal.String(), "SECRET_COMMAND") || strings.Contains(journal.String(), "PRIVATE_PROGRESS") || strings.Contains(journal.String(), "FINAL") {
 		t.Fatal(journal.String())
+	}
+}
+
+func TestChildDiagnosticLogsOnlyNumericUsage(t *testing.T) {
+	var journal bytes.Buffer
+	g := &bridge{journal: &diagnosticLog{out: &journal, runID: "run"}}
+	g.childDiagnostic(childEvent{Type: "turn_completed", Session: "session", Data: map[string]json.RawMessage{
+		"text":  json.RawMessage(`"PRIVATE_ANSWER"`),
+		"usage": json.RawMessage(`{"input_tokens":123,"output_tokens":7,"private":"SECRET_USAGE"}`),
+	}})
+	output := journal.String()
+	if !strings.Contains(output, `"input_tokens":123`) || !strings.Contains(output, `"output_tokens":7`) {
+		t.Fatalf("usage counters missing: %s", output)
+	}
+	if strings.Contains(output, "PRIVATE_ANSWER") || strings.Contains(output, "SECRET_USAGE") {
+		t.Fatalf("private data entered journal: %s", output)
 	}
 }
 

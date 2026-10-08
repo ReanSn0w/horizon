@@ -140,5 +140,19 @@ func (g *bridge) childDiagnostic(e childEvent, correlation ...map[string]any) {
 			}
 		}
 	}
+	if e.Type == "turn_completed" {
+		var usage struct {
+			InputTokens  *uint64 `json:"input_tokens"`
+			OutputTokens *uint64 `json:"output_tokens"`
+		}
+		if json.Unmarshal(e.Data["usage"], &usage) == nil {
+			if usage.InputTokens != nil {
+				fields["input_tokens"] = *usage.InputTokens
+			}
+			if usage.OutputTokens != nil {
+				fields["output_tokens"] = *usage.OutputTokens
+			}
+		}
+	}
 	g.emit("info", fmt.Sprintf("horizon_%s", e.Type), fields)
 }

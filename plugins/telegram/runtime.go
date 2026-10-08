@@ -176,7 +176,13 @@ func (g *bridge) process(ctx context.Context, c *chat, j *job, cfg settings) err
 		}
 		outputMode = "jsonl"
 	}
+	runStarted := time.Now()
+	g.emit("info", "horizon_resume_started", jobFields(c, j))
 	output, err := runner(ctx, c.Workspace, []string{"--home", g.home, "resume", "--session", c.Session, "--mode", outputMode, "--access", mode}, string(data))
+	runFields := jobFields(c, j)
+	runFields["duration_ms"] = time.Since(runStarted).Milliseconds()
+	runFields["ok"] = err == nil
+	g.emit("info", "horizon_resume_finished", runFields)
 	if err != nil {
 		return g.fail(c.ID, j.ID, fmt.Errorf("Horizon session %s: %w", c.Session, err), true)
 	}
