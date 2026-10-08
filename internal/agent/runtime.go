@@ -380,11 +380,35 @@ func failedTurnSummary(turn session.Turn) string {
 	if turn.Error != nil {
 		message += fmt.Sprintf(" Reason: %s: %s.", turn.Error.Code, turn.Error.Message)
 	}
+	completedProcesses := make(map[string]bool)
+	for _, call := range turn.ToolCalls {
+		if call.ResultState != session.ToolResultKnown {
+			continue
+		}
+		var result struct {
+			Data struct {
+				ProcessID string `json:"process_id"`
+				Status    string `json:"status"`
+			} `json:"data"`
+		}
+		if json.Unmarshal(call.Result, &result) == nil && result.Data.ProcessID != "" && result.Data.Status == "completed" {
+			completedProcesses[result.Data.ProcessID] = true
+		}
+	}
 	for _, call := range turn.ToolCalls {
 		if call.ResultState == session.ToolResultUnknown || call.ResultState == session.ToolResultPending {
 			message += fmt.Sprintf(" Tool %s with arguments %s has an unknown outcome; inspect the actual workspace state before deciding whether to repeat it.", call.Name, call.Arguments)
 		} else if call.ResultState == session.ToolResultKnown {
 			message += fmt.Sprintf(" Tool %s completed with recorded result %s.", call.Name, call.Result)
+			var result struct {
+				Data struct {
+					ProcessID string `json:"process_id"`
+					Status    string `json:"status"`
+				} `json:"data"`
+			}
+			if json.Unmarshal(call.Result, &result) == nil && result.Data.Status == "running" && !completedProcesses[result.Data.ProcessID] {
+				message += fmt.Sprintf(" Process %s was still running; its final outcome is unknown. Inspect external state before repeating the command.", result.Data.ProcessID)
+			}
 		}
 	}
 	return message

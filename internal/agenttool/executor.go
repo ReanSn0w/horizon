@@ -26,6 +26,7 @@ type Executor struct {
 	home         string
 	access       string
 	reviewer     decision.Reviewer
+	processes    *managedProcesses
 }
 
 type environment struct {
@@ -35,6 +36,7 @@ type environment struct {
 	skills       *instructions.Catalog
 	home         string
 	access       string
+	onShellStart func()
 }
 
 func (e *Executor) SetSkillCatalog(catalog *instructions.Catalog) {
@@ -55,8 +57,10 @@ func NewExecutor(workspace, artifactsDir string, locked *session.LockedSession, 
 		tools[item.definition.Name] = item
 		order = append(order, item.definition.Name)
 	}
-	return &Executor{workspace: workspace, artifactsDir: artifactsDir, locked: locked, turnID: turnID, now: time.Now, tools: tools, order: order}
+	return &Executor{workspace: workspace, artifactsDir: artifactsDir, locked: locked, turnID: turnID, now: time.Now, tools: tools, order: order, processes: newManagedProcesses()}
 }
+
+func (e *Executor) Close() { e.processes.close() }
 
 func Definitions() []Definition {
 	registered := registry()

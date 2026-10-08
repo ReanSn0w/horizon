@@ -430,3 +430,20 @@ func testRuntime(t *testing.T, client ResponseClient) (*Runtime, func()) {
 	}
 	return runtime, func() { _ = locked.Close() }
 }
+
+func TestFailedTurnSummaryWarnsAboutUnfinishedManagedProcess(t *testing.T) {
+	turn := session.Turn{ID: "turn", Status: session.StatusFailed, ToolCalls: []session.ToolCall{{
+		Name: "shell_exec", ResultState: session.ToolResultKnown,
+		Result: json.RawMessage(`{"ok":true,"data":{"status":"running","process_id":"proc_test"}}`),
+	}}}
+	if summary := failedTurnSummary(turn); !bytes.Contains([]byte(summary), []byte("final outcome is unknown")) {
+		t.Fatalf("missing unfinished-process warning: %s", summary)
+	}
+	turn.ToolCalls = append(turn.ToolCalls, session.ToolCall{
+		Name: "shell_wait", ResultState: session.ToolResultKnown,
+		Result: json.RawMessage(`{"ok":true,"data":{"status":"completed","process_id":"proc_test"}}`),
+	})
+	if summary := failedTurnSummary(turn); bytes.Contains([]byte(summary), []byte("final outcome is unknown")) {
+		t.Fatalf("completed process still warned: %s", summary)
+	}
+}

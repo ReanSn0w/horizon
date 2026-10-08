@@ -93,10 +93,14 @@ func shellExecHandler(ctx context.Context, arguments json.RawMessage, env enviro
 	command.Stdout = io.MultiWriter(stdoutFile, stdoutEdge)
 	command.Stderr = io.MultiWriter(stderrFile, stderrEdge)
 	command.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	command.WaitDelay = 2 * time.Second
 	startedAt := time.Now()
 	if err := command.Start(); err != nil {
 		cleanup()
 		return outcome{Error: &ToolError{Code: "process_start_failed", Message: err.Error(), Details: map[string]any{"cwd": env.workspace}}}
+	}
+	if env.onShellStart != nil {
+		env.onShellStart()
 	}
 
 	waitChannel := make(chan error, 1)
