@@ -47,6 +47,33 @@ func TestStoreAtomicQueue(t *testing.T) {
 		t.Fatal("overwrote corrupt state")
 	}
 }
+
+func TestStoreReadsLegacyChatAndPersistsIdleTimes(t *testing.T) {
+	s := newStore(t.TempDir(), 9)
+	if err := os.MkdirAll(s.dir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	legacy := "version: 1\nbot_id: 9\noffset: 0\nchats:\n  '1':\n    origin: 1\n    id: 1\n    available: true\n    last_at: 2026-10-07T00:00:00Z\naliases: {}\n"
+	if err := os.WriteFile(filepath.Join(s.dir, "state.yaml"), []byte(legacy), 0600); err != nil {
+		t.Fatal(err)
+	}
+	value, err := s.snapshot()
+	if err != nil || !value.Chats["1"].LastReceivedAt.IsZero() || !value.Chats["1"].LastCompactAttemptAt.IsZero() {
+		t.Fatalf("legacy state: %+v, err=%v", value.Chats["1"], err)
+	}
+	now := time.Now().UTC().Truncate(time.Second)
+	if err := s.update(func(v *state) error {
+		v.Chats["1"].LastReceivedAt = now
+		v.Chats["1"].LastCompactAttemptAt = now
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	value, err = s.snapshot()
+	if err != nil || !value.Chats["1"].LastReceivedAt.Equal(now) || !value.Chats["1"].LastCompactAttemptAt.Equal(now) {
+		t.Fatalf("idle times were not saved: %+v, err=%v", value.Chats["1"], err)
+	}
+}
 func TestProcessLock(t *testing.T) {
 	home := t.TempDir()
 	f, err := lockFile(filepath.Join(home, "gateway", "process.lock"), true)

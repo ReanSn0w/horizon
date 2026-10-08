@@ -187,3 +187,16 @@ func (s *Session) LastCompletedTurn() (int, bool) {
 	}
 	return 0, false
 }
+
+func (s *Session) LatestCompletedTurnCompacted() bool {
+	index, ok := s.LastCompletedTurn()
+	if !ok {
+		return false
+	}
+	for _, compact := range s.Compactions {
+		if compact.BoundaryTurnID == s.Turns[index].ID {
+			return true
+		}
+	}
+	return false
+}

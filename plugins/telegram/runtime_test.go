@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -50,13 +51,17 @@ func TestGenerateUsesSessionAccessAndData(t *testing.T) {
 		}
 		return "reply", nil
 	}
-	g := &bridge{home: home, cfg: cfg, store: s, run: run}
+	var journal bytes.Buffer
+	g := &bridge{home: home, cfg: cfg, store: s, run: run, journal: &diagnosticLog{out: &journal, runID: "run"}}
 	if err := g.process(context.Background(), c, j, cfg); err != nil {
 		t.Fatal(err)
 	}
 	v, _ := s.snapshot()
 	if calls != 2 || v.Chats["1"].Jobs[0].Status != "generated" || v.Chats["1"].Jobs[0].Response != "reply" {
 		t.Fatal("generation not saved")
+	}
+	if !strings.Contains(journal.String(), `"event":"horizon_resume_started"`) || !strings.Contains(journal.String(), `"event":"horizon_resume_finished"`) {
+		t.Fatal("Horizon process timing was not recorded")
 	}
 }
 func TestFailedProcessIsNotReplayed(t *testing.T) {

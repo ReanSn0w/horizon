@@ -65,6 +65,7 @@ plugins:
       bot_names: []
       history_messages: 20
       reply_threshold: 0.7
+      idle_compact_after: 12h
     max_parallel_chats: 2
     groups: {}
 ```
@@ -81,6 +82,28 @@ resolved against home. Access accepts `read`, `write` or `full`. Parallelism is
 jobs always run in order. Available chats are scheduled in round-robin order,
 so a busy group cannot indefinitely precede private chats. Each job and initial
 workspace preparation has a ten-minute limit.
+
+### Idle session compaction
+
+After 12 hours without an incoming message, the running bridge checks whether
+the chat's Horizon session has a new completed turn and a working checkpoint of
+at least 128 KiB. If so, it calls `/responses/compact` in the background. This
+applies to private and group chats. Set `idle_compact_after: 6h` for an earlier
+check or `idle_compact_after: 0` to disable it; any other positive duration must
+be at least one hour. Re-run `horizon init` after upgrading to add the missing
+setting to an existing config without changing values or comments.
+
+Only one background compaction runs at a time. Normal chat jobs take priority;
+a new message cancels maintenance for that chat before its next reply. A failed
+attempt is retried no sooner than one hour later. The bridge skips sessions
+whose latest completed turn is already compacted. The operation creates no
+Telegram message or agent turn, but it adds a provider request that may cost
+tokens. Checkpoint bytes are only an estimate of possible savings; they do not
+predict billed tokens or a faster first reply.
+
+Telegram's separate `conversation` field still carries recent chat messages
+when the next job runs. Session compaction does not shrink that field. For
+timing and token measurements, see [the diagnostic guide](../../docs/TELEGRAM_LATENCY.md).
 
 Private messages from anyone except the owner are discarded before registration
 or model use. Group settings are added to `groups` when a group is first observed.

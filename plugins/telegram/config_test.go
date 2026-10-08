@@ -69,7 +69,7 @@ func TestConfigPreservation(t *testing.T) {
 	if err != nil || !s.Groups["-123"].OwnerOnly || s.GroupAccess != "read" {
 		t.Fatalf("%+v %v", s, err)
 	}
-	if !strings.Contains(string(before), "owner_user_id: 0") {
+	if !strings.Contains(string(before), "owner_user_id: 0") || !strings.Contains(string(before), "idle_compact_after: 12h") {
 		t.Fatal("incorrect defaults")
 	}
 	target := filepath.Join(home, "config.yaml")
@@ -201,7 +201,7 @@ func TestTemplateMergePreservesExistingInlineSettings(t *testing.T) {
 	for _, initial := range []string{
 		"mode: unit\n",
 		"mode: unit\nplugins: {}\n",
-		"# retained comment\nmode: unit\nplugins: {other: {custom: unchanged}, telegram: {telegram: {bot_token: test-token, owner_user_id: 7}, workspace_dir: ./chat-data, private_access: full, group_defaults: {owner_only: false, response_mode: conversation}, groups: {}}}\n",
+		"# retained comment\nmode: unit\nplugins: {other: {custom: unchanged}, telegram: {telegram: {bot_token: test-token, owner_user_id: 7}, workspace_dir: ./chat-data, private_access: full, group_defaults: {owner_only: false, response_mode: conversation}, conversation: {idle_compact_after: 6h}, groups: {}}}\n",
 	} {
 		t.Run(fmt.Sprintf("case_%d", len(initial)), func(t *testing.T) {
 			home := t.TempDir()

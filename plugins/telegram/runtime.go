@@ -19,18 +19,19 @@ import (
 )
 
 type bridge struct {
-	jobTimeout time.Duration
-	health     *diagnosticHealth
-	home       string
-	cfg        settings
-	store      store
-	bot        tgUser
-	tg         *telegram
-	run        runProcess
-	log        io.Writer
-	journal    *diagnosticLog
-	resume     func(context.Context, string, []string, string, func(childEvent)) (string, error)
-	deliver    func(context.Context, *chat, *job) error
+	jobTimeout        time.Duration
+	idleCheckInterval time.Duration
+	health            *diagnosticHealth
+	home              string
+	cfg               settings
+	store             store
+	bot               tgUser
+	tg                *telegram
+	run               runProcess
+	log               io.Writer
+	journal           *diagnosticLog
+	resume            func(context.Context, string, []string, string, func(childEvent)) (string, error)
+	deliver           func(context.Context, *chat, *job) error
 }
 
 func (g *bridge) settings() (settings, error) {
@@ -176,7 +177,13 @@ func (g *bridge) process(ctx context.Context, c *chat, j *job, cfg settings) err
 		}
 		outputMode = "jsonl"
 	}
+	runStarted := time.Now()
+	g.emit("info", "horizon_resume_started", jobFields(c, j))
 	output, err := runner(ctx, c.Workspace, []string{"--home", g.home, "resume", "--session", c.Session, "--mode", outputMode, "--access", mode}, string(data))
+	runFields := jobFields(c, j)
+	runFields["duration_ms"] = time.Since(runStarted).Milliseconds()
+	runFields["ok"] = err == nil
+	g.emit("info", "horizon_resume_finished", runFields)
 	if err != nil {
 		return g.fail(c.ID, j.ID, fmt.Errorf("Horizon session %s: %w", c.Session, err), true)
 	}
@@ -265,6 +272,11 @@ func (g *bridge) loop(ctx context.Context) error {
 	go func() { defer wg.Done(); pollDone <- g.poll(ctx) }()
 	active := map[int64]bool{}
 	var lastOrigin int64
+	var idleOrigin int64
+	var idleChatID int64
+	var idleCancel context.CancelFunc
+	var idleReceivedAt time.Time
+	var lastIdleScan time.Time
 	done := make(chan int64, 32)
 	fatal := make(chan error, 32)
 	tick := time.NewTicker(250 * time.Millisecond)
@@ -283,6 +295,11 @@ func (g *bridge) loop(ctx context.Context) error {
 			return err
 		case origin := <-done:
 			delete(active, origin)
+			if idleCancel != nil && origin == idleOrigin {
+				idleCancel()
+				idleCancel = nil
+				idleOrigin = 0
+			}
 		case <-tick.C:
 			g.health.phase(false, "configuration")
 			cfg, err := g.settings()
@@ -301,6 +318,12 @@ func (g *bridge) loop(ctx context.Context) error {
 			value, err := g.store.snapshot()
 			if err != nil {
 				return err
+			}
+			if idleCancel != nil {
+				current, err := resolveChat(&value, strconv.FormatInt(idleChatID, 10))
+				if err != nil || !current.Available || current.LastReceivedAt.After(idleReceivedAt) || !idleChatEligible(current, time.Now(), cfg.idleCompactAfter()) {
+					idleCancel()
+				}
 			}
 			g.health.mu.Lock()
 			g.health.value.Parallel = cfg.Parallel
@@ -379,6 +402,43 @@ func (g *bridge) loop(ctx context.Context) error {
 						fatal <- err
 					}
 				}(c, selected, cfg)
+			}
+			interval := g.idleCheckInterval
+			if interval <= 0 {
+				interval = 5 * time.Minute
+			}
+			now := time.Now()
+			if idleCancel == nil && cfg.idleCompactAfter() > 0 && len(active) < cfg.Parallel && now.Sub(lastIdleScan) >= interval {
+				lastIdleScan = now
+				hasPending := false
+				for _, c := range value.Chats {
+					for _, j := range c.Jobs {
+						if pending(j.Status) {
+							hasPending = true
+							break
+						}
+					}
+					if hasPending {
+						break
+					}
+				}
+				if !hasPending {
+					for _, c := range schedulingOrder(value, lastOrigin) {
+						if active[c.Origin] || !idleCompactDue(c, now, cfg.idleCompactAfter()) {
+							continue
+						}
+						stop, started := g.startIdleCompaction(ctx, c, cfg, now, done, &wg)
+						if started {
+							idleCancel = stop
+							idleOrigin = c.Origin
+							idleChatID = c.ID
+							idleReceivedAt = c.LastReceivedAt
+							active[c.Origin] = true
+							lastOrigin = c.Origin
+							break
+						}
+					}
+				}
 			}
 			g.health.phase(false, "waiting")
 		}

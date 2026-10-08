@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"github.com/ReanSn0w/horizon/internal/config"
@@ -30,9 +31,10 @@ type settings struct {
 	GroupAccess   string        `yaml:"group_access"`
 	Defaults      groupSettings `yaml:"group_defaults"`
 	Conversation  struct {
-		BotNames  []string `yaml:"bot_names"`
-		History   int      `yaml:"history_messages"`
-		Threshold float64  `yaml:"reply_threshold"`
+		BotNames         []string `yaml:"bot_names"`
+		History          int      `yaml:"history_messages"`
+		Threshold        float64  `yaml:"reply_threshold"`
+		IdleCompactAfter string   `yaml:"idle_compact_after"`
 	} `yaml:"conversation"`
 	Parallel int                      `yaml:"max_parallel_chats"`
 	Groups   map[string]groupSettings `yaml:"groups"`
@@ -47,6 +49,7 @@ func defaults(home string) settings {
 	s.Conversation.BotNames = []string{}
 	s.Conversation.History = 20
 	s.Conversation.Threshold = .7
+	s.Conversation.IdleCompactAfter = "12h"
 	s.Parallel = 2
 	s.Groups = map[string]groupSettings{}
 	return s
@@ -139,6 +142,10 @@ func loadSettings(home string, ready bool) (settings, error) {
 	return s, nil
 }
 func validAccess(s string) bool { return s == "read" || s == "write" || s == "full" }
+func (s settings) idleCompactAfter() time.Duration {
+	duration, _ := time.ParseDuration(s.Conversation.IdleCompactAfter)
+	return duration
+}
 func (s settings) validate(ready bool) error {
 	if ready && (strings.TrimSpace(s.Telegram.Token) == "" || s.Telegram.Owner <= 0) {
 		return errors.New("set plugins.telegram.telegram.bot_token and a positive owner_user_id")
@@ -148,6 +155,10 @@ func (s settings) validate(ready bool) error {
 	}
 	if s.Defaults.ResponseMode != "mention" && s.Defaults.ResponseMode != "conversation" {
 		return errors.New("response_mode must be mention or conversation")
+	}
+	idleCompactAfter, err := time.ParseDuration(s.Conversation.IdleCompactAfter)
+	if err != nil || idleCompactAfter < 0 || (idleCompactAfter > 0 && idleCompactAfter < time.Hour) {
+		return errors.New("plugins.telegram.conversation.idle_compact_after must be 0 or at least 1h")
 	}
 	if len(s.Conversation.BotNames) > 32 {
 		return errors.New("plugins.telegram.conversation.bot_names must contain at most 32 names")
