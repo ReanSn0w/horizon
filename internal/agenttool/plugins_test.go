@@ -44,7 +44,7 @@ func TestExtensionAccessAndJournal(t *testing.T) {
 			if err := executor.SetExtensions(created.SessionID, []plugins.Extension{extension}); err != nil {
 				t.Fatal(err)
 			}
-			if len(executor.Definitions()) != 3 {
+			if len(executor.Definitions()) != 5 {
 				t.Fatal("registry definitions")
 			}
 			result, err := executor.Execute(context.Background(), "call", "example__add", json.RawMessage(`{"text":"hello"}`))

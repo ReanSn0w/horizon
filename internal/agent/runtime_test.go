@@ -276,7 +276,7 @@ func TestRuntimeHTTPToolChainPersistsOpaqueItems(t *testing.T) {
 			t.Errorf("decode request: %v", err)
 			return
 		}
-		if body.ParallelToolCalls || len(body.Tools) != 2 || len(body.ContextManagement) != 1 {
+		if body.ParallelToolCalls || len(body.Tools) != 4 || len(body.ContextManagement) != 1 {
 			t.Errorf("runtime request contract: tools=%d parallel=%t context=%+v", len(body.Tools), body.ParallelToolCalls, body.ContextManagement)
 		}
 		writer.Header().Set("Content-Type", "text/event-stream")
@@ -429,4 +429,85 @@ func testRuntime(t *testing.T, client ResponseClient) (*Runtime, func()) {
 		Instructions: snapshot,
 	}
 	return runtime, func() { _ = locked.Close() }
+}
+
+func TestFailedTurnSummaryWarnsAboutUnfinishedManagedProcess(t *testing.T) {
+	turn := session.Turn{ID: "turn", Status: session.StatusFailed, ToolCalls: []session.ToolCall{{
+		Name: "shell_exec", ResultState: session.ToolResultKnown,
+		Result: json.RawMessage(`{"ok":true,"data":{"status":"running","process_id":"proc_test"}}`),
+	}}}
+	if summary := failedTurnSummary(turn); !bytes.Contains([]byte(summary), []byte("final outcome is unknown")) {
+		t.Fatalf("missing unfinished-process warning: %s", summary)
+	}
+	turn.ToolCalls = append(turn.ToolCalls, session.ToolCall{
+		Name: "shell_wait", ResultState: session.ToolResultKnown,
+		Result: json.RawMessage(`{"ok":true,"data":{"status":"completed","process_id":"proc_test"}}`),
+	})
+	if summary := failedTurnSummary(turn); bytes.Contains([]byte(summary), []byte("final outcome is unknown")) {
+		t.Fatalf("completed process still warned: %s", summary)
+	}
+}
+
+func TestRuntimeWaitsForManagedProcessBeforeFinalAnswer(t *testing.T) {
+	call := json.RawMessage(`{"type":"function_call","call_id":"long-1","name":"shell_exec","arguments":"{\"command\":\"printf start; sleep 1; printf end\",\"timeout_ms\":null,\"max_output_chars\":null,\"yield_time_ms\":1}"}`)
+	independent := json.RawMessage(`{"type":"function_call","call_id":"skill-1","name":"skill_read","arguments":"{\"name\":\"missing\"}"}`)
+	premature := json.RawMessage(`{"type":"message","content":[{"type":"output_text","text":"too early"}]}`)
+	final := json.RawMessage(`{"type":"message","content":[{"type":"output_text","text":"finished"}]}`)
+	client := &fakeClient{outputs: [][]json.RawMessage{{call}, {independent}, {premature}, {final}}}
+	runtime, cleanup := testRuntime(t, client)
+	defer cleanup()
+	runtime.Access = "full"
+	result, err := runtime.Run(context.Background(), "run command")
+	if err != nil || result.Text != "finished" || client.calls != 4 {
+		t.Fatalf("result=%+v calls=%d err=%v", result, client.calls, err)
+	}
+	stored, err := runtime.Locked.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	turn := stored.Turns[len(stored.Turns)-1]
+	var toolResult struct {
+		Data struct {
+			Status string `json:"status"`
+		} `json:"data"`
+	}
+	if len(turn.ToolCalls) != 2 || json.Unmarshal(turn.ToolCalls[0].Result, &toolResult) != nil || len(turn.Messages) != 2 || turn.Messages[1].Text != "finished" || toolResult.Data.Status != "running" {
+		t.Fatalf("messages=%+v tool_count=%d first_status=%q", turn.Messages, len(turn.ToolCalls), toolResult.Data.Status)
+	}
+}
+
+func TestRuntimeRequestLimitStopsManagedProcess(t *testing.T) {
+	call := json.RawMessage(`{"type":"function_call","call_id":"long-limit","name":"shell_exec","arguments":"{\"command\":\"sleep 2; touch should-not-exist\",\"timeout_ms\":null,\"max_output_chars\":null,\"yield_time_ms\":1}"}`)
+	client := &fakeClient{outputs: [][]json.RawMessage{{call}}}
+	runtime, cleanup := testRuntime(t, client)
+	defer cleanup()
+	runtime.Access = "full"
+	runtime.MaxRequests = 1
+	_, err := runtime.Run(context.Background(), "start then stop")
+	var runtimeError *Error
+	if !errors.As(err, &runtimeError) || runtimeError.Code != "request_limit_exceeded" {
+		t.Fatalf("limit error = %v", err)
+	}
+	time.Sleep(2200 * time.Millisecond)
+	if _, err := os.Stat(filepath.Join(runtime.Workspace.Dir, "should-not-exist")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("managed process was not stopped: %v", err)
+	}
+}
+
+func TestRuntimeDeadlineStopsManagedProcess(t *testing.T) {
+	call := json.RawMessage(`{"type":"function_call","call_id":"long-timeout","name":"shell_exec","arguments":"{\"command\":\"sleep 2; touch should-not-exist\",\"timeout_ms\":null,\"max_output_chars\":null,\"yield_time_ms\":1}"}`)
+	premature := json.RawMessage(`{"type":"message","content":[{"type":"output_text","text":"too early"}]}`)
+	runtime, cleanup := testRuntime(t, &fakeClient{outputs: [][]json.RawMessage{{call}, {premature}}})
+	defer cleanup()
+	runtime.Access = "full"
+	runtime.MaxDuration = 50 * time.Millisecond
+	_, err := runtime.Run(context.Background(), "start then time out")
+	var runtimeError *Error
+	if !errors.As(err, &runtimeError) || runtimeError.Code != "turn_timeout" {
+		t.Fatalf("deadline error = %v", err)
+	}
+	time.Sleep(2200 * time.Millisecond)
+	if _, err := os.Stat(filepath.Join(runtime.Workspace.Dir, "should-not-exist")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("managed process survived turn deadline: %v", err)
+	}
 }

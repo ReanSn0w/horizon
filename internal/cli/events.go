@@ -33,10 +33,13 @@ func newEventPublisher(mode string, verbose bool, out, errOut io.Writer) eventst
 		case "tool_started":
 			fmt.Fprintf(errOut, "\n→ %v%s\n", data["name"], toolTarget(data["arguments"]))
 		case "tool_completed":
-			result, ok, shellExit, truncated, paths := describeToolResult(data["result"])
+			result, ok, shellExit, truncated, paths, processStatus := describeToolResult(data["result"])
 			status := "ошибка"
 			if ok {
 				status = "готово"
+			}
+			if processStatus == "running" {
+				status = "работает"
 			}
 			extra := ""
 			if shellExit != "" {
@@ -54,6 +57,8 @@ func newEventPublisher(mode string, verbose bool, out, errOut io.Writer) eventst
 			}
 		case "compaction_started":
 			fmt.Fprintln(errOut, "Сжатие контекста…")
+		case "processes_completed":
+			fmt.Fprintln(errOut, "Управляемые команды завершены.")
 		case "compaction_completed":
 			fmt.Fprintln(errOut, "Контекст сжат.")
 		case "turn_completed":
@@ -89,10 +94,10 @@ func toolTarget(raw any) string {
 	return ""
 }
 
-func describeToolResult(raw any) (encoded string, ok bool, shellExit string, truncated bool, paths []string) {
+func describeToolResult(raw any) (encoded string, ok bool, shellExit string, truncated bool, paths []string, processStatus string) {
 	data, valid := raw.(json.RawMessage)
 	if !valid {
-		return "null", false, "", false, nil
+		return "null", false, "", false, nil, ""
 	}
 	encoded = strings.TrimSpace(string(data))
 	var result struct {
@@ -100,8 +105,9 @@ func describeToolResult(raw any) (encoded string, ok bool, shellExit string, tru
 		Data map[string]any `json:"data"`
 	}
 	if json.Unmarshal(data, &result) != nil {
-		return encoded, false, "", false, nil
+		return encoded, false, "", false, nil, ""
 	}
+	processStatus, _ = result.Data["status"].(string)
 	if exit, exists := result.Data["exit_code"]; exists {
 		if exit == nil {
 			shellExit = "signal"
@@ -115,5 +121,5 @@ func describeToolResult(raw any) (encoded string, ok bool, shellExit string, tru
 			paths = append(paths, path)
 		}
 	}
-	return encoded, result.OK, shellExit, truncated, paths
+	return encoded, result.OK, shellExit, truncated, paths, processStatus
 }

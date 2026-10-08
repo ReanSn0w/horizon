@@ -41,6 +41,24 @@ func shellExecHandler(ctx context.Context, arguments json.RawMessage, env enviro
 	if err := decodeStrict(arguments, &args); err != nil {
 		return outcome{Error: err}
 	}
+	if args.YieldTimeMS != nil {
+		if env.processes == nil {
+			return outcome{Error: &ToolError{Code: "process_unavailable", Message: "managed process registry is unavailable"}}
+		}
+		maxChars := 16000
+		if args.MaxOutputChars != nil {
+			maxChars = *args.MaxOutputChars
+		}
+		return env.processes.start(ctx, arguments, env, time.Duration(*args.YieldTimeMS)*time.Millisecond, maxChars)
+	}
+	return shellExecSyncHandler(ctx, arguments, env)
+}
+
+func shellExecSyncHandler(ctx context.Context, arguments json.RawMessage, env environment) outcome {
+	var args shellExecArgs
+	if err := decodeStrict(arguments, &args); err != nil {
+		return outcome{Error: err}
+	}
 	maxChars := 16000
 	if args.MaxOutputChars != nil {
 		maxChars = *args.MaxOutputChars
@@ -93,10 +111,18 @@ func shellExecHandler(ctx context.Context, arguments json.RawMessage, env enviro
 	command.Stdout = io.MultiWriter(stdoutFile, stdoutEdge)
 	command.Stderr = io.MultiWriter(stderrFile, stderrEdge)
 	command.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	command.WaitDelay = 2 * time.Second
+	if err := ctx.Err(); err != nil {
+		cleanup()
+		return outcome{Error: &ToolError{Code: "cancelled", Message: err.Error()}}
+	}
 	startedAt := time.Now()
 	if err := command.Start(); err != nil {
 		cleanup()
 		return outcome{Error: &ToolError{Code: "process_start_failed", Message: err.Error(), Details: map[string]any{"cwd": env.workspace}}}
+	}
+	if env.onShellStart != nil {
+		env.onShellStart()
 	}
 
 	waitChannel := make(chan error, 1)
