@@ -6,6 +6,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"io"
 	"os"
@@ -29,6 +30,7 @@ type managedProcess struct {
 	stdoutPath string
 	stderrPath string
 	startedAt  time.Time
+	maxChars   int
 	cancel     context.CancelFunc
 	started    chan struct{}
 	done       chan struct{}
@@ -81,7 +83,7 @@ func (m *managedProcesses) start(ctx context.Context, arguments []byte, env envi
 	processCtx, cancel := context.WithCancel(ctx)
 	prefix := artifactPrefix(env.callID)
 	p := &managedProcess{
-		id: id, cwd: env.workspace, startedAt: time.Now(), cancel: cancel,
+		id: id, cwd: env.workspace, startedAt: time.Now(), maxChars: maxChars, cancel: cancel,
 		stdoutPath: filepath.Join(env.artifactsDir, prefix+".stdout"),
 		stderrPath: filepath.Join(env.artifactsDir, prefix+".stderr"),
 		started:    make(chan struct{}), done: make(chan struct{}),
@@ -91,7 +93,7 @@ func (m *managedProcesses) start(ctx context.Context, arguments []byte, env envi
 
 	env.onShellStart = func() { close(p.started) }
 	go func() {
-		result := shellExecHandler(processCtx, arguments, env)
+		result := shellExecSyncHandler(processCtx, arguments, env)
 		p.mu.Lock()
 		p.result = result
 		p.mu.Unlock()
@@ -144,6 +146,9 @@ func (m *managedProcesses) wait(ctx context.Context, id string, duration time.Du
 	if err != nil {
 		return outcome{Error: err}
 	}
+	if maxChars == 0 {
+		maxChars = p.maxChars
+	}
 	return p.wait(ctx, duration, maxChars)
 }
 
@@ -152,12 +157,31 @@ func (m *managedProcesses) cancel(ctx context.Context, id string, maxChars int) 
 	if err != nil {
 		return outcome{Error: err}
 	}
+	if maxChars == 0 {
+		maxChars = p.maxChars
+	}
 	select {
 	case <-p.done:
 	default:
 		p.cancel()
 	}
 	return p.wait(ctx, 0, maxChars)
+}
+
+func shellWaitHandler(ctx context.Context, arguments json.RawMessage, env environment) outcome {
+	var args shellWaitArgs
+	if err := decodeStrict(arguments, &args); err != nil {
+		return outcome{Error: err}
+	}
+	return env.processes.wait(ctx, args.ProcessID, time.Duration(args.WaitMS)*time.Millisecond, 0)
+}
+
+func shellCancelHandler(ctx context.Context, arguments json.RawMessage, env environment) outcome {
+	var args shellCancelArgs
+	if err := decodeStrict(arguments, &args); err != nil {
+		return outcome{Error: err}
+	}
+	return env.processes.cancel(ctx, args.ProcessID, 0)
 }
 
 func (p *managedProcess) wait(ctx context.Context, duration time.Duration, maxChars int) outcome {
@@ -264,6 +288,60 @@ func (m *managedProcesses) live() bool {
 		}
 	}
 	return false
+}
+
+func (m *managedProcesses) hasUnreported() bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, p := range m.processes {
+		p.mu.Lock()
+		unreported := !p.reported
+		p.mu.Unlock()
+		if unreported {
+			return true
+		}
+	}
+	return false
+}
+
+func (m *managedProcesses) collectUnreported(ctx context.Context) ([]json.RawMessage, error) {
+	m.mu.Lock()
+	processes := make([]*managedProcess, 0, len(m.processes))
+	for _, p := range m.processes {
+		processes = append(processes, p)
+	}
+	m.mu.Unlock()
+	var results []json.RawMessage
+	for _, p := range processes {
+		p.mu.Lock()
+		reported := p.reported
+		p.mu.Unlock()
+		if reported {
+			continue
+		}
+		select {
+		case <-p.done:
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+		result := p.snapshot(p.maxChars)
+		encoded, err := marshalResponse(result)
+		if err != nil {
+			return nil, err
+		}
+		encoded, err = json.Marshal(struct {
+			ProcessID string          `json:"process_id"`
+			Result    json.RawMessage `json:"result"`
+		}{ProcessID: p.id, Result: encoded})
+		if err != nil {
+			return nil, err
+		}
+		p.mu.Lock()
+		p.reported = true
+		p.mu.Unlock()
+		results = append(results, encoded)
+	}
+	return results, nil
 }
 
 func (m *managedProcesses) close() {

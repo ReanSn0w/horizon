@@ -276,7 +276,7 @@ func TestRuntimeHTTPToolChainPersistsOpaqueItems(t *testing.T) {
 			t.Errorf("decode request: %v", err)
 			return
 		}
-		if body.ParallelToolCalls || len(body.Tools) != 2 || len(body.ContextManagement) != 1 {
+		if body.ParallelToolCalls || len(body.Tools) != 4 || len(body.ContextManagement) != 1 {
 			t.Errorf("runtime request contract: tools=%d parallel=%t context=%+v", len(body.Tools), body.ParallelToolCalls, body.ContextManagement)
 		}
 		writer.Header().Set("Content-Type", "text/event-stream")
@@ -445,5 +445,32 @@ func TestFailedTurnSummaryWarnsAboutUnfinishedManagedProcess(t *testing.T) {
 	})
 	if summary := failedTurnSummary(turn); bytes.Contains([]byte(summary), []byte("final outcome is unknown")) {
 		t.Fatalf("completed process still warned: %s", summary)
+	}
+}
+
+func TestRuntimeWaitsForManagedProcessBeforeFinalAnswer(t *testing.T) {
+	call := json.RawMessage(`{"type":"function_call","call_id":"long-1","name":"shell_exec","arguments":"{\"command\":\"printf start; sleep 1; printf end\",\"timeout_ms\":null,\"max_output_chars\":null,\"yield_time_ms\":1}"}`)
+	premature := json.RawMessage(`{"type":"message","content":[{"type":"output_text","text":"too early"}]}`)
+	final := json.RawMessage(`{"type":"message","content":[{"type":"output_text","text":"finished"}]}`)
+	client := &fakeClient{outputs: [][]json.RawMessage{{call}, {premature}, {final}}}
+	runtime, cleanup := testRuntime(t, client)
+	defer cleanup()
+	runtime.Access = "full"
+	result, err := runtime.Run(context.Background(), "run command")
+	if err != nil || result.Text != "finished" || client.calls != 3 {
+		t.Fatalf("result=%+v calls=%d err=%v", result, client.calls, err)
+	}
+	stored, err := runtime.Locked.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	turn := stored.Turns[len(stored.Turns)-1]
+	var toolResult struct {
+		Data struct {
+			Status string `json:"status"`
+		} `json:"data"`
+	}
+	if len(turn.ToolCalls) != 1 || json.Unmarshal(turn.ToolCalls[0].Result, &toolResult) != nil || len(turn.Messages) != 2 || turn.Messages[1].Text != "finished" || toolResult.Data.Status != "running" {
+		t.Fatalf("messages=%+v tool_count=%d first_status=%q", turn.Messages, len(turn.ToolCalls), toolResult.Data.Status)
 	}
 }

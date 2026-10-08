@@ -37,6 +37,7 @@ type environment struct {
 	home         string
 	access       string
 	onShellStart func()
+	processes    *managedProcesses
 }
 
 func (e *Executor) SetSkillCatalog(catalog *instructions.Catalog) {
@@ -61,6 +62,12 @@ func NewExecutor(workspace, artifactsDir string, locked *session.LockedSession, 
 }
 
 func (e *Executor) Close() { e.processes.close() }
+
+func (e *Executor) HasUnreportedProcesses() bool { return e.processes.hasUnreported() }
+
+func (e *Executor) CollectProcessResults(ctx context.Context) ([]json.RawMessage, error) {
+	return e.processes.collectUnreported(ctx)
+}
 
 func Definitions() []Definition {
 	registered := registry()
@@ -94,12 +101,13 @@ func (e *Executor) Execute(ctx context.Context, callID, name string, arguments j
 	} else if validationError := registered.validateArguments(arguments); validationError != nil {
 		result = outcome{Error: validationError}
 	} else {
+		env := environment{workspace: e.workspace, artifactsDir: e.artifactsDir, callID: callID, skills: e.skills, home: e.home, access: e.access, processes: e.processes}
 		if name == ShellExec {
 			var args shellExecArgs
 			if err := json.Unmarshal(arguments, &args); err != nil {
 				result = outcome{Error: invalid(err.Error())}
 			} else if e.access == "full" {
-				result = registered.handler(ctx, arguments, environment{workspace: e.workspace, artifactsDir: e.artifactsDir, callID: callID, skills: e.skills, home: e.home, access: e.access})
+				result = registered.handler(ctx, arguments, env)
 			} else if e.reviewer == nil {
 				result = outcome{Error: &ToolError{Code: "decision_unavailable", Message: "Jev command review is unavailable"}}
 			} else {
@@ -110,15 +118,18 @@ func (e *Executor) Execute(ctx context.Context, callID, name string, arguments j
 				case !verdict.Allowed:
 					result = outcome{Error: &ToolError{Code: "decision_denied", Message: verdict.Reason, Details: map[string]any{"decision_id": verdict.ID}}}
 				default:
-					result = registered.handler(ctx, arguments, environment{workspace: e.workspace, artifactsDir: e.artifactsDir, callID: callID, skills: e.skills, home: e.home, access: e.access})
+					result = registered.handler(ctx, arguments, env)
 					if data, ok := result.Data.(shellExecData); ok {
+						data.DecisionID = verdict.ID
+						result.Data = data
+					} else if data, ok := result.Data.(managedShellData); ok {
 						data.DecisionID = verdict.ID
 						result.Data = data
 					}
 				}
 			}
 		} else {
-			result = registered.handler(ctx, arguments, environment{workspace: e.workspace, artifactsDir: e.artifactsDir, callID: callID, skills: e.skills, home: e.home, access: e.access})
+			result = registered.handler(ctx, arguments, env)
 		}
 	}
 	if result.Fatal != nil {

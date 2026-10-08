@@ -11,7 +11,7 @@ import (
 )
 
 func TestDefinitionsAndArgumentValidation(t *testing.T) {
-	want := []string{SkillRead, ShellExec}
+	want := []string{SkillRead, ShellExec, ShellWait, ShellCancel}
 	definitions := Definitions()
 	if len(definitions) != len(want) {
 		t.Fatalf("Definitions() count = %d", len(definitions))
@@ -26,6 +26,9 @@ func TestDefinitionsAndArgumentValidation(t *testing.T) {
 		{SkillRead, `{"name":"review","extra":true}`},
 		{ShellExec, `{"command":"x","timeout_ms":null,"max_output_chars":999}`},
 		{ShellExec, `{"command":"","timeout_ms":null,"max_output_chars":null}`},
+		{ShellExec, `{"command":"x","timeout_ms":null,"max_output_chars":null,"yield_time_ms":30001}`},
+		{ShellWait, `{"process_id":"proc_test","wait_ms":0}`},
+		{ShellCancel, `{"process_id":""}`},
 	} {
 		if err := validateArguments(test.name, json.RawMessage(test.args)); err == nil || err.Code != "invalid_arguments" {
 			t.Errorf("validateArguments(%s, %s) = %v", test.name, test.args, err)

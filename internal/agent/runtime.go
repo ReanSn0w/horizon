@@ -103,6 +103,7 @@ func (r *Runtime) Run(ctx context.Context, message string) (Result, error) {
 	}
 	input = append(input, responses.UserMessage(message))
 	executor := agenttool.NewExecutor(r.Workspace.Dir, r.Store.ArtifactsDir(r.Workspace, r.Session.SessionID), r.Locked, turnID)
+	defer executor.Close()
 	executor.SetSkillCatalog(r.Instructions.Skills)
 	executor.SetHome(r.Store.Home)
 	executor.SetCommandReview(r.Access, r.Reviewer)
@@ -192,6 +193,17 @@ func (r *Runtime) Run(ctx context.Context, message string) (Result, error) {
 		}
 		if ctx.Err() != nil {
 			return Result{}, r.stop(turnID, ctx.Err(), ctx, parentContext, now)
+		}
+		if executor.HasUnreportedProcesses() {
+			results, collectErr := executor.CollectProcessResults(ctx)
+			if collectErr != nil {
+				return Result{}, r.stop(turnID, collectErr, ctx, parentContext, now)
+			}
+			encodedResults, _ := json.Marshal(results)
+			status := fmt.Sprintf("Horizon waited for managed shell processes before completing this turn. Final process results: %s. Use these actual results in your final answer.", encodedResults)
+			input = append(input, responses.DeveloperMessage(status))
+			r.publish("processes_completed", turnID, map[string]any{"results": results})
+			continue
 		}
 
 		text, err := responses.OutputText(response.Output)
@@ -399,7 +411,7 @@ func failedTurnSummary(turn session.Turn) string {
 		if call.ResultState == session.ToolResultUnknown || call.ResultState == session.ToolResultPending {
 			message += fmt.Sprintf(" Tool %s with arguments %s has an unknown outcome; inspect the actual workspace state before deciding whether to repeat it.", call.Name, call.Arguments)
 		} else if call.ResultState == session.ToolResultKnown {
-			message += fmt.Sprintf(" Tool %s completed with recorded result %s.", call.Name, call.Result)
+			message += fmt.Sprintf(" Tool call %s returned recorded result %s.", call.Name, call.Result)
 			var result struct {
 				Data struct {
 					ProcessID string `json:"process_id"`
