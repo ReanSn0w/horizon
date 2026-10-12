@@ -23,7 +23,7 @@ type Request struct {
 	Store             bool              `json:"store"`
 	Include           []string          `json:"include,omitempty"`
 	Reasoning         *Reasoning        `json:"reasoning,omitempty"`
-	ContextManagement []ContextPolicy   `json:"context_management"`
+	ContextManagement []ContextPolicy   `json:"context_management,omitempty"`
 }
 
 type Reasoning struct {

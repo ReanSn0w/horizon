@@ -25,21 +25,22 @@ type ResponseClient interface {
 }
 
 type Runtime struct {
-	Client       ResponseClient
-	Locked       *session.LockedSession
-	Store        *session.Store
-	Workspace    session.Workspace
-	Session      *session.Session
-	ProfileName  string
-	Access       string
-	Reviewer     decision.Reviewer
-	Profile      session.ModelProfile
-	Instructions *instructions.Snapshot
-	Extensions   []plugins.Extension
-	MaxRequests  int
-	MaxDuration  time.Duration
-	Publish      eventstream.Publish
-	Now          func() time.Time
+	Client         ResponseClient
+	Locked         *session.LockedSession
+	Store          *session.Store
+	Workspace      session.Workspace
+	Session        *session.Session
+	ProfileName    string
+	Access         string
+	Reviewer       decision.Reviewer
+	Profile        session.ModelProfile
+	Instructions   *instructions.Snapshot
+	Extensions     []plugins.Extension
+	MaxRequests    int
+	MaxInputTokens uint64
+	MaxDuration    time.Duration
+	Publish        eventstream.Publish
+	Now            func() time.Time
 }
 
 type Result struct {
@@ -102,6 +103,7 @@ func (r *Runtime) Run(ctx context.Context, message string) (Result, error) {
 		return Result{}, r.fail(turnID, "context_reconstruction_failed", err, now)
 	}
 	input = append(input, responses.UserMessage(message))
+	needsCompact := previousWindowOverThreshold(r.Session, r.Profile.CompactThreshold)
 	executor := agenttool.NewExecutor(r.Workspace.Dir, r.Store.ArtifactsDir(r.Workspace, r.Session.SessionID), r.Locked, turnID)
 	defer executor.Close()
 	executor.SetSkillCatalog(r.Instructions.Skills)
@@ -112,6 +114,9 @@ func (r *Runtime) Run(ctx context.Context, message string) (Result, error) {
 	}
 	var automaticCompact *session.Compaction
 	requests := 0
+	var totalInputTokens uint64
+	var lastInputTokens *uint64
+	compactUnsupported := false
 	var requestStarted time.Time
 	beforeAttempt := func() error {
 		if err := ctx.Err(); err != nil {
@@ -127,6 +132,50 @@ func (r *Runtime) Run(ctx context.Context, message string) (Result, error) {
 	}
 
 	for {
+		if r.MaxInputTokens > 0 && totalInputTokens >= r.MaxInputTokens {
+			return Result{}, r.stop(turnID, errInputTokenLimit, ctx, parentContext, now)
+		}
+		if needsCompact {
+			if executor.HasUnreportedProcesses() {
+				return Result{}, r.fail(turnID, "compaction_deferred_for_process", errors.New("context exceeds compact threshold while a managed process is active; inspect its outcome before continuing"), now)
+			}
+			window, compact, usage, unsupported, compactErr := r.compactWindow(ctx, input, beforeAttempt, compactUnsupported, func(response *responses.Response, err error) {
+				if requestStarted.IsZero() {
+					return
+				}
+				fields := map[string]any{"attempt": requests, "duration_ms": now().UTC().Sub(requestStarted).Milliseconds(), "ok": err == nil, "phase": "compaction"}
+				if err != nil {
+					fields["code"] = responseErrorCode(err)
+				}
+				if response != nil {
+					metrics := responses.ParseUsage(response.Usage)
+					fields["usage_available"] = metrics.InputTokens != nil
+					if metrics.InputTokens != nil {
+						fields["input_tokens"] = *metrics.InputTokens
+					}
+					if metrics.OutputTokens != nil {
+						fields["output_tokens"] = *metrics.OutputTokens
+					}
+					if metrics.CachedTokens != nil {
+						fields["cached_tokens"] = *metrics.CachedTokens
+					}
+				}
+				r.publish("model_request_completed", turnID, fields)
+				requestStarted = time.Time{}
+			})
+			compactUnsupported = unsupported
+			if usage.InputTokens != nil {
+				totalInputTokens += *usage.InputTokens
+			}
+			if compactErr != nil {
+				return Result{}, r.stop(turnID, compactErr, ctx, parentContext, now)
+			}
+			input = window
+			automaticCompact = compact
+			needsCompact = false
+			lastInputTokens = nil
+			r.publish("compaction_completed", turnID, map[string]any{"compaction_id": compact.ID, "automatic": false})
+		}
 		request := responses.Request{
 			Model: r.Profile.Model, Instructions: r.Instructions.Prompt, Input: clone(input),
 			Tools: toolDefinitions(executor.Definitions()), ParallelToolCalls: false, Store: false,
@@ -143,6 +192,19 @@ func (r *Runtime) Run(ctx context.Context, message string) (Result, error) {
 		})
 		if !requestStarted.IsZero() {
 			fields := map[string]any{"attempt": requests, "duration_ms": now().UTC().Sub(requestStarted).Milliseconds(), "ok": err == nil}
+			if err == nil {
+				usage := responses.ParseUsage(response.Usage)
+				fields["usage_available"] = usage.InputTokens != nil
+				if usage.InputTokens != nil {
+					fields["input_tokens"] = *usage.InputTokens
+				}
+				if usage.OutputTokens != nil {
+					fields["output_tokens"] = *usage.OutputTokens
+				}
+				if usage.CachedTokens != nil {
+					fields["cached_tokens"] = *usage.CachedTokens
+				}
+			}
 			if err != nil {
 				fields["code"] = responseErrorCode(err)
 			}
@@ -151,6 +213,11 @@ func (r *Runtime) Run(ctx context.Context, message string) (Result, error) {
 		}
 		if err != nil {
 			return Result{}, r.stop(turnID, err, ctx, parentContext, now)
+		}
+		usage := responses.ParseUsage(response.Usage)
+		if usage.InputTokens != nil {
+			totalInputTokens += *usage.InputTokens
+			lastInputTokens = usage.InputTokens
 		}
 		if err := r.Locked.AppendAPIItems(turnID, response.Output); err != nil {
 			return Result{}, r.fail(turnID, "session_write_failed", err, now)
@@ -167,6 +234,7 @@ func (r *Runtime) Run(ctx context.Context, message string) (Result, error) {
 			automaticCompact = &session.Compaction{ID: compactID, ModelProfile: r.ProfileName, Items: clone(window)}
 			r.publish("compaction_completed", turnID, map[string]any{"compaction_id": newCompactID, "automatic": true})
 		}
+		needsCompact = !newCompact && exceedsCompactThreshold(input, usage.InputTokens, r.Profile.CompactThreshold)
 		calls, err := responses.FunctionCalls(response.Output)
 		if err != nil {
 			return Result{}, r.fail(turnID, "invalid_response", err, now)
@@ -216,7 +284,7 @@ func (r *Runtime) Run(ctx context.Context, message string) (Result, error) {
 			}
 		}
 		completed := now().UTC()
-		if err := r.Locked.CompleteTurnWithCompaction(turnID, session.StatusCompleted, nil, input, automaticCompact, completed); err != nil {
+		if err := r.Locked.CompleteTurnWithCompactionAndUsage(turnID, session.StatusCompleted, nil, input, automaticCompact, lastInputTokens, completed); err != nil {
 			r.publish("turn_failed", turnID, map[string]any{"code": "session_write_failed", "message": err.Error()})
 			return Result{}, &Error{Code: "session_write_failed", TurnID: turnID, Cause: err}
 		}
@@ -276,12 +344,15 @@ func PruneAtLatestCompaction(items []json.RawMessage) ([]json.RawMessage, string
 }
 
 var errRequestLimit = errors.New("model request limit exceeded; another request is required to finish the turn")
+var errInputTokenLimit = errors.New("input token limit exceeded; another request is required to finish the turn")
 
 func (r *Runtime) stop(turnID string, cause error, turnContext, parentContext context.Context, now func() time.Time) error {
 	status := session.StatusFailed
 	code := responseErrorCode(cause)
 	if errors.Is(cause, errRequestLimit) {
 		code = "request_limit_exceeded"
+	} else if errors.Is(cause, errInputTokenLimit) {
+		code = "input_token_limit_exceeded"
 	} else if parentContext.Err() != nil {
 		code = "turn_cancelled"
 		status = session.StatusCancelled
