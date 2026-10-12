@@ -67,6 +67,7 @@ plugins:
       reply_threshold: 0.7
       idle_compact_after: 12h
     max_parallel_chats: 2
+    progress_messages: private
     groups: {}
 ```
 
@@ -81,7 +82,38 @@ resolved against home. Access accepts `read`, `write` or `full`. Parallelism is
 1–32 chats; history is 1–100 messages and the reply threshold is 0–1. One chat's
 jobs always run in order. Available chats are scheduled in round-robin order,
 so a busy group cannot indefinitely precede private chats. Each job and initial
-workspace preparation has a ten-minute limit.
+workspace preparation has the configured Horizon `limits.max_turn_duration`
+plus two minutes for chat preparation and delivery (122 minutes by default).
+With `max_turn_duration: "0"`, the bridge adds no overall job deadline; service
+shutdown and individual network timeouts still apply. The limit is read for
+each new job, so changing it affects subsequent jobs without restarting the
+service. `shell_exec.timeout_ms`, when set by the model, can still end an
+individual command earlier.
+
+### Activity during long replies
+
+After deciding to reply, the bridge sends Telegram's `typing` action at once
+and refreshes it every four seconds until generation ends. Telegram displays
+each action for up to five seconds; it disappears after a bot message or when
+the bridge stops refreshing it. Failed typing requests do not stop the job.
+
+`progress_messages` accepts `off`, `private` (default), or `all`. After a reply
+has run for 60 seconds, an enabled chat gets one short status message. The
+bridge edits that message at most once every two minutes with the current
+model/tool stage and elapsed time. It deletes the status after a confirmed
+reply; a confirmed status for failed or interrupted work is labeled `failed`
+or `unknown`. Group topics receive status in their own topic when `all` is
+selected. An API failure to send or edit the status never cancels the actual
+job. Telegram rate limits are honored before another status attempt.
+
+Status text uses fixed labels derived from Horizon events. It contains no
+reasoning, draft answer, shell command, tool output, session content or API
+keys, and it does not become conversation history for later model turns. Jev
+is not called to decide whether to display it. The confirmed status message ID
+is stored with the job for recovery. If the bridge crashes after Telegram
+accepts a status but before its ID is saved, that message may remain in the
+chat; the bridge does not send another one blindly. A fresh `horizon init`
+adds a missing `progress_messages` key without changing existing values.
 
 ### Idle session compaction
 
@@ -266,6 +298,20 @@ same `--home` throughout when working with an alternative home. Foreground
 save it. An explicitly selected journal is checked before polling starts.
 Write/rotation failures are reported through the fallback rather than silently
 ignored; they never authorize repeating an external action.
+
+For an existing Linux service whose executable path has not changed, install
+the new Telegram plugin, run `horizon init` with the service's home, and restart
+that service. Reinstall its service definition if the executable path or PATH
+changed. Existing `progress_messages` and other filled configuration values
+are preserved by `init`.
+
+For a real Telegram smoke test, send a short owner message and confirm that
+`typing` appears before the final reply. Then run a controlled task lasting
+longer than ten minutes, preferably in a separate test chat/session: after one
+minute check for one status message, later edits, the final reply, and removal
+of the status. Compare the request ID in `telegram list --json` with the local
+diagnostic events. Run this test only after updating the installed plugin; local
+mock API tests do not prove behavior of the deployed Telegram service.
 
 Events include daemon lifecycle, received updates, saved offsets, queued jobs,
 reply decisions, Horizon model/tool activity, delivery confirmations and errors.

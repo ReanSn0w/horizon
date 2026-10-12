@@ -72,6 +72,11 @@ func TestBuiltTelegramTelegramWorkflow(t *testing.T) {
 			}
 			sent = append(sent, body)
 			json.NewEncoder(w).Encode(map[string]any{"ok": true, "result": map[string]any{"message_id": 100 + len(sent)}})
+		case "/bottest-token/sendChatAction":
+			if body["action"] != "typing" {
+				t.Errorf("unexpected Telegram action: %v", body)
+			}
+			json.NewEncoder(w).Encode(map[string]any{"ok": true, "result": true})
 		case "/responses":
 			encoded, _ := json.Marshal(body)
 			if strings.Contains(string(encoded), "PRIVATE_SECRET_SHOULD_NOT_LEAK") {

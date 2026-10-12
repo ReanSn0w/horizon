@@ -293,6 +293,9 @@ go test -race ./...
 `owner_user_id`, затем запустите `horizon telegram start`.
 `horizon telegram list` показывает ID рядом с названием чата,
 `horizon telegram send --chat ID` запускает генерацию нового сообщения.
+Во время генерации бот показывает «печатает…»; долгие задания могут получать
+краткий служебный статус по настройке `plugins.telegram.progress_messages`.
+Общий таймаут задания согласован с `limits.max_turn_duration`.
 [Конфигурация, правила ответа и пользовательские службы](plugins/telegram/README.md).
 
 ## Память агента
