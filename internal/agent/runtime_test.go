@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -22,9 +23,11 @@ import (
 )
 
 type fakeClient struct {
-	outputs [][]json.RawMessage
-	wait    bool
-	calls   int
+	outputs  [][]json.RawMessage
+	usages   []json.RawMessage
+	requests []responses.Request
+	wait     bool
+	calls    int
 }
 
 type fakeCompactClient struct {
@@ -47,11 +50,12 @@ func (f fakeCompactClient) Compact(_ context.Context, _ responses.CompactRequest
 	return f.response, f.err
 }
 
-func (f *fakeClient) Stream(ctx context.Context, _ responses.Request, before func() error, _ func(responses.Event)) (*responses.Response, error) {
+func (f *fakeClient) Stream(ctx context.Context, request responses.Request, before func() error, _ func(responses.Event)) (*responses.Response, error) {
 	if err := before(); err != nil {
 		return nil, err
 	}
 	f.calls++
+	f.requests = append(f.requests, request)
 	if f.wait {
 		<-ctx.Done()
 		return nil, ctx.Err()
@@ -61,7 +65,12 @@ func (f *fakeClient) Stream(ctx context.Context, _ responses.Request, before fun
 	}
 	output := f.outputs[0]
 	f.outputs = f.outputs[1:]
-	return &responses.Response{Status: "completed", Output: output}, nil
+	response := &responses.Response{Status: "completed", Output: output}
+	if len(f.usages) > 0 {
+		response.Usage = f.usages[0]
+		f.usages = f.usages[1:]
+	}
+	return response, nil
 }
 
 func TestRequestBudgetAllowsFinalResponseAndStopsAfterTools(t *testing.T) {
@@ -91,6 +100,115 @@ func TestRequestBudgetAllowsFinalResponseAndStopsAfterTools(t *testing.T) {
 	turn := stored.Turns[len(stored.Turns)-1]
 	if len(turn.ToolCalls) != 1 || turn.ToolCalls[0].ResultState != session.ToolResultKnown {
 		t.Fatalf("last-request tool result was not saved: %+v", turn.ToolCalls)
+	}
+}
+
+func TestLocalCompactionProtectsToolLoopAndKeepsHistory(t *testing.T) {
+	call := json.RawMessage(`{"type":"function_call","call_id":"call-1","name":"skill_read","arguments":"{\"name\":\"missing\"}"}`)
+	summary := json.RawMessage(`{"type":"message","content":[{"type":"output_text","text":"The user asked to inspect a missing skill. The call failed."}]}`)
+	final := json.RawMessage(`{"type":"message","content":[{"type":"output_text","text":"done"}]}`)
+	client := &fakeClient{
+		outputs: [][]json.RawMessage{{call}, {summary}, {final}},
+		usages: []json.RawMessage{
+			json.RawMessage(`{"input_tokens":1200,"input_tokens_details":{"cached_tokens":0}}`),
+			json.RawMessage(`{"input_tokens":1200}`),
+			json.RawMessage(`{"input_tokens":80}`),
+		},
+	}
+	runtime, cleanup := testRuntime(t, client)
+	defer cleanup()
+	result, err := runtime.Run(context.Background(), "inspect")
+	if err != nil || result.Text != "done" {
+		t.Fatalf("result=%+v err=%v", result, err)
+	}
+	if client.calls != 3 || len(client.requests[1].Tools) != 0 || len(client.requests[2].Input) != 1 || !bytes.Contains(client.requests[2].Input[0], []byte("The user asked")) {
+		t.Fatalf("unexpected compaction requests: calls=%d", client.calls)
+	}
+	stored, err := runtime.Locked.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(stored.Compactions) != 1 || len(stored.Turns[0].ToolCalls) != 1 || stored.Turns[0].ToolCalls[0].ResultState != session.ToolResultKnown {
+		t.Fatalf("compaction lost history or tool outcome: %+v", stored)
+	}
+	if len(stored.Checkpoints) != 1 || stored.Checkpoints[0].InputTokens == nil || *stored.Checkpoints[0].InputTokens != 80 {
+		t.Fatalf("missing checkpoint usage: %+v", stored.Checkpoints)
+	}
+}
+
+func TestLocalCompactionFailureKeepsKnownToolResult(t *testing.T) {
+	call := json.RawMessage(`{"type":"function_call","call_id":"call-1","name":"skill_read","arguments":"{\"name\":\"missing\"}"}`)
+	client := &fakeClient{outputs: [][]json.RawMessage{{call}}, usages: []json.RawMessage{json.RawMessage(`{"input_tokens":1200}`)}}
+	runtime, cleanup := testRuntime(t, client)
+	defer cleanup()
+	_, err := runtime.Run(context.Background(), "inspect")
+	assertRuntimeCode(t, err, "api_error")
+	stored, err := runtime.Locked.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.Turns[0].Status != session.StatusFailed || len(stored.Turns[0].ToolCalls) != 1 || stored.Turns[0].ToolCalls[0].ResultState != session.ToolResultKnown {
+		t.Fatalf("failed compaction lost known tool result: %+v", stored.Turns[0])
+	}
+	window, err := BuildInput(stored)
+	encoded, _ := json.Marshal(window)
+	if err != nil || !bytes.Contains(encoded, []byte("function_call_output")) {
+		t.Fatalf("known result missing from recovered input: %v %v", window, err)
+	}
+}
+
+func TestCompactionGuardStopsManagedProcessBeforeSummarizing(t *testing.T) {
+	call := json.RawMessage(`{"type":"function_call","call_id":"long-compact","name":"shell_exec","arguments":"{\"command\":\"sleep 1; touch should-not-exist\",\"timeout_ms\":null,\"max_output_chars\":null,\"yield_time_ms\":1}"}`)
+	client := &fakeClient{outputs: [][]json.RawMessage{{call}}, usages: []json.RawMessage{json.RawMessage(`{"input_tokens":1200}`)}}
+	runtime, cleanup := testRuntime(t, client)
+	defer cleanup()
+	runtime.Access = "full"
+	_, err := runtime.Run(context.Background(), "run command")
+	assertRuntimeCode(t, err, "compaction_deferred_for_process")
+	if client.calls != 1 {
+		t.Fatalf("provider calls = %d, want 1", client.calls)
+	}
+	time.Sleep(1200 * time.Millisecond)
+	if _, err := os.Stat(filepath.Join(runtime.Workspace.Dir, "should-not-exist")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("managed process survived guard: %v", err)
+	}
+}
+
+func TestPreviousWindowThresholdUsesUsageOrConservativeSize(t *testing.T) {
+	now := time.Now().UTC()
+	value := &session.Session{Turns: []session.Turn{{ID: "turn", Status: session.StatusCompleted, CompletedAt: &now}}}
+	tokens := uint64(1200)
+	value.Checkpoints = []session.ContextCheckpoint{{TurnID: "turn", InputTokens: &tokens, Items: []json.RawMessage{json.RawMessage(`{"type":"message"}`)}}}
+	if !previousWindowOverThreshold(value, 1000) {
+		t.Fatal("saved usage did not trigger compaction")
+	}
+	value.Checkpoints[0].InputTokens = nil
+	if previousWindowOverThreshold(value, 1000) {
+		t.Fatal("short legacy checkpoint triggered compaction")
+	}
+	value.Checkpoints[0].Items = []json.RawMessage{json.RawMessage(`"` + strings.Repeat("x", 1<<20) + `"`)}
+	if !previousWindowOverThreshold(value, 1000) {
+		t.Fatal("large legacy checkpoint was ignored")
+	}
+}
+
+func TestInputTokenLimitStopsBeforeAnotherRequest(t *testing.T) {
+	call := json.RawMessage(`{"type":"function_call","call_id":"call-1","name":"skill_read","arguments":"{\"name\":\"missing\"}"}`)
+	client := &fakeClient{outputs: [][]json.RawMessage{{call}}, usages: []json.RawMessage{json.RawMessage(`{"input_tokens":1200}`)}}
+	runtime, cleanup := testRuntime(t, client)
+	defer cleanup()
+	runtime.MaxInputTokens = 1000
+	_, err := runtime.Run(context.Background(), "inspect")
+	assertRuntimeCode(t, err, "input_token_limit_exceeded")
+	if client.calls != 1 {
+		t.Fatalf("provider calls = %d, want 1", client.calls)
+	}
+	stored, err := runtime.Locked.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(stored.Turns[0].ToolCalls) != 1 || stored.Turns[0].ToolCalls[0].ResultState != session.ToolResultKnown {
+		t.Fatalf("token limit lost tool result: %+v", stored.Turns[0].ToolCalls)
 	}
 }
 

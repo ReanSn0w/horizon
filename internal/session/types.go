@@ -92,9 +92,10 @@ type Artifact struct {
 
 // ContextCheckpoint is the complete reusable API input after a successful turn.
 type ContextCheckpoint struct {
-	TurnID    string            `json:"turn_id"`
-	CreatedAt time.Time         `json:"created_at"`
-	Items     []json.RawMessage `json:"items"`
+	TurnID      string            `json:"turn_id"`
+	CreatedAt   time.Time         `json:"created_at"`
+	InputTokens *uint64           `json:"input_tokens,omitempty"`
+	Items       []json.RawMessage `json:"items"`
 }
 
 // Compaction is a complete compacted API window tied to a successful boundary.

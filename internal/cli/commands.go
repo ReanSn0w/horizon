@@ -183,15 +183,16 @@ func (command *resumeCommand) Execute(args []string) error {
 	runtime := &agent.Runtime{
 		Client: &responses.Client{ResponsesURL: responsesURL, CompactURL: compactURL, APIKey: cfg.Provider.Key, HTTPClient: http.DefaultClient},
 		Locked: locked, Store: store, Workspace: workspace, Session: value,
-		ProfileName:  profileName,
-		Access:       access,
-		Reviewer:     reviewer,
-		Profile:      session.ModelProfile{Name: profileName, Model: profile.Model, Reasoning: profile.Reasoning, CompactThreshold: profile.CompactThreshold},
-		Instructions: snapshot,
-		Extensions:   extensions,
-		MaxRequests:  cfg.Limits.MaxModelRequests,
-		MaxDuration:  cfg.Limits.MaxTurnDuration,
-		Publish:      newEventPublisher(command.Mode, command.global.Verbose, command.app.out, command.app.errOut),
+		ProfileName:    profileName,
+		Access:         access,
+		Reviewer:       reviewer,
+		Profile:        session.ModelProfile{Name: profileName, Model: profile.Model, Reasoning: profile.Reasoning, CompactThreshold: profile.CompactThreshold},
+		Instructions:   snapshot,
+		Extensions:     extensions,
+		MaxRequests:    cfg.Limits.MaxModelRequests,
+		MaxInputTokens: cfg.Limits.MaxInputTokens,
+		MaxDuration:    cfg.Limits.MaxTurnDuration,
+		Publish:        newEventPublisher(command.Mode, command.global.Verbose, command.app.out, command.app.errOut),
 	}
 	result, err := runtime.Run(ctx, message)
 	if err != nil {
