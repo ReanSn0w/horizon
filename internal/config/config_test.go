@@ -57,6 +57,32 @@ func TestLoadLimits(t *testing.T) {
 	}
 }
 
+func TestProviderAppAttribution(t *testing.T) {
+	for _, tc := range []struct {
+		name, fields, wantError string
+	}{
+		{name: "valid", fields: "  app_url: https://github.com/ReanSn0w/horizon\n  app_title: Horizon\n"},
+		{name: "missing title", fields: "  app_url: https://example.com/agent\n", wantError: "provider.app_url and provider.app_title"},
+		{name: "missing URL", fields: "  app_title: Horizon\n", wantError: "provider.app_url and provider.app_title"},
+		{name: "private URL", fields: "  app_url: https://user:pass@example.com/agent\n  app_title: Horizon\n", wantError: "provider.app_url and provider.app_title"},
+		{name: "query", fields: "  app_url: https://example.com/agent?token=x\n  app_title: Horizon\n", wantError: "provider.app_url and provider.app_title"},
+		{name: "newline title", fields: "  app_url: https://example.com/agent\n  app_title: \"Horizon\\nagent\"\n", wantError: "provider.app_title"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg, err := Load(writeConfig(t, strings.Replace(validConfig, "  key: super-secret\n", "  key: super-secret\n"+tc.fields, 1)))
+			if tc.wantError != "" {
+				if err == nil || !strings.Contains(err.Error(), tc.wantError) {
+					t.Fatalf("Load() error = %v, want %q", err, tc.wantError)
+				}
+				return
+			}
+			if err != nil || cfg.Provider.AppTitle != "Horizon" || cfg.Provider.AppURL != "https://github.com/ReanSn0w/horizon" {
+				t.Fatalf("attribution = %+v, err = %v", cfg.Provider, err)
+			}
+		})
+	}
+}
+
 func TestLoadSoulEnabled(t *testing.T) {
 	for _, tc := range []struct {
 		name, setting string
