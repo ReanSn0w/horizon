@@ -147,6 +147,20 @@ func (t *telegram) send(ctx context.Context, c *chat, j *job, text string) (int6
 	}
 	return msg.ID, nil
 }
+func (t *telegram) typing(ctx context.Context, c *chat, j *job) error {
+	data := map[string]any{"chat_id": c.ID, "action": "typing"}
+	if j.Thread > 0 {
+		data["message_thread_id"] = j.Thread
+	}
+	var ok bool
+	if err := t.call(ctx, "sendChatAction", data, &ok); err != nil {
+		return err
+	}
+	if !ok {
+		return errors.New("Telegram did not confirm typing status")
+	}
+	return nil
+}
 func displayChat(c tgChat) string {
 	if c.Type == "private" {
 		return strings.TrimSpace(c.First + " " + c.Last)

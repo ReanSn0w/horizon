@@ -20,6 +20,7 @@ import (
 
 type bridge struct {
 	jobTimeout        time.Duration
+	typingInterval    time.Duration
 	idleCheckInterval time.Duration
 	health            *diagnosticHealth
 	home              string
@@ -179,7 +180,9 @@ func (g *bridge) process(ctx context.Context, c *chat, j *job, cfg settings) err
 	}
 	runStarted := time.Now()
 	g.emit("info", "horizon_resume_started", jobFields(c, j))
+	stopTyping := g.startTyping(ctx, c, j)
 	output, err := runner(ctx, c.Workspace, []string{"--home", g.home, "resume", "--session", c.Session, "--mode", outputMode, "--access", mode}, string(data))
+	stopTyping()
 	runFields := jobFields(c, j)
 	runFields["duration_ms"] = time.Since(runStarted).Milliseconds()
 	runFields["ok"] = err == nil
