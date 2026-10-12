@@ -26,13 +26,15 @@ func TestLoadLimits(t *testing.T) {
 		name         string
 		limits       string
 		wantRequests int
+		wantTokens   uint64
 		wantDuration time.Duration
 		wantError    string
 	}{
-		{name: "defaults", wantRequests: 128, wantDuration: 120 * time.Minute},
-		{name: "explicit zero", limits: "limits:\n  max_model_requests: 0\n  max_turn_duration: \"0\"\n", wantRequests: 0, wantDuration: 0},
-		{name: "values", limits: "limits:\n  max_model_requests: 4\n  max_turn_duration: 45s\n", wantRequests: 4, wantDuration: 45 * time.Second},
+		{name: "defaults", wantRequests: 128, wantTokens: 2000000, wantDuration: 120 * time.Minute},
+		{name: "explicit zero", limits: "limits:\n  max_model_requests: 0\n  max_input_tokens: 0\n  max_turn_duration: \"0\"\n", wantRequests: 0, wantTokens: 0, wantDuration: 0},
+		{name: "values", limits: "limits:\n  max_model_requests: 4\n  max_input_tokens: 4000\n  max_turn_duration: 45s\n", wantRequests: 4, wantTokens: 4000, wantDuration: 45 * time.Second},
 		{name: "negative requests", limits: "limits:\n  max_model_requests: -1\n", wantError: "must not be negative"},
+		{name: "negative tokens", limits: "limits:\n  max_input_tokens: -1\n", wantError: "limits.max_input_tokens must not be negative"},
 		{name: "negative duration", limits: "limits:\n  max_turn_duration: -1s\n", wantError: "must not be negative"},
 	}
 	for _, test := range tests {
@@ -48,7 +50,7 @@ func TestLoadLimits(t *testing.T) {
 			if err != nil {
 				t.Fatalf("Load() error = %v", err)
 			}
-			if cfg.Limits.MaxModelRequests != test.wantRequests || cfg.Limits.MaxTurnDuration != test.wantDuration {
+			if cfg.Limits.MaxModelRequests != test.wantRequests || cfg.Limits.MaxInputTokens != test.wantTokens || cfg.Limits.MaxTurnDuration != test.wantDuration {
 				t.Fatalf("Load() limits = %+v, want requests=%d duration=%v", cfg.Limits, test.wantRequests, test.wantDuration)
 			}
 		})

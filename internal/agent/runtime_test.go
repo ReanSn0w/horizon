@@ -170,6 +170,26 @@ func TestPreviousWindowThresholdUsesUsageOrConservativeSize(t *testing.T) {
 	}
 }
 
+func TestInputTokenLimitStopsBeforeAnotherRequest(t *testing.T) {
+	call := json.RawMessage(`{"type":"function_call","call_id":"call-1","name":"skill_read","arguments":"{\"name\":\"missing\"}"}`)
+	client := &fakeClient{outputs: [][]json.RawMessage{{call}}, usages: []json.RawMessage{json.RawMessage(`{"input_tokens":1200}`)}}
+	runtime, cleanup := testRuntime(t, client)
+	defer cleanup()
+	runtime.MaxInputTokens = 1000
+	_, err := runtime.Run(context.Background(), "inspect")
+	assertRuntimeCode(t, err, "input_token_limit_exceeded")
+	if client.calls != 1 {
+		t.Fatalf("provider calls = %d, want 1", client.calls)
+	}
+	stored, err := runtime.Locked.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(stored.Turns[0].ToolCalls) != 1 || stored.Turns[0].ToolCalls[0].ResultState != session.ToolResultKnown {
+		t.Fatalf("token limit lost tool result: %+v", stored.Turns[0].ToolCalls)
+	}
+}
+
 func TestRuntimeDistinguishesCancellationAndTimeout(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()

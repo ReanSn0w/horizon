@@ -132,6 +132,9 @@ func (r *Runtime) Run(ctx context.Context, message string) (Result, error) {
 	}
 
 	for {
+		if r.MaxInputTokens > 0 && totalInputTokens >= r.MaxInputTokens {
+			return Result{}, r.stop(turnID, errInputTokenLimit, ctx, parentContext, now)
+		}
 		if needsCompact {
 			if executor.HasUnreportedProcesses() {
 				return Result{}, r.fail(turnID, "compaction_deferred_for_process", errors.New("context exceeds compact threshold while a managed process is active; inspect its outcome before continuing"), now)
@@ -172,9 +175,6 @@ func (r *Runtime) Run(ctx context.Context, message string) (Result, error) {
 			lastInputTokens = nil
 			r.publish("compaction_completed", turnID, map[string]any{"compaction_id": compact.ID, "automatic": false})
 		}
-		if r.MaxInputTokens > 0 && totalInputTokens >= r.MaxInputTokens {
-			return Result{}, r.stop(turnID, errInputTokenLimit, ctx, parentContext, now)
-		}
 		request := responses.Request{
 			Model: r.Profile.Model, Instructions: r.Instructions.Prompt, Input: clone(input),
 			Tools: toolDefinitions(executor.Definitions()), ParallelToolCalls: false, Store: false,
@@ -193,6 +193,7 @@ func (r *Runtime) Run(ctx context.Context, message string) (Result, error) {
 			fields := map[string]any{"attempt": requests, "duration_ms": now().UTC().Sub(requestStarted).Milliseconds(), "ok": err == nil}
 			if err == nil {
 				usage := responses.ParseUsage(response.Usage)
+				fields["usage_available"] = usage.InputTokens != nil
 				if usage.InputTokens != nil {
 					fields["input_tokens"] = *usage.InputTokens
 				}
@@ -216,8 +217,6 @@ func (r *Runtime) Run(ctx context.Context, message string) (Result, error) {
 		if usage.InputTokens != nil {
 			totalInputTokens += *usage.InputTokens
 			lastInputTokens = usage.InputTokens
-		} else {
-			r.publish("usage_unavailable", turnID, map[string]any{"attempt": requests})
 		}
 		if err := r.Locked.AppendAPIItems(turnID, response.Output); err != nil {
 			return Result{}, r.fail(turnID, "session_write_failed", err, now)

@@ -16,6 +16,7 @@ import (
 
 const (
 	DefaultMaxModelRequests = 128
+	DefaultMaxInputTokens   = 2000000
 	DefaultMaxTurnDuration  = 120 * time.Minute
 )
 
@@ -51,6 +52,7 @@ type Decision struct {
 
 type Limits struct {
 	MaxModelRequests int
+	MaxInputTokens   uint64
 	MaxTurnDuration  time.Duration
 }
 
@@ -76,6 +78,7 @@ type rawModel struct {
 
 type rawLimits struct {
 	MaxModelRequests *int    `yaml:"max_model_requests"`
+	MaxInputTokens   *int64  `yaml:"max_input_tokens"`
 	MaxTurnDuration  *string `yaml:"max_turn_duration"`
 }
 
@@ -245,6 +248,13 @@ func parseLimits(raw rawLimits) (Limits, error) {
 	if requests < 0 {
 		return Limits{}, errors.New("limits.max_model_requests must not be negative")
 	}
+	inputTokens := uint64(DefaultMaxInputTokens)
+	if raw.MaxInputTokens != nil {
+		if *raw.MaxInputTokens < 0 {
+			return Limits{}, errors.New("limits.max_input_tokens must not be negative")
+		}
+		inputTokens = uint64(*raw.MaxInputTokens)
+	}
 
 	duration := DefaultMaxTurnDuration
 	if raw.MaxTurnDuration != nil {
@@ -261,7 +271,7 @@ func parseLimits(raw rawLimits) (Limits, error) {
 			duration = parsed
 		}
 	}
-	return Limits{MaxModelRequests: requests, MaxTurnDuration: duration}, nil
+	return Limits{MaxModelRequests: requests, MaxInputTokens: inputTokens, MaxTurnDuration: duration}, nil
 }
 
 func (c Config) Endpoint(resource string) (string, error) {
