@@ -42,6 +42,10 @@ func (command *initCommand) Execute(args []string) error {
 	if err != nil {
 		return failure(err.Error(), err)
 	}
+	providerUpdated, err := config.MergeProviderAttributionFields(home)
+	if err != nil {
+		return failure(fmt.Sprintf("initialize provider configuration: %v", err), err)
+	}
 	statuses, skipped, err := initializePluginConfig(home, command.app.reserved)
 	if err != nil {
 		return failure(fmt.Sprintf("initialize plugin configuration: %v", err), err)
@@ -50,6 +54,8 @@ func (command *initCommand) Execute(args []string) error {
 	configPath := filepath.Join(home, "config.yaml")
 	if result.ConfigCreated {
 		fmt.Fprintf(command.app.out, "Отредактируйте %s: задайте provider.url, provider.key, models.chatting.model и decision.provider.key; проверьте decision.provider.url, decision.model и models.chatting.compact_threshold.\n", configPath)
+	} else if providerUpdated {
+		fmt.Fprintf(command.app.out, "Существующая конфигурация дополнена полями provider.app_url и provider.app_title без изменения заданных значений: %s.\n", configPath)
 	} else {
 		fmt.Fprintf(command.app.out, "Существующая конфигурация сохранена: %s.\n", configPath)
 	}
