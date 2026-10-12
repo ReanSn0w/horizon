@@ -20,6 +20,10 @@ import (
 
 type bridge struct {
 	jobTimeout        time.Duration
+	typingInterval    time.Duration
+	progressDelay     time.Duration
+	progressInterval  time.Duration
+	progressTick      time.Duration
 	idleCheckInterval time.Duration
 	health            *diagnosticHealth
 	home              string
@@ -95,9 +99,14 @@ func (g *bridge) setJob(chatID int64, id string, edit func(*chat, *job) error) e
 	return err
 }
 func (g *bridge) process(ctx context.Context, c *chat, j *job, cfg settings) error {
-	ctx, cancel := context.WithTimeout(ctx, g.jobDuration())
+	hc, err := config.Load(g.home)
+	if err != nil {
+		return g.fail(cID(c, j), j.ID, errors.New("invalid Horizon configuration"), false)
+	}
+	ctx, cancel := jobContext(ctx, g.jobDuration(hc.Limits.MaxTurnDuration))
 	defer cancel()
-	c, err := workspace(ctx, g.home, cfg, g.store, c, g.run)
+	defer g.finishProgress(cID(c, j), j.ID)
+	c, err = workspace(ctx, g.home, cfg, g.store, c, g.run)
 	if err != nil {
 		return g.fail(cID(c, j), j.ID, err, false)
 	}
@@ -114,10 +123,6 @@ func (g *bridge) process(ctx context.Context, c *chat, j *job, cfg settings) err
 		return err
 	}
 	c = current
-	hc, err := config.Load(g.home)
-	if err != nil {
-		return g.fail(c.ID, j.ID, errors.New("invalid Horizon configuration"), false)
-	}
 	reply, err := shouldReply(ctx, g.home, cfg, c, j, hc.Decision.Model, g.run, func(data map[string]any) {
 		for k, v := range jobFields(c, j) {
 			data[k] = v
@@ -170,16 +175,24 @@ func (g *bridge) process(ctx context.Context, c *chat, j *job, cfg settings) err
 	if err = g.setJob(c.ID, j.ID, func(c *chat, j *job) error { j.Status = "generating"; j.ContextSeq = seq; return nil }); err != nil {
 		return err
 	}
+	progress := g.startProgress(ctx, cfg, c, j)
+	defer progress.stop()
 	runner, outputMode := g.run, "plain"
 	if g.resume != nil {
 		runner = func(ctx context.Context, dir string, args []string, input string) (string, error) {
-			return g.resume(ctx, dir, args, input, func(event childEvent) { g.childDiagnostic(event, jobFields(c, j)) })
+			return g.resume(ctx, dir, args, input, func(event childEvent) {
+				g.childDiagnostic(event, jobFields(c, j))
+				progress.observe(event)
+			})
 		}
 		outputMode = "jsonl"
 	}
 	runStarted := time.Now()
 	g.emit("info", "horizon_resume_started", jobFields(c, j))
+	stopTyping := g.startTyping(ctx, c, j)
 	output, err := runner(ctx, c.Workspace, []string{"--home", g.home, "resume", "--session", c.Session, "--mode", outputMode, "--access", mode}, string(data))
+	stopTyping()
+	progress.stop()
 	runFields := jobFields(c, j)
 	runFields["duration_ms"] = time.Since(runStarted).Milliseconds()
 	runFields["ok"] = err == nil
@@ -268,6 +281,8 @@ func (g *bridge) loop(ctx context.Context) error {
 	if err := g.store.recover(); err != nil {
 		return err
 	}
+	wg.Add(1)
+	go func() { defer wg.Done(); g.recoverProgress(ctx) }()
 	wg.Add(1)
 	go func() { defer wg.Done(); pollDone <- g.poll(ctx) }()
 	active := map[int64]bool{}
@@ -383,7 +398,19 @@ func (g *bridge) loop(ctx context.Context) error {
 					}()
 					defer func() { done <- c.Origin }()
 					if j == nil {
-						jobCtx, stop := context.WithTimeout(ctx, g.jobDuration())
+						hc, loadErr := config.Load(g.home)
+						if loadErr != nil {
+							_ = g.store.update(func(v *state) error {
+								current, e := resolveChat(v, fmt.Sprint(c.ID))
+								if e == nil {
+									current.LastError = "invalid Horizon configuration"
+									current.Available = false
+								}
+								return e
+							})
+							return
+						}
+						jobCtx, stop := jobContext(ctx, g.jobDuration(hc.Limits.MaxTurnDuration))
 						defer stop()
 						_, err := workspace(jobCtx, g.home, cfg, g.store, c, g.run)
 						if err != nil {
@@ -646,9 +673,23 @@ func schedulingOrder(value state, lastOrigin int64) []*chat {
 	return chats
 }
 
-func (g *bridge) jobDuration() time.Duration {
+func (g *bridge) jobDuration(turnDuration time.Duration) time.Duration {
 	if g.jobTimeout > 0 {
 		return g.jobTimeout
 	}
-	return 10 * time.Minute
+	if turnDuration == 0 {
+		return 0
+	}
+	const overhead = 2 * time.Minute
+	if turnDuration > time.Duration(1<<63-1)-overhead {
+		return turnDuration
+	}
+	return turnDuration + overhead
+}
+
+func jobContext(parent context.Context, duration time.Duration) (context.Context, context.CancelFunc) {
+	if duration == 0 {
+		return context.WithCancel(parent)
+	}
+	return context.WithTimeout(parent, duration)
 }

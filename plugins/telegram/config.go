@@ -36,8 +36,9 @@ type settings struct {
 		Threshold        float64  `yaml:"reply_threshold"`
 		IdleCompactAfter string   `yaml:"idle_compact_after"`
 	} `yaml:"conversation"`
-	Parallel int                      `yaml:"max_parallel_chats"`
-	Groups   map[string]groupSettings `yaml:"groups"`
+	Parallel         int                      `yaml:"max_parallel_chats"`
+	ProgressMessages string                   `yaml:"progress_messages"`
+	Groups           map[string]groupSettings `yaml:"groups"`
 }
 
 func defaults(home string) settings {
@@ -51,6 +52,7 @@ func defaults(home string) settings {
 	s.Conversation.Threshold = .7
 	s.Conversation.IdleCompactAfter = "12h"
 	s.Parallel = 2
+	s.ProgressMessages = "private"
 	s.Groups = map[string]groupSettings{}
 	return s
 }
@@ -155,6 +157,9 @@ func (s settings) validate(ready bool) error {
 	}
 	if s.Defaults.ResponseMode != "mention" && s.Defaults.ResponseMode != "conversation" {
 		return errors.New("response_mode must be mention or conversation")
+	}
+	if s.ProgressMessages != "off" && s.ProgressMessages != "private" && s.ProgressMessages != "all" {
+		return errors.New("plugins.telegram.progress_messages must be off, private or all")
 	}
 	idleCompactAfter, err := time.ParseDuration(s.Conversation.IdleCompactAfter)
 	if err != nil || idleCompactAfter < 0 || (idleCompactAfter > 0 && idleCompactAfter < time.Hour) {

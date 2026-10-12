@@ -64,6 +64,7 @@ type job struct {
 	Response    string    `yaml:"response,omitempty" json:"-"`
 	Parts       []string  `yaml:"parts,omitempty" json:"-"`
 	Sent        []int64   `yaml:"sent,omitempty" json:"message_ids,omitempty"`
+	ProgressID  int64     `yaml:"progress_id,omitempty" json:"-"`
 	ContextSeq  int64     `yaml:"context_seq" json:"-"`
 }
 type state struct {
