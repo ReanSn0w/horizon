@@ -21,6 +21,9 @@ import (
 type bridge struct {
 	jobTimeout        time.Duration
 	typingInterval    time.Duration
+	progressDelay     time.Duration
+	progressInterval  time.Duration
+	progressTick      time.Duration
 	idleCheckInterval time.Duration
 	health            *diagnosticHealth
 	home              string
@@ -102,6 +105,7 @@ func (g *bridge) process(ctx context.Context, c *chat, j *job, cfg settings) err
 	}
 	ctx, cancel := jobContext(ctx, g.jobDuration(hc.Limits.MaxTurnDuration))
 	defer cancel()
+	defer g.finishProgress(cID(c, j), j.ID)
 	c, err = workspace(ctx, g.home, cfg, g.store, c, g.run)
 	if err != nil {
 		return g.fail(cID(c, j), j.ID, err, false)
@@ -171,10 +175,15 @@ func (g *bridge) process(ctx context.Context, c *chat, j *job, cfg settings) err
 	if err = g.setJob(c.ID, j.ID, func(c *chat, j *job) error { j.Status = "generating"; j.ContextSeq = seq; return nil }); err != nil {
 		return err
 	}
+	progress := g.startProgress(ctx, cfg, c, j)
+	defer progress.stop()
 	runner, outputMode := g.run, "plain"
 	if g.resume != nil {
 		runner = func(ctx context.Context, dir string, args []string, input string) (string, error) {
-			return g.resume(ctx, dir, args, input, func(event childEvent) { g.childDiagnostic(event, jobFields(c, j)) })
+			return g.resume(ctx, dir, args, input, func(event childEvent) {
+				g.childDiagnostic(event, jobFields(c, j))
+				progress.observe(event)
+			})
 		}
 		outputMode = "jsonl"
 	}
@@ -183,6 +192,7 @@ func (g *bridge) process(ctx context.Context, c *chat, j *job, cfg settings) err
 	stopTyping := g.startTyping(ctx, c, j)
 	output, err := runner(ctx, c.Workspace, []string{"--home", g.home, "resume", "--session", c.Session, "--mode", outputMode, "--access", mode}, string(data))
 	stopTyping()
+	progress.stop()
 	runFields := jobFields(c, j)
 	runFields["duration_ms"] = time.Since(runStarted).Milliseconds()
 	runFields["ok"] = err == nil
@@ -271,6 +281,8 @@ func (g *bridge) loop(ctx context.Context) error {
 	if err := g.store.recover(); err != nil {
 		return err
 	}
+	wg.Add(1)
+	go func() { defer wg.Done(); g.recoverProgress(ctx) }()
 	wg.Add(1)
 	go func() { defer wg.Done(); pollDone <- g.poll(ctx) }()
 	active := map[int64]bool{}

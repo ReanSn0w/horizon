@@ -161,6 +161,26 @@ func (t *telegram) typing(ctx context.Context, c *chat, j *job) error {
 	}
 	return nil
 }
+func (t *telegram) edit(ctx context.Context, chatID, messageID int64, text string) error {
+	var result tgMessage
+	if err := t.call(ctx, "editMessageText", map[string]any{"chat_id": chatID, "message_id": messageID, "text": text}, &result); err != nil {
+		return err
+	}
+	if result.ID != messageID {
+		return errors.New("Telegram did not confirm edited message")
+	}
+	return nil
+}
+func (t *telegram) deleteMessage(ctx context.Context, chatID, messageID int64) error {
+	var ok bool
+	if err := t.call(ctx, "deleteMessage", map[string]any{"chat_id": chatID, "message_id": messageID}, &ok); err != nil {
+		return err
+	}
+	if !ok {
+		return errors.New("Telegram did not confirm deleted message")
+	}
+	return nil
+}
 func displayChat(c tgChat) string {
 	if c.Type == "private" {
 		return strings.TrimSpace(c.First + " " + c.Last)

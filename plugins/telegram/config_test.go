@@ -69,7 +69,7 @@ func TestConfigPreservation(t *testing.T) {
 	if err != nil || !s.Groups["-123"].OwnerOnly || s.GroupAccess != "read" {
 		t.Fatalf("%+v %v", s, err)
 	}
-	if !strings.Contains(string(before), "owner_user_id: 0") || !strings.Contains(string(before), "idle_compact_after: 12h") {
+	if !strings.Contains(string(before), "owner_user_id: 0") || !strings.Contains(string(before), "idle_compact_after: 12h") || !strings.Contains(string(before), "progress_messages: private") {
 		t.Fatal("incorrect defaults")
 	}
 	target := filepath.Join(home, "config.yaml")
@@ -82,6 +82,52 @@ func TestConfigPreservation(t *testing.T) {
 	}
 	if info, err := os.Lstat(filepath.Join(alias, "config.yaml")); err != nil || info.Mode()&os.ModeSymlink == 0 {
 		t.Fatal("replaced symlink")
+	}
+}
+
+func TestProgressModeDefaultsAndValidation(t *testing.T) {
+	home := readyHome(t)
+	if _, err := config.UpdateDocument(home, func(doc *yaml.Node) (bool, error) {
+		section := nodeValue(nodeValue(doc.Content[0], "plugins"), "telegram")
+		for i := 0; i < len(section.Content); i += 2 {
+			if section.Content[i].Value == "progress_messages" {
+				section.Content = append(section.Content[:i], section.Content[i+2:]...)
+				break
+			}
+		}
+		return true, nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	s, err := loadSettings(home, true)
+	if err != nil || s.ProgressMessages != "private" {
+		t.Fatalf("default progress mode: %q, %v", s.ProgressMessages, err)
+	}
+	if changed, err := applyTemplateForTest(home); err != nil || !changed {
+		t.Fatalf("template did not restore missing progress key: changed=%t err=%v", changed, err)
+	}
+	for _, mode := range []string{"off", "private", "all"} {
+		if _, err := config.UpdateDocument(home, func(doc *yaml.Node) (bool, error) {
+			putNode(nodeValue(nodeValue(doc.Content[0], "plugins"), "telegram"), "progress_messages", encodedNode(mode))
+			return true, nil
+		}); err != nil {
+			t.Fatal(err)
+		}
+		if s, err := loadSettings(home, true); err != nil || s.ProgressMessages != mode {
+			t.Fatalf("mode %q: %+v, %v", mode, s, err)
+		}
+		if changed, err := applyTemplateForTest(home); err != nil || changed {
+			t.Fatalf("mode %q overwritten by init: changed=%t err=%v", mode, changed, err)
+		}
+	}
+	if _, err := config.UpdateDocument(home, func(doc *yaml.Node) (bool, error) {
+		putNode(nodeValue(nodeValue(doc.Content[0], "plugins"), "telegram"), "progress_messages", encodedNode("invalid"))
+		return true, nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := loadSettings(home, true); err == nil {
+		t.Fatal("accepted invalid progress mode")
 	}
 }
 func TestConfigValidation(t *testing.T) {
