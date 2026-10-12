@@ -117,6 +117,22 @@ func (g *bridge) childDiagnostic(e childEvent, correlation ...map[string]any) {
 			fields[key] = value
 		}
 	}
+	if e.Type == "model_request_completed" {
+		for _, key := range []string{"input_tokens", "output_tokens", "cached_tokens"} {
+			var count uint64
+			if len(e.Data[key]) != 0 && string(e.Data[key]) != "null" && json.Unmarshal(e.Data[key], &count) == nil {
+				fields[key] = count
+			}
+		}
+		var available bool
+		if len(e.Data["usage_available"]) != 0 && string(e.Data["usage_available"]) != "null" && json.Unmarshal(e.Data["usage_available"], &available) == nil {
+			fields["usage_available"] = available
+		}
+		var phase string
+		if json.Unmarshal(e.Data["phase"], &phase) == nil && phase == "compaction" {
+			fields["phase"] = phase
+		}
+	}
 	if e.Type == "tool_completed" {
 		var result struct {
 			OK    bool                       `json:"ok"`

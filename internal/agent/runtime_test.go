@@ -103,6 +103,47 @@ func TestRequestBudgetAllowsFinalResponseAndStopsAfterTools(t *testing.T) {
 	}
 }
 
+func TestPerRequestUsageEventKeepsMissingDistinctFromZero(t *testing.T) {
+	final := json.RawMessage(`{"type":"message","content":[{"type":"output_text","text":"done"}]}`)
+	for _, tc := range []struct {
+		name          string
+		usage         json.RawMessage
+		available     bool
+		cachedPresent bool
+	}{
+		{name: "zero cache", usage: json.RawMessage(`{"input_tokens":1200,"output_tokens":4,"input_tokens_details":{"cached_tokens":0}}`), available: true, cachedPresent: true},
+		{name: "missing usage", available: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			client := &fakeClient{outputs: [][]json.RawMessage{{final}}}
+			if tc.usage != nil {
+				client.usages = []json.RawMessage{tc.usage}
+			}
+			runtime, cleanup := testRuntime(t, client)
+			defer cleanup()
+			var fields map[string]any
+			runtime.Publish = func(event eventstream.Event) {
+				if event.Type == "model_request_completed" {
+					fields = event.Data.(map[string]any)
+				}
+			}
+			if _, err := runtime.Run(context.Background(), "finish"); err != nil {
+				t.Fatal(err)
+			}
+			if fields == nil || fields["usage_available"] != tc.available {
+				t.Fatalf("fields = %+v", fields)
+			}
+			_, cachedPresent := fields["cached_tokens"]
+			if cachedPresent != tc.cachedPresent {
+				t.Fatalf("cached counter presence = %t, fields=%+v", cachedPresent, fields)
+			}
+			if _, leaked := fields["usage"]; leaked {
+				t.Fatalf("raw usage leaked: %+v", fields)
+			}
+		})
+	}
+}
+
 func TestLocalCompactionProtectsToolLoopAndKeepsHistory(t *testing.T) {
 	call := json.RawMessage(`{"type":"function_call","call_id":"call-1","name":"skill_read","arguments":"{\"name\":\"missing\"}"}`)
 	summary := json.RawMessage(`{"type":"message","content":[{"type":"output_text","text":"The user asked to inspect a missing skill. The call failed."}]}`)
