@@ -144,6 +144,44 @@ func TestPerRequestUsageEventKeepsMissingDistinctFromZero(t *testing.T) {
 	}
 }
 
+func TestToolContinuationPreservesRequestPrefix(t *testing.T) {
+	call := json.RawMessage(`{"type":"function_call","call_id":"call-1","name":"skill_read","arguments":"{\"name\":\"missing\"}"}`)
+	final := json.RawMessage(`{"type":"message","content":[{"type":"output_text","text":"done"}]}`)
+	client := &fakeClient{outputs: [][]json.RawMessage{{call}, {final}}}
+	runtime, cleanup := testRuntime(t, client)
+	defer cleanup()
+	if _, err := runtime.Run(context.Background(), "inspect"); err != nil {
+		t.Fatal(err)
+	}
+	if len(client.requests) != 2 {
+		t.Fatalf("requests = %d", len(client.requests))
+	}
+	first, next := client.requests[0], client.requests[1]
+	if first.Instructions != next.Instructions {
+		t.Fatal("instructions changed across tool continuation")
+	}
+	firstTools, _ := json.Marshal(first.Tools)
+	nextTools, _ := json.Marshal(next.Tools)
+	if !bytes.Equal(firstTools, nextTools) {
+		t.Fatal("tool definitions changed across tool continuation")
+	}
+	if len(next.Input) < len(first.Input) || !equalItems(first.Input, next.Input[:len(first.Input)]) {
+		t.Fatal("input prefix changed across tool continuation")
+	}
+}
+
+func equalItems(a, b []json.RawMessage) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if !bytes.Equal(a[i], b[i]) {
+			return false
+		}
+	}
+	return true
+}
+
 func TestLocalCompactionProtectsToolLoopAndKeepsHistory(t *testing.T) {
 	call := json.RawMessage(`{"type":"function_call","call_id":"call-1","name":"skill_read","arguments":"{\"name\":\"missing\"}"}`)
 	summary := json.RawMessage(`{"type":"message","content":[{"type":"output_text","text":"The user asked to inspect a missing skill. The call failed."}]}`)
