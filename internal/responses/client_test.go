@@ -63,6 +63,9 @@ func TestStreamRetriesBeforeEventsAndPreservesOpaqueOutput(t *testing.T) {
 	attempts := 0
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		attempts++
+		if request.Header.Get("HTTP-Referer") != "" || request.Header.Get("X-OpenRouter-Title") != "" {
+			t.Fatal("attribution headers were sent without configuration")
+		}
 		if request.Header.Get("Authorization") != "Bearer secret" {
 			t.Fatalf("authorization header = %q", request.Header.Get("Authorization"))
 		}
@@ -90,6 +93,34 @@ func TestStreamRetriesBeforeEventsAndPreservesOpaqueOutput(t *testing.T) {
 	}
 	if len(response.Output) != 1 || !bytes.Contains(response.Output[0], []byte(`"future":{"x":1}`)) {
 		t.Fatalf("opaque output was lost: %s", response.Output)
+	}
+}
+
+func TestAppAttributionHeadersOnResponsesAndCompact(t *testing.T) {
+	var paths []string
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		paths = append(paths, request.URL.Path)
+		if request.Header.Get("HTTP-Referer") != "https://github.com/ReanSn0w/horizon" || request.Header.Get("X-OpenRouter-Title") != "Horizon" {
+			t.Errorf("attribution headers: referer=%q title=%q", request.Header.Get("HTTP-Referer"), request.Header.Get("X-OpenRouter-Title"))
+		}
+		if request.URL.Path == "/responses/compact" {
+			writer.Header().Set("Content-Type", "application/json")
+			fmt.Fprint(writer, `{"status":"completed","output":[{"type":"compaction","id":"compact-1"}]}`)
+			return
+		}
+		writer.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprint(writer, "data: {\"type\":\"response.completed\",\"response\":{\"status\":\"completed\",\"output\":[]}}\n\n")
+	}))
+	defer server.Close()
+	client := &Client{ResponsesURL: server.URL + "/responses", CompactURL: server.URL + "/responses/compact", APIKey: "secret", AppURL: "https://github.com/ReanSn0w/horizon", AppTitle: "Horizon"}
+	if _, err := client.Stream(context.Background(), Request{Model: "m"}, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.Compact(context.Background(), CompactRequest{Model: "m"}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if len(paths) != 2 || paths[0] != "/responses" || paths[1] != "/responses/compact" {
+		t.Fatalf("paths = %v", paths)
 	}
 }
 

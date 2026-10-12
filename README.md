@@ -53,6 +53,10 @@ horizon init
 
 - `provider.url` — базовый URL API, например `https://api.openai.com/v1`;
 - `provider.key` — ключ провайдера;
+- `provider.app_url` и `provider.app_title` — необязательная атрибуция
+  OpenRouter. При заполнении обоих полей Horizon отправляет `HTTP-Referer` и
+  `X-OpenRouter-Title` в запросах диалога и сжатия. URL становится публичным
+  идентификатором приложения; установки с одним URL группируются вместе;
 - `models.chatting.model` — идентификатор модели;
 - `models.chatting.compact_threshold` — порог сжатия в токенах с запасом
   относительно окна контекста модели. Horizon передаёт его провайдеру и
@@ -84,6 +88,21 @@ decision:
 Остальные обязательные поля, включая `models`, показаны в
 [config.example.yaml](config.example.yaml). Ключи храните только в своём
 `config.yaml`, не в репозитории.
+
+Чтобы в OpenRouter вместо `Unknown` показывался `Horizon`, добавьте в
+существующий `config.yaml` (повторный `init` его не переписывает):
+
+```yaml
+provider:
+  url: https://openrouter.ai/api/v1
+  key: YOUR_OPENROUTER_KEY
+  app_url: https://github.com/ReanSn0w/horizon
+  app_title: Horizon
+```
+
+Для отдельного имени агента используйте отдельный публичный URL приложения:
+OpenRouter связывает название с URL, и разные `app_title` при общем URL не
+создают отдельные приложения.
 
 В `AGENTS.md` при необходимости измените или дополните общие инструкции агенту.
 Повторный `init` добавляет недостающие файлы поставки, сохраняя существующие настройки,

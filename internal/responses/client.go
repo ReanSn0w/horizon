@@ -31,6 +31,8 @@ type Client struct {
 	ResponsesURL string
 	CompactURL   string
 	APIKey       string
+	AppURL       string
+	AppTitle     string
 	HTTPClient   *http.Client
 	MaxAttempts  int
 	RetryDelay   func(int) time.Duration
@@ -172,6 +174,10 @@ func (c *Client) post(ctx context.Context, endpoint string, value any, accept st
 	request.Header.Set("Authorization", "Bearer "+c.APIKey)
 	request.Header.Set("Content-Type", "application/json")
 	request.Header.Set("Accept", accept)
+	if c.AppURL != "" && c.AppTitle != "" {
+		request.Header.Set("HTTP-Referer", c.AppURL)
+		request.Header.Set("X-OpenRouter-Title", c.AppTitle)
+	}
 	client := c.HTTPClient
 	if client == nil {
 		client = http.DefaultClient

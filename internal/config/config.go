@@ -41,8 +41,10 @@ type Model struct {
 }
 
 type Provider struct {
-	URL string
-	Key string
+	URL      string `yaml:"url"`
+	Key      string `yaml:"key"`
+	AppURL   string `yaml:"app_url"`
+	AppTitle string `yaml:"app_title"`
 }
 
 type Decision struct {
@@ -155,6 +157,15 @@ func validate(raw rawConfig) (Config, error) {
 	}
 	if providerURL.RawQuery != "" || providerURL.Fragment != "" {
 		return Config{}, errors.New("provider.url must not contain a query or fragment")
+	}
+	if raw.Provider.AppURL != "" || raw.Provider.AppTitle != "" {
+		appURL, appErr := url.Parse(raw.Provider.AppURL)
+		if raw.Provider.AppTitle == "" || appErr != nil || appURL.Scheme == "" || appURL.Host == "" || appURL.User != nil || (appURL.Scheme != "http" && appURL.Scheme != "https") || appURL.RawQuery != "" || appURL.Fragment != "" {
+			return Config{}, errors.New("provider.app_url and provider.app_title must be set together; app_url must be an absolute HTTP(S) URL without credentials, query or fragment")
+		}
+		if strings.TrimSpace(raw.Provider.AppTitle) != raw.Provider.AppTitle || strings.ContainsAny(raw.Provider.AppTitle, "\r\n") {
+			return Config{}, errors.New("provider.app_title must be a nonempty single-line title")
+		}
 	}
 	if len(raw.Models) == 0 && raw.DefaultModel != "" {
 		return Config{}, errors.New("default_model is set but models is empty")

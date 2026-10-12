@@ -181,7 +181,7 @@ func (command *resumeCommand) Execute(args []string) error {
 		reviewer = &decision.CommandPolicy{Client: &decision.Client{Endpoint: decisionURL, APIKey: cfg.Decision.Provider.Key, Model: cfg.Decision.Model, HTTPClient: http.DefaultClient}, Secrets: []string{cfg.Provider.Key, cfg.Decision.Provider.Key}}
 	}
 	runtime := &agent.Runtime{
-		Client: &responses.Client{ResponsesURL: responsesURL, CompactURL: compactURL, APIKey: cfg.Provider.Key, HTTPClient: http.DefaultClient},
+		Client: &responses.Client{ResponsesURL: responsesURL, CompactURL: compactURL, APIKey: cfg.Provider.Key, AppURL: cfg.Provider.AppURL, AppTitle: cfg.Provider.AppTitle, HTTPClient: http.DefaultClient},
 		Locked: locked, Store: store, Workspace: workspace, Session: value,
 		ProfileName:    profileName,
 		Access:         access,
@@ -361,7 +361,7 @@ func (command *sessionsCompactCommand) Execute(args []string) error {
 	if err != nil {
 		return failure(err.Error(), err)
 	}
-	client := &responses.Client{ResponsesURL: responsesURL, CompactURL: compactURL, APIKey: cfg.Provider.Key, HTTPClient: http.DefaultClient}
+	client := &responses.Client{ResponsesURL: responsesURL, CompactURL: compactURL, APIKey: cfg.Provider.Key, AppURL: cfg.Provider.AppURL, AppTitle: cfg.Provider.AppTitle, HTTPClient: http.DefaultClient}
 	result, err := agent.Compact(ctx, client, locked, value, snapshot.Prompt, cfg.Limits.MaxTurnDuration, publish)
 	if err != nil {
 		return failure(err.Error(), err)
