@@ -150,6 +150,28 @@ func TestLocalCompactionFailureKeepsKnownToolResult(t *testing.T) {
 	if stored.Turns[0].Status != session.StatusFailed || len(stored.Turns[0].ToolCalls) != 1 || stored.Turns[0].ToolCalls[0].ResultState != session.ToolResultKnown {
 		t.Fatalf("failed compaction lost known tool result: %+v", stored.Turns[0])
 	}
+	window, err := BuildInput(stored)
+	encoded, _ := json.Marshal(window)
+	if err != nil || !bytes.Contains(encoded, []byte("function_call_output")) {
+		t.Fatalf("known result missing from recovered input: %v %v", window, err)
+	}
+}
+
+func TestCompactionGuardStopsManagedProcessBeforeSummarizing(t *testing.T) {
+	call := json.RawMessage(`{"type":"function_call","call_id":"long-compact","name":"shell_exec","arguments":"{\"command\":\"sleep 1; touch should-not-exist\",\"timeout_ms\":null,\"max_output_chars\":null,\"yield_time_ms\":1}"}`)
+	client := &fakeClient{outputs: [][]json.RawMessage{{call}}, usages: []json.RawMessage{json.RawMessage(`{"input_tokens":1200}`)}}
+	runtime, cleanup := testRuntime(t, client)
+	defer cleanup()
+	runtime.Access = "full"
+	_, err := runtime.Run(context.Background(), "run command")
+	assertRuntimeCode(t, err, "compaction_deferred_for_process")
+	if client.calls != 1 {
+		t.Fatalf("provider calls = %d, want 1", client.calls)
+	}
+	time.Sleep(1200 * time.Millisecond)
+	if _, err := os.Stat(filepath.Join(runtime.Workspace.Dir, "should-not-exist")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("managed process survived guard: %v", err)
+	}
 }
 
 func TestPreviousWindowThresholdUsesUsageOrConservativeSize(t *testing.T) {
