@@ -10,6 +10,7 @@ import (
 	"gopkg.in/yaml.v3"
 	"strings"
 	"testing"
+	"time"
 )
 
 func readyHome(t *testing.T) string {
@@ -28,6 +29,83 @@ func readyHome(t *testing.T) string {
 		t.Fatal(err)
 	}
 	return home
+}
+
+func TestJobDurationFollowsHorizonLimit(t *testing.T) {
+	g := &bridge{}
+	for _, test := range []struct {
+		turn, want time.Duration
+	}{
+		{5 * time.Minute, 7 * time.Minute},
+		{120 * time.Minute, 122 * time.Minute},
+		{0, 0},
+	} {
+		if got := g.jobDuration(test.turn); got != test.want {
+			t.Fatalf("turn %s: got %s, want %s", test.turn, got, test.want)
+		}
+	}
+	g.jobTimeout = 20 * time.Millisecond
+	if got := g.jobDuration(120 * time.Minute); got != g.jobTimeout {
+		t.Fatalf("test override: got %s", got)
+	}
+}
+
+func TestJobContextWithoutDeadlineStillCancels(t *testing.T) {
+	parent, cancel := context.WithCancel(context.Background())
+	job, stop := jobContext(parent, 0)
+	defer stop()
+	if _, limited := job.Deadline(); limited {
+		t.Fatal("zero Horizon limit created a deadline")
+	}
+	cancel()
+	if !errors.Is(job.Err(), context.Canceled) {
+		t.Fatalf("cancellation not inherited: %v", job.Err())
+	}
+}
+
+func TestTimedOutGenerationDoesNotBlockNextJob(t *testing.T) {
+	home := readyHome(t)
+	cfg, err := loadSettings(home, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := newStore(home, 99)
+	first := &job{ID: "first", ChatID: 1, Status: "queued", Input: record{ID: 1, Author: 1, Seq: 1, Text: "first"}}
+	second := &job{ID: "second", ChatID: 1, Status: "queued", Input: record{ID: 2, Author: 1, Seq: 2, Text: "second"}}
+	c := &chat{ID: 1, Origin: 1, Type: "private", Available: true, Jobs: []*job{first, second}, History: []record{first.Input, second.Input}}
+	if err := s.update(func(v *state) error { v.Chats["1"] = c; return nil }); err != nil {
+		t.Fatal(err)
+	}
+	g := &bridge{home: home, cfg: cfg, store: s, jobTimeout: 30 * time.Millisecond}
+	g.run = func(ctx context.Context, _ string, args []string, _ string) (string, error) {
+		if strings.Contains(strings.Join(args, " "), "sessions create") {
+			return "session", nil
+		}
+		if first.Status == "queued" {
+			<-ctx.Done()
+			return "", ctx.Err()
+		}
+		return "second reply", nil
+	}
+	g.deliver = func(_ context.Context, c *chat, j *job) error {
+		return g.setJob(c.ID, j.ID, func(_ *chat, j *job) error { j.Status = "sent"; return nil })
+	}
+	if err := g.process(context.Background(), c, first, cfg); err != nil {
+		t.Fatal(err)
+	}
+	v, err := s.snapshot()
+	if err != nil || v.Chats["1"].Jobs[0].Status != "unknown" {
+		t.Fatalf("first job: %+v, %v", v.Chats["1"].Jobs[0], err)
+	}
+	first.Status = "unknown"
+	g.jobTimeout = time.Second
+	if err := g.process(context.Background(), v.Chats["1"], second, cfg); err != nil {
+		t.Fatal(err)
+	}
+	v, err = s.snapshot()
+	if err != nil || v.Chats["1"].Jobs[0].Status != "unknown" || v.Chats["1"].Jobs[1].Status != "sent" {
+		t.Fatalf("jobs after retry: %+v, %v", v.Chats["1"].Jobs, err)
+	}
 }
 func TestGenerateUsesSessionAccessAndData(t *testing.T) {
 	home := readyHome(t)

@@ -95,9 +95,13 @@ func (g *bridge) setJob(chatID int64, id string, edit func(*chat, *job) error) e
 	return err
 }
 func (g *bridge) process(ctx context.Context, c *chat, j *job, cfg settings) error {
-	ctx, cancel := context.WithTimeout(ctx, g.jobDuration())
+	hc, err := config.Load(g.home)
+	if err != nil {
+		return g.fail(cID(c, j), j.ID, errors.New("invalid Horizon configuration"), false)
+	}
+	ctx, cancel := jobContext(ctx, g.jobDuration(hc.Limits.MaxTurnDuration))
 	defer cancel()
-	c, err := workspace(ctx, g.home, cfg, g.store, c, g.run)
+	c, err = workspace(ctx, g.home, cfg, g.store, c, g.run)
 	if err != nil {
 		return g.fail(cID(c, j), j.ID, err, false)
 	}
@@ -114,10 +118,6 @@ func (g *bridge) process(ctx context.Context, c *chat, j *job, cfg settings) err
 		return err
 	}
 	c = current
-	hc, err := config.Load(g.home)
-	if err != nil {
-		return g.fail(c.ID, j.ID, errors.New("invalid Horizon configuration"), false)
-	}
 	reply, err := shouldReply(ctx, g.home, cfg, c, j, hc.Decision.Model, g.run, func(data map[string]any) {
 		for k, v := range jobFields(c, j) {
 			data[k] = v
@@ -383,7 +383,19 @@ func (g *bridge) loop(ctx context.Context) error {
 					}()
 					defer func() { done <- c.Origin }()
 					if j == nil {
-						jobCtx, stop := context.WithTimeout(ctx, g.jobDuration())
+						hc, loadErr := config.Load(g.home)
+						if loadErr != nil {
+							_ = g.store.update(func(v *state) error {
+								current, e := resolveChat(v, fmt.Sprint(c.ID))
+								if e == nil {
+									current.LastError = "invalid Horizon configuration"
+									current.Available = false
+								}
+								return e
+							})
+							return
+						}
+						jobCtx, stop := jobContext(ctx, g.jobDuration(hc.Limits.MaxTurnDuration))
 						defer stop()
 						_, err := workspace(jobCtx, g.home, cfg, g.store, c, g.run)
 						if err != nil {
@@ -646,9 +658,23 @@ func schedulingOrder(value state, lastOrigin int64) []*chat {
 	return chats
 }
 
-func (g *bridge) jobDuration() time.Duration {
+func (g *bridge) jobDuration(turnDuration time.Duration) time.Duration {
 	if g.jobTimeout > 0 {
 		return g.jobTimeout
 	}
-	return 10 * time.Minute
+	if turnDuration == 0 {
+		return 0
+	}
+	const overhead = 2 * time.Minute
+	if turnDuration > time.Duration(1<<63-1)-overhead {
+		return turnDuration
+	}
+	return turnDuration + overhead
+}
+
+func jobContext(parent context.Context, duration time.Duration) (context.Context, context.CancelFunc) {
+	if duration == 0 {
+		return context.WithCancel(parent)
+	}
+	return context.WithTimeout(parent, duration)
 }
