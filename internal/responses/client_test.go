@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -15,6 +16,48 @@ import (
 
 	"github.com/ReanSn0w/horizon/internal/config"
 )
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(request *http.Request) (*http.Response, error) { return f(request) }
+
+func TestSerializedContinuationKeepsPrefixAndUsageCounters(t *testing.T) {
+	user := UserMessage("inspect")
+	opaque := json.RawMessage(`{"type":"reasoning","encrypted_content":"opaque","future":{"x":1}}`)
+	tools := []Tool{{Type: "function", Name: "skill_read", Strict: true, Parameters: map[string]any{"type": "object"}}}
+	var sent []Request
+	client := &Client{ResponsesURL: "https://example.test/responses", APIKey: "secret", MaxAttempts: 1,
+		HTTPClient: &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+			body, err := io.ReadAll(request.Body)
+			if err != nil {
+				return nil, err
+			}
+			var decoded Request
+			if err := json.Unmarshal(body, &decoded); err != nil {
+				return nil, err
+			}
+			sent = append(sent, decoded)
+			return &http.Response{StatusCode: 200, Header: http.Header{"Content-Type": []string{"text/event-stream"}}, Body: io.NopCloser(strings.NewReader("data: {\"type\":\"response.completed\",\"response\":{\"status\":\"completed\",\"usage\":{\"input_tokens\":1539,\"output_tokens\":5,\"input_tokens_details\":{\"cached_tokens\":1523}},\"output\":[]}}\n\n"))}, nil
+		})}}
+	for _, input := range [][]json.RawMessage{{user}, {user, opaque}} {
+		response, err := client.Stream(context.Background(), Request{Model: "m", Instructions: "stable", Input: input, Tools: tools, Store: false}, nil, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		usage := ParseUsage(response.Usage)
+		if usage.InputTokens == nil || *usage.InputTokens != 1539 || usage.CachedTokens == nil || *usage.CachedTokens != 1523 {
+			t.Fatalf("usage = %+v", usage)
+		}
+	}
+	if len(sent) != 2 || sent[0].Instructions != sent[1].Instructions || !bytes.Equal(sent[0].Input[0], sent[1].Input[0]) || !bytes.Equal(sent[1].Input[1], opaque) {
+		t.Fatalf("serialized prefix changed: %+v", sent)
+	}
+	firstTools, _ := json.Marshal(sent[0].Tools)
+	nextTools, _ := json.Marshal(sent[1].Tools)
+	if !bytes.Equal(firstTools, nextTools) || sent[0].Store || sent[1].Store {
+		t.Fatalf("tool definitions or store changed: %+v", sent)
+	}
+}
 
 func TestStreamRetriesBeforeEventsAndPreservesOpaqueOutput(t *testing.T) {
 	attempts := 0
