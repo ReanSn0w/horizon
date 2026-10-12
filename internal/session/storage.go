@@ -261,6 +261,10 @@ func (locked *LockedSession) CompleteTurn(turnID string, status Status, turnErro
 }
 
 func (locked *LockedSession) CompleteTurnWithCompaction(turnID string, status Status, turnError *TurnError, contextItems []json.RawMessage, compact *Compaction, completedAt time.Time) error {
+	return locked.CompleteTurnWithCompactionAndUsage(turnID, status, turnError, contextItems, compact, nil, completedAt)
+}
+
+func (locked *LockedSession) CompleteTurnWithCompactionAndUsage(turnID string, status Status, turnError *TurnError, contextItems []json.RawMessage, compact *Compaction, inputTokens *uint64, completedAt time.Time) error {
 	if status == StatusActive {
 		return errors.New("completed turn status must not be active")
 	}
@@ -282,7 +286,7 @@ func (locked *LockedSession) CompleteTurnWithCompaction(turnID string, status St
 	turn.CompletedAt = &completedAt
 	if status == StatusCompleted {
 		value.Checkpoints = append(value.Checkpoints, ContextCheckpoint{
-			TurnID: turnID, CreatedAt: completedAt, Items: cloneRawMessages(contextItems),
+			TurnID: turnID, CreatedAt: completedAt, InputTokens: inputTokens, Items: cloneRawMessages(contextItems),
 		})
 		if compact != nil {
 			copy := *compact
