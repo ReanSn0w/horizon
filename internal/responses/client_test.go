@@ -162,7 +162,9 @@ func TestConfiguredEndpointCompatibility(t *testing.T) {
 	}
 	automatic := false
 	for _, item := range response.Output {
-		var header struct{ Type string `json:"type"` }
+		var header struct {
+			Type string `json:"type"`
+		}
 		if json.Unmarshal(item, &header) == nil && header.Type == "compaction" {
 			automatic = true
 		}

@@ -40,7 +40,7 @@ func exceedsCompactThreshold(items []json.RawMessage, inputTokens *uint64, thres
 	for _, item := range items {
 		bytes += int64(len(item))
 	}
-	return bytes >= int64(threshold)*8
+	return bytes >= 1<<20 && bytes >= int64(threshold)*8
 }
 
 func (r *Runtime) compactWindow(ctx context.Context, input []json.RawMessage, before func() error, unsupported bool, completed func(*responses.Response, error)) ([]json.RawMessage, *session.Compaction, responses.UsageMetrics, bool, error) {
@@ -69,7 +69,7 @@ func (r *Runtime) compactWindow(ctx context.Context, input []json.RawMessage, be
 	request := responses.Request{
 		Model: r.Profile.Model, Instructions: summaryInstructions, Input: clone(input),
 		Tools: []responses.Tool{}, ParallelToolCalls: false, Store: false,
-		Include: []string{"reasoning.encrypted_content"}, ContextManagement: []responses.ContextPolicy{},
+		Include: []string{"reasoning.encrypted_content"},
 	}
 	response, err := r.Client.Stream(ctx, request, before, nil)
 	completed(response, err)

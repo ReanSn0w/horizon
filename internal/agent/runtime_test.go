@@ -186,7 +186,7 @@ func TestPreviousWindowThresholdUsesUsageOrConservativeSize(t *testing.T) {
 	if previousWindowOverThreshold(value, 1000) {
 		t.Fatal("short legacy checkpoint triggered compaction")
 	}
-	value.Checkpoints[0].Items = []json.RawMessage{json.RawMessage(`"` + strings.Repeat("x", 8000) + `"`)}
+	value.Checkpoints[0].Items = []json.RawMessage{json.RawMessage(`"` + strings.Repeat("x", 1<<20) + `"`)}
 	if !previousWindowOverThreshold(value, 1000) {
 		t.Fatal("large legacy checkpoint was ignored")
 	}

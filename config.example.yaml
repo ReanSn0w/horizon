@@ -29,7 +29,7 @@ decision:
     key: ""
   model: "typesafe/jev-1.13"
 
-# Set either limit to 0 to disable it.
+# Set an individual limit to 0 to disable it.
 limits:
   max_model_requests: 128
   max_input_tokens: 2000000
