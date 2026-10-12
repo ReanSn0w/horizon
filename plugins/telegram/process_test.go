@@ -82,6 +82,33 @@ func TestChildDiagnosticLogsOnlyNumericUsage(t *testing.T) {
 	}
 }
 
+func TestChildDiagnosticFiltersPerRequestUsage(t *testing.T) {
+	var journal bytes.Buffer
+	g := &bridge{journal: &diagnosticLog{out: &journal, runID: "run"}}
+	g.childDiagnostic(childEvent{Type: "model_request_completed", Session: "session", Data: map[string]json.RawMessage{
+		"attempt": json.RawMessage(`2`), "input_tokens": json.RawMessage(`1500`),
+		"output_tokens": json.RawMessage(`12`), "cached_tokens": json.RawMessage(`0`),
+		"usage_available": json.RawMessage(`true`), "phase": json.RawMessage(`"compaction"`),
+		"usage": json.RawMessage(`{"private":"SECRET_USAGE"}`),
+	}})
+	output := journal.String()
+	for _, expected := range []string{`"input_tokens":1500`, `"output_tokens":12`, `"cached_tokens":0`, `"usage_available":true`, `"phase":"compaction"`} {
+		if !strings.Contains(output, expected) {
+			t.Fatalf("missing %s: %s", expected, output)
+		}
+	}
+	if strings.Contains(output, "SECRET_USAGE") {
+		t.Fatalf("raw usage leaked: %s", output)
+	}
+	journal.Reset()
+	g.childDiagnostic(childEvent{Type: "model_request_completed", Session: "session", Data: map[string]json.RawMessage{
+		"input_tokens": json.RawMessage(`"SECRET_TOKEN"`), "cached_tokens": json.RawMessage(`null`),
+	}})
+	if strings.Contains(journal.String(), "SECRET_TOKEN") || strings.Contains(journal.String(), `"cached_tokens":0`) {
+		t.Fatalf("invalid or missing counters were logged: %s", journal.String())
+	}
+}
+
 func TestStreamedRunnerRejectsInvalidCompletion(t *testing.T) {
 	for _, tc := range []struct{ name, script string }{
 		{"malformed", "printf 'invalid\\n'; sleep 30"},

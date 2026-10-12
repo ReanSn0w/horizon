@@ -149,6 +149,7 @@ func (r *Runtime) Run(ctx context.Context, message string) (Result, error) {
 				}
 				if response != nil {
 					metrics := responses.ParseUsage(response.Usage)
+					fields["usage_available"] = metrics.InputTokens != nil
 					if metrics.InputTokens != nil {
 						fields["input_tokens"] = *metrics.InputTokens
 					}
