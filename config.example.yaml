@@ -21,10 +21,6 @@ provider:
   url: ""
   # API key issued by your provider. Keep this file private.
   key: ""
-  # Optional OpenRouter app attribution. Set both fields to show an app name.
-  # The URL is a public app identifier; identical URLs share one app entry.
-  app_url: ""
-  app_title: ""
 
 # Separate provider for command decisions (OpenRouter Decisions API).
 decision:

@@ -67,12 +67,6 @@ func TestInitAddsBundledSkillWithoutChangingExistingHome(t *testing.T) {
 	}
 	for name, want := range files {
 		data, err := os.ReadFile(filepath.Join(home, name))
-		if name == "config.yaml" {
-			if err != nil || !strings.Contains(string(data), "key: personal-key") || !strings.Contains(string(data), "app_url: \"\"") || !strings.Contains(string(data), "app_title: \"\"") {
-				t.Fatalf("init did not safely extend %s: %q %v", name, data, err)
-			}
-			continue
-		}
 		if err != nil || string(data) != want {
 			t.Fatalf("init changed %s: %q %v", name, data, err)
 		}
@@ -82,7 +76,7 @@ func TestInitAddsBundledSkillWithoutChangingExistingHome(t *testing.T) {
 	}
 }
 
-func TestInitAddsProviderAttributionWithoutChangingValues(t *testing.T) {
+func TestInitDoesNotAddProviderAttribution(t *testing.T) {
 	home := t.TempDir()
 	path := filepath.Join(home, "config.yaml")
 	initial := "# personal\nmode: unit\ndefault_model: personal\nmodels:\n  personal:\n    model: model\n    compact_threshold: 100000\nprovider:\n  url: https://openrouter.ai/api/v1\n  key: personal-key\n"
@@ -91,7 +85,7 @@ func TestInitAddsProviderAttributionWithoutChangingValues(t *testing.T) {
 	}
 	code, out, diag := runApp(t, "", "--home", home, "init")
 	data, err := os.ReadFile(path)
-	if code != ExitOK || err != nil || diag != "" || !strings.Contains(out, "дополнена") || !strings.Contains(string(data), "# personal") || !strings.Contains(string(data), "key: personal-key") || !strings.Contains(string(data), "app_url: \"\"") || !strings.Contains(string(data), "app_title: \"\"") {
+	if code != ExitOK || err != nil || diag != "" || !strings.Contains(out, "Существующая конфигурация сохранена") || string(data) != initial {
 		t.Fatalf("init: code=%d out=%q diag=%q config=%q err=%v", code, out, diag, data, err)
 	}
 	code, _, diag = runApp(t, "", "--home", home, "init")

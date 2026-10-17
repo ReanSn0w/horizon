@@ -64,7 +64,7 @@ func TestStreamRetriesBeforeEventsAndPreservesOpaqueOutput(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		attempts++
 		if request.Header.Get("HTTP-Referer") != "" || request.Header.Get("X-OpenRouter-Title") != "" {
-			t.Fatal("attribution headers were sent without configuration")
+			t.Fatal("OpenRouter attribution headers were sent to another provider")
 		}
 		if request.Header.Get("Authorization") != "Bearer secret" {
 			t.Fatalf("authorization header = %q", request.Header.Get("Authorization"))
@@ -98,28 +98,24 @@ func TestStreamRetriesBeforeEventsAndPreservesOpaqueOutput(t *testing.T) {
 
 func TestAppAttributionHeadersOnResponsesAndCompact(t *testing.T) {
 	var paths []string
-	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+	transport := roundTripFunc(func(request *http.Request) (*http.Response, error) {
 		paths = append(paths, request.URL.Path)
-		if request.Header.Get("HTTP-Referer") != "https://github.com/ReanSn0w/horizon" || request.Header.Get("X-OpenRouter-Title") != "Horizon" {
+		if request.URL.Hostname() != "openrouter.ai" || request.Header.Get("HTTP-Referer") != openRouterAppURL || request.Header.Get("X-OpenRouter-Title") != openRouterAppTitle {
 			t.Errorf("attribution headers: referer=%q title=%q", request.Header.Get("HTTP-Referer"), request.Header.Get("X-OpenRouter-Title"))
 		}
-		if request.URL.Path == "/responses/compact" {
-			writer.Header().Set("Content-Type", "application/json")
-			fmt.Fprint(writer, `{"status":"completed","output":[{"type":"compaction","id":"compact-1"}]}`)
-			return
+		if request.URL.Path == "/api/v1/responses/compact" {
+			return &http.Response{StatusCode: 200, Header: http.Header{"Content-Type": []string{"application/json"}}, Body: io.NopCloser(strings.NewReader(`{"status":"completed","output":[{"type":"compaction","id":"compact-1"}]}`))}, nil
 		}
-		writer.Header().Set("Content-Type", "text/event-stream")
-		fmt.Fprint(writer, "data: {\"type\":\"response.completed\",\"response\":{\"status\":\"completed\",\"output\":[]}}\n\n")
-	}))
-	defer server.Close()
-	client := &Client{ResponsesURL: server.URL + "/responses", CompactURL: server.URL + "/responses/compact", APIKey: "secret", AppURL: "https://github.com/ReanSn0w/horizon", AppTitle: "Horizon"}
+		return &http.Response{StatusCode: 200, Header: http.Header{"Content-Type": []string{"text/event-stream"}}, Body: io.NopCloser(strings.NewReader("data: {\"type\":\"response.completed\",\"response\":{\"status\":\"completed\",\"output\":[]}}\n\n"))}, nil
+	})
+	client := &Client{ResponsesURL: "https://openrouter.ai/api/v1/responses", CompactURL: "https://openrouter.ai/api/v1/responses/compact", APIKey: "secret", HTTPClient: &http.Client{Transport: transport}}
 	if _, err := client.Stream(context.Background(), Request{Model: "m"}, nil, nil); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := client.Compact(context.Background(), CompactRequest{Model: "m"}, nil); err != nil {
 		t.Fatal(err)
 	}
-	if len(paths) != 2 || paths[0] != "/responses" || paths[1] != "/responses/compact" {
+	if len(paths) != 2 || paths[0] != "/api/v1/responses" || paths[1] != "/api/v1/responses/compact" {
 		t.Fatalf("paths = %v", paths)
 	}
 }
