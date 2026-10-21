@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/ReanSn0w/horizon/internal/buildinfo"
+	catalog "github.com/ReanSn0w/horizon/plugins"
 	"io"
 	"os"
 	"os/signal"
@@ -86,7 +88,7 @@ func main() {
 func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	fail := func(code int, err error) int { fmt.Fprintf(stderr, "decision: %s\n", err); return code }
 	if len(args) == 1 && args[0] == "horizon-plugin-metadata" {
-		if err := json.NewEncoder(stdout).Encode(map[string]any{"protocol_version": 1, "config_protocol_version": 1, "version": "1.0.0", "description": "Evaluate structured JSON questions with the decision provider"}); err != nil {
+		if err := json.NewEncoder(stdout).Encode(map[string]any{"protocol_version": 1, "config_protocol_version": 1, "version": buildinfo.Version, "description": catalog.Description("decision")}); err != nil {
 			return fail(1, err)
 		}
 		return 0
