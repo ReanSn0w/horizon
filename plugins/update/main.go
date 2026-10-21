@@ -179,6 +179,6 @@ func bootstrap(ctx context.Context, args []string, out, diag io.Writer) int {
 	if err != nil {
 		return fail(err)
 	}
-	fmt.Fprintf(out, "Installed %s: horizon, %s\nNext: %s --home %q init\n", state.Manifest.Tag, strings.Join(state.Installed, ", "), state.Executable, state.Home)
+	fmt.Fprintf(out, "Installed %s: horizon, %s\nNext: %q --home %q init\n", state.Manifest.Tag, strings.Join(state.Installed, ", "), state.Executable, state.Home)
 	return 0
 }
