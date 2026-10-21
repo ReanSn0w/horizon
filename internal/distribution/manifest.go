@@ -32,6 +32,9 @@ func ArchiveName(tag, platform string) string {
 }
 func NewManifest(tag, commit string) (Manifest, error) {
 	m := Manifest{1, tag, commit, map[string]string{}, catalog.Embedded()}
+	for i := range m.Catalog.Plugins {
+		m.Catalog.Plugins[i].Source = ""
+	}
 	for _, p := range Platforms {
 		m.Archives[p] = ArchiveName(tag, p)
 	}

@@ -28,3 +28,17 @@ Missing state, mismatched running version or an unrecognized installation
 requires explicit bootstrap/recovery with install.sh; metadata from older plugin
 binaries is not used to guess a release. API keys and working model provider
 settings are not required for distribution operations.
+
+Mutations hold permanent OS locks for the home and executable path. The executable
+has an adjacent `.installation.json` owner marker to reject accidental use by a
+second managed home. Prepared replacements and backups live beside each target;
+`<home>/.distribution/transaction.json` is persisted before any replacement.
+Recovery copies backups without consuming them, so another interruption remains
+recoverable. A successful durable journal removal commits the operation.
+
+This is recoverable replacement, not an atomic switch for concurrent readers.
+Stop long-running services (including Telegram) and update between agent turns.
+Already running processes continue using old code. Re-run the installer to recover
+if Horizon or the updater cannot start. Configuration and data are not rolled back
+or migrated by the distribution mechanism. A pre-journal crash can leave harmless
+hidden staging files; never delete a live transaction's backup files manually.
