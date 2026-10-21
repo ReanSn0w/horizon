@@ -197,3 +197,20 @@ func TestCLIFlagsAndHelp(t *testing.T) {
 		t.Fatalf("help: code=%d stdout=%s stderr=%s", code, out.String(), diag.String())
 	}
 }
+
+func TestMemoryDescriptionEncouragesProactiveSaving(t *testing.T) {
+	description := describe()
+	var addDescription string
+	for _, tool := range description.Tools {
+		if tool.Name == "add" {
+			addDescription = tool.Description
+		}
+	}
+	for name, text := range map[string]string{"instructions": description.Instructions, "add": addDescription} {
+		for _, want := range []string{"Proactively save", "do not wait for an explicit request", "personal meanings of words", "avoid duplicates", "Ask before saving sensitive information", "respect requests not to remember"} {
+			if !strings.Contains(text, want) {
+				t.Errorf("%s missing guidance %q", name, want)
+			}
+		}
+	}
+}

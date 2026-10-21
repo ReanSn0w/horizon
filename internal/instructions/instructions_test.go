@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/ReanSn0w/horizon/internal/plugins"
 )
 
 func TestBuildOrderDirectWorkspaceAndImmutableSnapshot(t *testing.T) {
@@ -187,7 +189,7 @@ func TestExtensionInstructionsAreAppendedAsSourcedData(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(workspace, "AGENTS.md"), []byte("LOCAL_SENTINEL"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	data := []map[string]string{{"source": "user", "text": "DATA_SENTINEL"}}
+	data := []plugins.Block{{Source: "user", Text: "DATA_SENTINEL\n- Картридж: «карик» <console>"}, {Source: "workspace /tmp/project", Text: "- Build with make"}}
 	snapshot, err := Build(home, workspace, "INTRO_SENTINEL", Options{Extensions: []Extension{{Name: "memory", Instructions: "TOOL_SENTINEL", Data: data}}})
 	if err != nil {
 		t.Fatal(err)
@@ -200,15 +202,40 @@ func TestExtensionInstructionsAreAppendedAsSourcedData(t *testing.T) {
 		}
 		last = index
 	}
-	data[0]["text"] = "CHANGED"
+	for _, want := range []string{"### Source: user\n\nDATA_SENTINEL\n- Картридж: «карик» <console>", "### Source: workspace /tmp/project\n\n- Build with make"} {
+		if !strings.Contains(snapshot.Prompt, want) {
+			t.Fatalf("missing Markdown block %q in %s", want, snapshot.Prompt)
+		}
+	}
+	if strings.Contains(snapshot.Prompt, `"source":`) || strings.Contains(snapshot.Prompt, `\n-`) {
+		t.Fatalf("JSON leaked into Markdown context: %s", snapshot.Prompt)
+	}
+	data[0].Text = "CHANGED"
 	if strings.Contains(snapshot.Prompt, "CHANGED") {
 		t.Fatal("mutable snapshot")
 	}
 }
 
-func TestRenderedExtensionBudgetIncludesJSONEscaping(t *testing.T) {
-	_, err := Build(t.TempDir(), t.TempDir(), "", Options{Extensions: []Extension{{Name: "example", Data: map[string]string{"text": strings.Repeat("<", 12000)}}}})
-	if err == nil || !strings.Contains(err.Error(), "64 KiB") {
-		t.Fatal("escaped data exceeded prompt budget", err)
+func TestRenderedExtensionBudgetIncludesMarkdownAndSources(t *testing.T) {
+	for _, data := range [][]plugins.Block{
+		{{Source: "user", Text: strings.Repeat("x", 64*1024)}},
+		{{Source: strings.Repeat("s", 64*1024), Text: "note"}},
+	} {
+		_, err := Build(t.TempDir(), t.TempDir(), "", Options{Extensions: []Extension{{Name: "example", Data: data}}})
+		if err == nil || !strings.Contains(err.Error(), "64 KiB") {
+			t.Fatal("rendered data exceeded prompt budget", err)
+		}
+	}
+}
+
+func TestEmptyExtensionDataIsOmitted(t *testing.T) {
+	for _, data := range [][]plugins.Block{nil, {}} {
+		snapshot, err := Build(t.TempDir(), t.TempDir(), "", Options{Extensions: []Extension{{Name: "example", Instructions: "TOOLS", Data: data}}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(snapshot.Prompt, "Plugin example data") || !strings.Contains(snapshot.Prompt, "TOOLS") {
+			t.Fatalf("unexpected empty context: %s", snapshot.Prompt)
+		}
 	}
 }
