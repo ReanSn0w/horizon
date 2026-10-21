@@ -281,6 +281,24 @@ foreground instance alongside a service: a home-wide lock prevents duplicates.
 
 ## Diagnostics and upgrades
 
+
+For a managed release installation, stop Telegram before replacing binaries:
+
+```sh
+horizon telegram service stop
+horizon update
+horizon init
+horizon telegram service start
+horizon telegram service status
+```
+
+Use the same `--home` throughout. The updater preserves executable paths and
+updates Telegram together with its mandatory distribution dependency `decision`.
+It does not start services automatically. The same sequence applies to launchd
+and systemd user services. If an update fails, recover with the installer before
+starting the service again. The source-installation instructions below remain
+available for development builds.
+
 After installing the new binaries, update an existing macOS service definition:
 
 ```sh

@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/ReanSn0w/horizon/internal/buildinfo"
+	catalog "github.com/ReanSn0w/horizon/plugins"
 	"io"
 	"os"
 	"os/signal"
@@ -34,7 +36,7 @@ func main() {
 func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	fail := func(code int, err error) int { fmt.Fprintf(stderr, "browser: %s\n", err); return code }
 	if len(args) == 1 && args[0] == "horizon-plugin-metadata" {
-		if err := json.NewEncoder(stdout).Encode(plugins.Metadata{ProtocolVersion: 1, AgentProtocolVersion: 1, ConfigProtocolVersion: 1, Version: "1.0.0", Description: "Remote Browser Use browser"}); err != nil {
+		if err := json.NewEncoder(stdout).Encode(plugins.Metadata{ProtocolVersion: 1, AgentProtocolVersion: 1, ConfigProtocolVersion: 1, Version: buildinfo.Version, Description: catalog.Description("browser")}); err != nil {
 			return fail(1, err)
 		}
 		return 0

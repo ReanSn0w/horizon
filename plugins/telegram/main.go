@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/ReanSn0w/horizon/internal/buildinfo"
+	catalog "github.com/ReanSn0w/horizon/plugins"
 	"io"
 	"os"
 	"os/signal"
@@ -83,7 +85,7 @@ func main() {
 }
 func runCLI(ctx context.Context, args []string, out, errOut io.Writer) int {
 	if len(args) == 1 && args[0] == "horizon-plugin-metadata" {
-		if json.NewEncoder(out).Encode(map[string]any{"protocol_version": 1, "config_protocol_version": 1, "version": "1.0.0", "description": "Telegram integration for Horizon"}) != nil {
+		if json.NewEncoder(out).Encode(map[string]any{"protocol_version": 1, "config_protocol_version": 1, "version": buildinfo.Version, "description": catalog.Description("telegram")}) != nil {
 			return 1
 		}
 		return 0

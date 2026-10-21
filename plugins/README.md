@@ -1,8 +1,8 @@
 # Исходники плагинов
 
 Каждый плагин хранится в отдельном каталоге `plugins/<имя>/`. Этот каталог
-содержит исходники и не сканируется Horizon. Доступные плагины — `decision`
-`telegram`, `memory` и `browser`.
+содержит исходники и не сканируется Horizon. Доступные плагины — `decision`, `telegram`, `memory`, `browser`, `update` и
+`plugins`. Описания и зависимости находятся в [catalog.yaml](catalog.yaml).
 
 Можно установить symlink на исполняемый файл. Для удаления достаточно удалить
 `<home>/plugins/horizon-<имя>`. `init` плагины автоматически не устанавливает.
@@ -58,7 +58,9 @@ horizon --home /path/to/home telegram start
 `make install-decision HORIZON_HOME=/path/to/home`.
 [Настройки, правила групп, send и управление службами](telegram/README.md).
 
-`make install-plugins` по умолчанию устанавливает `decision` `telegram` и `memory`.
+`make install-plugins` по умолчанию устанавливает `update`, `plugins`, `decision`,
+`telegram` и `memory`. Команда `make install-plugin-plugins` устанавливает только
+менеджер плагинов; `make install-plugins` остаётся общей целью.
 Для отдельной установки используйте `make install-decision` или
 `make install-telegram`; `PLUGINS=decision` выбирает только decision.
 `HORIZON_HOME` берётся из окружения или равен `~/.horizon`.
@@ -78,3 +80,15 @@ horizon --home /path/to/home telegram start
 Повторный `horizon init` добавляет `plugins.browser` с пустым `api_key`.
 Включение инструментов: `agent_plugins: [browser]`.
 [Конфигурация, команды и очистка после сбоя](browser/README.md).
+
+## Релизная установка
+
+В управляемой установке используйте `horizon plugins install <имя>`:
+`telegram` автоматически доставляет `decision` той же версии. Повторный
+`horizon init` добавит настройки, но не включит расширение агента.
+
+[plugins](plugins/README.md) показывает каталог релиза и управляет установкой
+с учётом зависимостей. [update](update/README.md) обновляет весь установленный
+комплект, включая себя. Оба входят в начальную поставку и не удаляются менеджером.
+Исходный каталог публикуется в release.json конкретного тега, не читается из master.
+Ручные неизвестные файлы не обслуживаются менеджером.

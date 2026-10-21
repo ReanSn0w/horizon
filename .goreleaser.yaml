@@ -1,0 +1,50 @@
+version: 2
+project_name: horizon
+builds:
+  - &build
+    id: horizon
+    main: .
+    binary: horizon
+    env: [CGO_ENABLED=0]
+    goos: [linux, darwin]
+    goarch: [amd64, arm64]
+    flags: [-trimpath]
+    ldflags:
+      - -s -w -X github.com/ReanSn0w/horizon/internal/buildinfo.Version={{ .Env.HORIZON_RELEASE_TAG }} -X github.com/ReanSn0w/horizon/internal/buildinfo.Commit={{ .Env.HORIZON_RELEASE_COMMIT }}
+  - <<: *build
+    id: decision
+    main: ./plugins/decision
+    binary: horizon-decision
+  - <<: *build
+    id: telegram
+    main: ./plugins/telegram
+    binary: horizon-telegram
+  - <<: *build
+    id: memory
+    main: ./plugins/memory
+    binary: horizon-memory
+  - <<: *build
+    id: browser
+    main: ./plugins/browser
+    binary: horizon-browser
+  - <<: *build
+    id: update
+    main: ./plugins/update
+    binary: horizon-update
+  - <<: *build
+    id: plugins
+    main: ./plugins/plugins
+    binary: horizon-plugins
+archives:
+  - formats: [tar.gz]
+    name_template: 'horizon_{{ .Env.HORIZON_RELEASE_VERSION }}_{{ .Os }}_{{ .Arch }}'
+    files:
+      - src: .release/release.json
+        dst: .
+        strip_parent: true
+checksum:
+  name_template: checksums.txt
+changelog:
+  disable: true
+release:
+  disable: true

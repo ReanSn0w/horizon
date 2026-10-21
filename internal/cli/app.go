@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/ReanSn0w/horizon/internal/buildinfo"
 	"github.com/ReanSn0w/horizon/internal/config"
 	"github.com/ReanSn0w/horizon/internal/plugins"
 	"github.com/ReanSn0w/horizon/internal/session"
@@ -25,6 +26,7 @@ type App struct {
 }
 
 type globalOptions struct {
+	Version bool   `long:"version" description:"show build version and commit"`
 	Verbose bool   `short:"v" long:"verbose" description:"show full tool results and diagnostics"`
 	Home    string `long:"home" description:"Horizon home directory (default: user home/.horizon)"`
 }
@@ -50,6 +52,18 @@ func New(in io.Reader, out, errOut io.Writer) *App {
 }
 
 func (a *App) Run(args []string) int {
+	if versionRequest(args) {
+		var options globalOptions
+		parser := flags.NewParser(&options, flags.None)
+		remaining, err := parser.ParseArgs(args)
+		if err != nil || len(remaining) != 0 {
+			fmt.Fprintln(a.errOut, "horizon: --version accepts only global options")
+			return ExitUsage
+		}
+		fmt.Fprintf(a.out, "Horizon %s (%s)\n", buildinfo.Version, buildinfo.Commit)
+		return ExitOK
+	}
+
 	var options globalOptions
 	parser := flags.NewParser(&options, flags.HelpFlag|flags.PassDoubleDash)
 	parser.Name = "horizon"
@@ -274,4 +288,20 @@ func insertResume(args []string, index int) []string {
 	result = append(result, args[:index]...)
 	result = append(result, "resume")
 	return append(result, args[index:]...)
+}
+
+// Only global --version is handled here; plugin arguments and home values stay opaque.
+func versionRequest(args []string) bool {
+	for i := 0; i < len(args); i++ {
+		switch {
+		case args[i] == "--version":
+			return true
+		case args[i] == "--home":
+			i++
+		case strings.HasPrefix(args[i], "--home="), args[i] == "--verbose", args[i] == "-v":
+		default:
+			return false
+		}
+	}
+	return false
 }
