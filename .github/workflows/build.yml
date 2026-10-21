@@ -1,0 +1,150 @@
+name: Build and release
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Trial version (for example v0.1.0-rc.1); never publishes a release
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref_type != 'tag' }}
+
+jobs:
+  checks:
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-24.04, macos-15]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version-file: go.mod
+      - run: go build -o "$RUNNER_TEMP/horizon-dev" .
+      - run: go test ./...
+      - run: go vet ./...
+      - run: go test -race ./...
+      - run: sh -n install.sh scripts/build-release.sh
+
+  package:
+    needs: checks
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version-file: go.mod
+      - name: Install pinned GoReleaser
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/goreleaser"
+          cd "$RUNNER_TEMP/goreleaser"
+          curl -fLsS --retry 3 --max-time 300 -o goreleaser_Linux_x86_64.tar.gz https://github.com/goreleaser/goreleaser/releases/download/v2.18.3/goreleaser_Linux_x86_64.tar.gz
+          curl -fLsS --retry 3 --max-time 60 -o checksums.txt https://github.com/goreleaser/goreleaser/releases/download/v2.18.3/checksums.txt
+          grep '  goreleaser_Linux_x86_64.tar.gz$' checksums.txt | sha256sum -c -
+          tar -xzf goreleaser_Linux_x86_64.tar.gz goreleaser
+          echo "$RUNNER_TEMP/goreleaser" >> "$GITHUB_PATH"
+      - name: Build complete release assets without publishing
+        env:
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
+          TRIAL_VERSION: ${{ inputs.version }}
+        run: |
+          if [ "$REF_TYPE" = tag ]; then
+            sh scripts/build-release.sh "$REF_NAME"
+          elif [ -n "$TRIAL_VERSION" ]; then
+            sh scripts/build-release.sh "$TRIAL_VERSION"
+          else
+            sh scripts/build-release.sh
+          fi
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: release-assets
+          if-no-files-found: error
+          retention-days: 7
+          path: |
+            dist/horizon_*.tar.gz
+            dist/release.json
+            dist/checksums.txt
+            dist/install.sh
+
+  smoke:
+    needs: package
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-24.04, ubuntu-24.04-arm, macos-15-intel, macos-15]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version-file: go.mod
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          name: release-assets
+          path: dist
+      - name: Verify published asset checksums
+        run: |
+          cd dist
+          if command -v sha256sum >/dev/null 2>&1; then sha256sum -c checksums.txt; else shasum -a 256 -c checksums.txt; fi
+      - run: go run ./cmd/release-smoke --dist dist
+
+  publish:
+    if: github.event_name == 'push' && github.ref_type == 'tag' && startsWith(github.ref_name, 'v')
+    needs: [package, smoke]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    timeout-minutes: 10
+    steps:
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          name: release-assets
+          path: dist
+      - name: Upload to draft and publish only the complete set
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd dist
+          sha256sum -c checksums.txt
+          if gh release view "$RELEASE_TAG" --json isDraft > "$RUNNER_TEMP/release-status.json" 2> "$RUNNER_TEMP/release-error"; then
+            jq -e '.isDraft == true' "$RUNNER_TEMP/release-status.json" >/dev/null || { echo 'Refusing to overwrite a published release'; exit 1; }
+          else
+            # Create fails safely on authentication/network errors or an existing release.
+            gh release create "$RELEASE_TAG" --verify-tag --draft --title "$RELEASE_TAG" --generate-notes
+          fi
+          gh release upload "$RELEASE_TAG" horizon_*.tar.gz release.json checksums.txt install.sh --clobber
+          gh release view "$RELEASE_TAG" --json assets > "$RUNNER_TEMP/release-assets.json"
+          for file in horizon_*.tar.gz release.json checksums.txt install.sh; do
+            size=$(wc -c < "$file")
+            jq -e --arg name "$file" --argjson size "$size" '.assets | any(.name == $name and .size == $size and .state == "uploaded")' "$RUNNER_TEMP/release-assets.json" >/dev/null
+          done
+          case "$RELEASE_TAG" in
+            *-*) gh release edit "$RELEASE_TAG" --draft=false --prerelease --latest=false ;;
+            *) gh release edit "$RELEASE_TAG" --draft=false --latest ;;
+          esac
