@@ -1,0 +1,34 @@
+schema_version: 1
+plugins:
+  - id: decision
+    description: Evaluate structured JSON questions with the decision provider
+    source: ./plugins/decision
+    binary: horizon-decision
+    requires: []
+  - id: telegram
+    description: Telegram integration for Horizon
+    source: ./plugins/telegram
+    binary: horizon-telegram
+    requires: [decision]
+  - id: memory
+    description: Scoped persistent agent, user and workspace memory
+    source: ./plugins/memory
+    binary: horizon-memory
+    requires: []
+  - id: browser
+    description: Remote Browser Use browser
+    source: ./plugins/browser
+    binary: horizon-browser
+    requires: []
+  - id: update
+    description: Update Horizon and installed plugins
+    source: ./plugins/update
+    binary: horizon-update
+    required: true
+    requires: []
+  - id: plugins
+    description: List, install and remove official plugins
+    source: ./plugins/plugins
+    binary: horizon-plugins
+    required: true
+    requires: []
