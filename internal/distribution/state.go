@@ -23,6 +23,14 @@ type State struct {
 func StatePath(home string) string { return filepath.Join(home, stateDirectory, "state.json") }
 func LoadState(home string) (State, error) {
 	var s State
+	canonical, err := filepath.EvalSymlinks(home)
+	if err != nil {
+		return s, err
+	}
+	home, err = filepath.Abs(canonical)
+	if err != nil {
+		return s, err
+	}
 	data, err := os.ReadFile(StatePath(home))
 	if err != nil {
 		return s, fmt.Errorf("read managed installation (use install.sh first): %w", err)

@@ -26,7 +26,18 @@ type Manifest struct {
 	Catalog       catalog.Catalog   `json:"catalog"`
 }
 
-func ValidTag(tag string) bool { return tagPattern.MatchString(tag) }
+func ValidTag(tag string) bool {
+	if !tagPattern.MatchString(tag) {
+		return false
+	}
+	_, pre, _ := strings.Cut(tag, "-")
+	for _, part := range strings.Split(pre, ".") {
+		if numeric(part) && len(part) > 1 && part[0] == '0' {
+			return false
+		}
+	}
+	return true
+}
 func ArchiveName(tag, platform string) string {
 	return "horizon_" + strings.TrimPrefix(tag, "v") + "_" + platform + ".tar.gz"
 }

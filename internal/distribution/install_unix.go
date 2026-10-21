@@ -383,6 +383,14 @@ func (m *Manager) Install(ctx context.Context, b *Bundle, ids []string, platform
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return zero, err
 	}
+	if hasOld {
+		if err := NoDowngrade(old.Manifest.Tag, b.Manifest.Tag); err != nil {
+			return zero, err
+		}
+		if old.Manifest.Tag == b.Manifest.Tag && !SameManifest(old.Manifest, b.Manifest) {
+			return zero, fmt.Errorf("manifest changed for installed tag")
+		}
+	}
 	if hasOld && old.Platform != platform {
 		return zero, fmt.Errorf("installation platform mismatch")
 	}
