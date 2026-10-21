@@ -5,11 +5,11 @@ GO ?= go
 BIN_DIR ?= $(shell $(GO) env GOPATH | cut -d: -f1)/bin
 HORIZON_HOME ?= $(HOME)/.horizon
 # Select repository plugins to install.
-PLUGINS ?= decision telegram memory
+PLUGINS ?= update plugins decision telegram memory
 PLUGIN_NAMES := $(notdir $(patsubst %/main.go,%,$(wildcard plugins/*/main.go)))
-PLUGIN_TARGETS := $(addprefix install-,$(PLUGIN_NAMES))
+PLUGIN_TARGETS := $(addprefix install-plugin-,$(PLUGIN_NAMES))
 
-.PHONY: help install install-all install-plugins $(PLUGIN_TARGETS)
+.PHONY: help install install-all install-plugins install-decision install-telegram install-memory install-browser install-update $(PLUGIN_TARGETS)
 
 help:
 	@printf '%s\n' \
@@ -19,6 +19,8 @@ help:
 	  'make install-telegram        Install the Telegram integration plugin' \
 	  'make install-memory          Install the memory plugin' \
 	  'make install-browser         Install the Browser Use plugin' \
+	  'make install-update          Install the release updater' \
+	  'make install-plugin-plugins  Install the plugin manager' \
 	  'make install-all             Install Horizon and selected plugins' \
 	  'Overrides: GO, BIN_DIR, HORIZON_HOME, PLUGINS'
 
@@ -27,10 +29,17 @@ install:
 
 install-all: install install-plugins
 
-install-plugins: $(addprefix install-,$(PLUGINS))
+install-plugins: $(addprefix install-plugin-,$(PLUGINS))
+
+install-decision: install-plugin-decision
+install-telegram: install-plugin-telegram
+install-memory: install-plugin-memory
+install-browser: install-plugin-browser
+install-update: install-plugin-update
+install-plugin-telegram: install-plugin-decision
 
 # Build beside the destination and replace only after a successful build.
-$(PLUGIN_TARGETS): install-%:
+$(PLUGIN_TARGETS): install-plugin-%:
 	@set -eu; \
 	  umask 077; \
 	  mkdir -p "$(HORIZON_HOME)/plugins"; \

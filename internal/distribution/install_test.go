@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -145,5 +146,73 @@ func TestLocksOwnershipAndUnmanagedFiles(t *testing.T) {
 	if other, err := OpenManager(filepath.Join(t.TempDir(), "other"), m.Executable); err == nil {
 		other.Close()
 		t.Fatal("shared binary across homes")
+	}
+}
+
+func TestUpdateFailureRestoresEveryOldFile(t *testing.T) {
+	for failAt := 0; failAt < 4; failAt++ {
+		t.Run(fmt.Sprint(failAt), func(t *testing.T) {
+			m, b := testManager(t)
+			old, err := m.Install(context.Background(), b, nil, "linux_amd64", false)
+			if err != nil {
+				t.Fatal(err)
+			}
+			manifest, _, archive := fixture(t, "v0.2.0")
+			next, err := Extract(bytes.NewReader(archive), manifest)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer next.Close()
+			for name := range next.Hashes {
+				if name == "release.json" {
+					continue
+				}
+				data := []byte("v2-" + name)
+				_ = os.WriteFile(filepath.Join(next.Dir, name), data, 0700)
+				next.Hashes[name] = digest(data)
+			}
+			m.afterReplace = func(i int) error {
+				if i == failAt {
+					return errors.New("replace failed")
+				}
+				return nil
+			}
+			if _, err = m.Install(context.Background(), next, old.Installed, old.Platform, false); err == nil {
+				t.Fatal("failure not injected")
+			}
+			restored, err := LoadState(m.Home)
+			if err != nil || !SameManifest(restored.Manifest, old.Manifest) {
+				t.Fatalf("state %v %v", restored, err)
+			}
+			for _, name := range append([]string{"horizon"}, old.Binaries()...) {
+				if !old.Healthy(name) {
+					t.Fatalf("failed to restore %s", name)
+				}
+			}
+		})
+	}
+}
+func TestInstallRejectsSymlinkAndCancellation(t *testing.T) {
+	m, b := testManager(t)
+	outside := filepath.Join(t.TempDir(), "untouched")
+	_ = os.WriteFile(outside, []byte("sentinel"), 0700)
+	if err := os.Symlink(outside, m.Executable); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.Install(context.Background(), b, nil, "linux_amd64", true); err == nil {
+		t.Fatal("followed symlink")
+	}
+	data, _ := os.ReadFile(outside)
+	if string(data) != "sentinel" {
+		t.Fatal("changed symlink target")
+	}
+	_ = os.Remove(m.Executable)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := m.Install(ctx, b, nil, "linux_amd64", false); !errors.Is(err, context.Canceled) {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(m.Executable); !os.IsNotExist(err) {
+		t.Fatal("cancelled install wrote executable")
 	}
 }

@@ -6,6 +6,7 @@ import (
 	"compress/gzip"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -113,5 +114,22 @@ func TestExtractRejectsPathsLinksAndDuplicates(t *testing.T) {
 			b.Close()
 			t.Fatalf("accepted %v", h)
 		}
+	}
+}
+
+func TestCancelledAndTruncatedDownloads(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	client := &Client{HTTP: &http.Client{Transport: transportFunc(func(r *http.Request) (*http.Response, error) { return nil, r.Context().Err() })}}
+	if _, _, err := client.Manifest(ctx, "v0.1.0"); !errors.Is(err, context.Canceled) {
+		t.Fatal(err)
+	}
+	m, _, archive := fixture(t, "v0.1.0")
+	if b, err := Extract(bytes.NewReader(archive[:len(archive)-4]), m); err == nil {
+		b.Close()
+		t.Fatal("accepted truncated gzip")
+	}
+	if _, err := parseChecksums([]byte(strings.Repeat("0", 64) + "  release.json\n" + strings.Repeat("1", 64) + "  release.json\n")); err == nil {
+		t.Fatal("accepted duplicate checksum")
 	}
 }

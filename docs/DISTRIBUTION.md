@@ -42,3 +42,33 @@ Already running processes continue using old code. Re-run the installer to recov
 if Horizon or the updater cannot start. Configuration and data are not rolled back
 or migrated by the distribution mechanism. A pre-journal crash can leave harmless
 hidden staging files; never delete a live transaction's backup files manually.
+
+## Build and validation
+
+The GitHub Actions workflow runs normal tests, vet and race tests on Linux and
+macOS. It builds all four archives and runs each on a matching native runner.
+Only a push of a version tag can publish; pull requests, branch pushes and
+workflow_dispatch produce trial artifacts. `scripts/build-release.sh` requires
+GoReleaser 2.18.3 and accepts an optional version without creating a Git tag.
+The generated `.release/` and `dist/` directories are ignored by Git.
+
+```sh
+sh scripts/build-release.sh v0.1.0-rc.1
+go run ./cmd/release-smoke --dist dist
+```
+
+`cmd/release-manifest` verifies the complete archive set before producing the
+final checksums, including release.json and install.sh. Publication uploads into
+a draft, verifies the uploaded asset names and sizes, then publishes. It refuses
+to overwrite an already published release. A failed upload leaves a draft.
+
+Subprocess E2E tests build fixtures with the explicit `horizon_distribution_test`
+build tag. Only those binaries can route the fixed GitHub URLs to the local test
+HTTP server. Production builds have no custom repository or endpoint option.
+
+Initial verification on 2026-10-21: [trial workflow at 10f754d](https://github.com/ReanSn0w/horizon/actions/runs/39650338329)
+passed checks on Linux/macOS, packaged all four archives and passed native smoke
+tests for linux/amd64, linux/arm64, darwin/amd64 and darwin/arm64. Publication
+was correctly skipped for the branch push. Local macOS arm64 and Linux arm64
+(Docker) smoke and self-replacement checks also passed. Creating the first tag
+and exercising actual GitHub Release publication remain separate release actions.

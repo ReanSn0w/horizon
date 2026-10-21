@@ -48,6 +48,16 @@ func TestBootstrapUpdateAndDowngrade(t *testing.T) {
 	bundle := testBundle(t, "v0.1.0")
 	var out, diag bytes.Buffer
 	args := []string{"bootstrap", "--bundle", bundle.Dir, "--home", home, "--bin-dir", bin}
+	wrong := append(slices.Clone(args), "--expected-tag", "v9.0.0")
+	if code := run(context.Background(), wrong, &out, &diag, nil); code != 1 || !strings.Contains(diag.String(), "differs from requested") {
+		t.Fatalf("wrong tag: %d %s", code, diag.String())
+	}
+	if _, err := os.Stat(home); !os.IsNotExist(err) {
+		t.Fatal("wrong tag created installation home")
+	}
+	out.Reset()
+	diag.Reset()
+
 	if code := run(context.Background(), args, &out, &diag, nil); code != 0 {
 		t.Fatalf("%d %s", code, diag.String())
 	}

@@ -133,10 +133,11 @@ func bootstrap(ctx context.Context, args []string, out, diag io.Writer) int {
 		return 1
 	}
 	var options struct {
-		Bundle string `long:"bundle" required:"true" description:"verified extracted release directory"`
-		Home   string `long:"home" required:"true" description:"installation home"`
-		BinDir string `long:"bin-dir" required:"true" description:"directory for horizon"`
-		Adopt  bool   `long:"adopt" description:"explicitly replace existing official binaries"`
+		Bundle      string `long:"bundle" required:"true" description:"verified extracted release directory"`
+		ExpectedTag string `long:"expected-tag" description:"tag selected by the installer"`
+		Home        string `long:"home" required:"true" description:"installation home"`
+		BinDir      string `long:"bin-dir" required:"true" description:"directory for horizon"`
+		Adopt       bool   `long:"adopt" description:"explicitly replace existing official binaries"`
 	}
 	code, err := parse(args, &options, "horizon-update bootstrap (installer only)", out, diag)
 	if err != nil {
@@ -148,6 +149,9 @@ func bootstrap(ctx context.Context, args []string, out, diag io.Writer) int {
 	b, err := distribution.ReadBundle(options.Bundle)
 	if err != nil {
 		return fail(err)
+	}
+	if options.ExpectedTag != "" && b.Manifest.Tag != options.ExpectedTag {
+		return fail(fmt.Errorf("bundle tag differs from requested release %s", options.ExpectedTag))
 	}
 	if b.Manifest.Tag != buildinfo.Version || b.Manifest.Commit != buildinfo.Commit {
 		return fail(fmt.Errorf("bootstrap executable does not match bundle release identity"))

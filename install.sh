@@ -63,7 +63,7 @@ awk 'substr($0,1,1)!="-"{bad=1} END{exit bad}' "$staging/types" || fail 'archive
 mkdir "$staging/bundle"
 tar -xzf "$staging/$archive" -C "$staging/bundle"
 chmod 700 "$staging/bundle/horizon-update"
-set -- bootstrap --bundle "$staging/bundle" --home "$install_home" --bin-dir "$install_bin"
+set -- bootstrap --bundle "$staging/bundle" --home "$install_home" --bin-dir "$install_bin" --expected-tag "$release_tag"
 if [ "$adopt" = yes ]; then set -- "$@" --adopt; fi
 "$staging/bundle/horizon-update" "$@"
 case ":${PATH:-}:" in *":$install_bin:"*) ;; *) printf 'Add this binary directory to PATH: %s\n' "$install_bin";; esac

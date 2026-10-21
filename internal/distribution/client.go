@@ -15,7 +15,6 @@ import (
 	"path/filepath"
 	"reflect"
 	"strings"
-	"time"
 )
 
 const maxManifest = 1 << 20
@@ -25,7 +24,7 @@ const maxExpanded = 512 << 20
 // Client always addresses the official repository. HTTP is injectable for tests.
 type Client struct{ HTTP *http.Client }
 
-func NewClient() *Client { return &Client{HTTP: &http.Client{Timeout: 5 * time.Minute}} }
+func NewClient() *Client { return &Client{HTTP: defaultHTTPClient()} }
 func (c *Client) get(ctx context.Context, url string, limit int64, out io.Writer) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
