@@ -80,6 +80,9 @@ func (s State) CheckRunning(executable, version string) error {
 	if resolved != s.Executable {
 		return fmt.Errorf("running Horizon %s differs from managed executable %s", resolved, s.Executable)
 	}
+	if !s.Healthy("horizon") {
+		return fmt.Errorf("managed Horizon is missing or modified; recover with install.sh")
+	}
 	if version != s.Manifest.Tag {
 		return fmt.Errorf("running version %s differs from managed release %s; use install.sh to recover", version, s.Manifest.Tag)
 	}

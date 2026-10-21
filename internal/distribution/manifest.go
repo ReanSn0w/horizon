@@ -76,3 +76,10 @@ func DecodeManifest(data []byte) (Manifest, error) {
 	}
 	return m, m.Validate()
 }
+
+// SameManifest ignores source-only catalog fields and map iteration order.
+func SameManifest(a, b Manifest) bool {
+	x, _ := json.Marshal(a)
+	y, _ := json.Marshal(b)
+	return bytes.Equal(x, y)
+}
