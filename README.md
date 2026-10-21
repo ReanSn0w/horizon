@@ -9,12 +9,15 @@
 
 Нужны macOS или Linux (amd64/arm64), провайдер диалоговой модели с Responses
 API и для режимов `read`/`write` отдельный провайдер модели решений Jev.
-Для релизной установки Go не требуется. Готовые загрузки станут доступны после
-публикации первого релиза в [GitHub Releases](https://github.com/ReanSn0w/horizon/releases).
+Для релизной установки Go не требуется. Готовые сборки публикуются в
+[GitHub Releases](https://github.com/ReanSn0w/horizon/releases).
+
+Откройте терминал (Terminal на macOS или любой shell на Linux) и выполните:
+команда скачает установщик и установит последний стабильный релиз.
 
 ```sh
-curl -fLsS https://github.com/ReanSn0w/horizon/releases/latest/download/install.sh -o /tmp/horizon-install.sh
-sh /tmp/horizon-install.sh
+curl -fLsS https://github.com/ReanSn0w/horizon/releases/latest/download/install.sh -o /tmp/horizon-install.sh &&
+  sh /tmp/horizon-install.sh
 export PATH="$HOME/.local/bin:$PATH"
 ```
 
@@ -23,7 +26,10 @@ export PATH="$HOME/.local/bin:$PATH"
 `~/.horizon/plugins`. Конфигурация создаётся отдельно через `horizon init`.
 Флаги `--version vX.Y.Z`, `--bin-dir /path/to/bin` и `--home /path/to/home`
 выбирают релиз и пути установки. Без `--home` учитывается `HORIZON_HOME`.
-Скрипт не меняет shell-профиль: добавьте показанный каталог в свой `PATH`.
+Команда `export` выше добавляет каталог в `PATH` текущего терминала. Чтобы
+`horizon` был доступен и в новых терминалах, добавьте строку
+`export PATH="$HOME/.local/bin:$PATH"` в `~/.zshrc` (zsh) или `~/.bashrc` (bash).
+Установщик сам эти файлы не меняет.
 
 Подготовьте домашний каталог Horizon:
 
