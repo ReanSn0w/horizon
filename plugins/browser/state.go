@@ -11,8 +11,8 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/ReanSn0w/horizon/internal/plugins"
-	"github.com/ReanSn0w/horizon/internal/session"
+	"github.com/ReanSn0w/horizon/harness/plugins"
+	"github.com/ReanSn0w/horizon/harness/session"
 )
 
 type browserRecord struct {

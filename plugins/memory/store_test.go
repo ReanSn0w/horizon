@@ -2,7 +2,7 @@ package main
 
 import (
 	"context"
-	"github.com/ReanSn0w/horizon/internal/config"
+	"github.com/ReanSn0w/horizon/harness/config"
 	"os"
 	"path/filepath"
 	"testing"

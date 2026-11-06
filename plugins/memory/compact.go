@@ -11,8 +11,8 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/ReanSn0w/horizon/internal/config"
-	"github.com/ReanSn0w/horizon/internal/responses"
+	"github.com/ReanSn0w/horizon/harness/config"
+	"github.com/ReanSn0w/horizon/harness/responses"
 )
 
 type summarizer func(context.Context, string, string, []note) (string, error)

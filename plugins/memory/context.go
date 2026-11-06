@@ -7,7 +7,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"github.com/ReanSn0w/horizon/internal/plugins"
+	"github.com/ReanSn0w/horizon/harness/plugins"
 )
 
 const memorySavingGuidance = `Proactively save useful durable information for future conversations and work with memory__add; do not wait for an explicit request to remember. Save user preferences, personal meanings of words, confirmed facts, decisions, and verified working lessons. Choose the appropriate scope, write concise notes that preserve relevant context, and consider existing memory to avoid duplicates. Do not save temporary details, secrets, or unverified guesses. Ask before saving sensitive information, clarify ambiguous facts first, and respect requests not to remember.`

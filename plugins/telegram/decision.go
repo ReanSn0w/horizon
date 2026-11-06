@@ -11,7 +11,7 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/ReanSn0w/horizon/internal/decision"
+	"github.com/ReanSn0w/horizon/harness/decision"
 )
 
 func historyFor(c *chat, j *job, limit int, unseen bool) []record {

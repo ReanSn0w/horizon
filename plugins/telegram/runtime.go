@@ -15,7 +15,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ReanSn0w/horizon/internal/config"
+	"github.com/ReanSn0w/horizon/harness/config"
 )
 
 type bridge struct {

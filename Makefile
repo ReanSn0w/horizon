@@ -25,7 +25,14 @@ help:
 	  'Overrides: GO, BIN_DIR, HORIZON_HOME, PLUGINS'
 
 install:
-	GOBIN="$(BIN_DIR)" $(GO) install .
+	@set -eu; \
+	  mkdir -p "$(BIN_DIR)"; \
+	  temporary=$$(mktemp "$(BIN_DIR)/.horizon.XXXXXX"); \
+	  trap 'rm -f "$$temporary"' EXIT HUP INT TERM; \
+	  $(GO) build -o "$$temporary" ./harness; \
+	  chmod 755 "$$temporary"; \
+	  mv -f "$$temporary" "$(BIN_DIR)/horizon"; \
+	  printf 'Installed %s\n' "$(BIN_DIR)/horizon"
 
 install-all: install install-plugins
 

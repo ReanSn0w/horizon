@@ -4,14 +4,14 @@ import (
 	"bytes"
 	"context"
 	"errors"
-	"github.com/ReanSn0w/horizon/internal/buildinfo"
+	"github.com/ReanSn0w/horizon/harness/buildinfo"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
-	"github.com/ReanSn0w/horizon/internal/distribution"
+	"github.com/ReanSn0w/horizon/harness/distribution"
 )
 
 func TestHelpMetadataAndArgumentsWithoutHome(t *testing.T) {

@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/ReanSn0w/horizon/internal/buildinfo"
+	"github.com/ReanSn0w/horizon/harness/buildinfo"
 	catalog "github.com/ReanSn0w/horizon/plugins"
 	"io"
 	"os"
@@ -15,9 +15,9 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/ReanSn0w/horizon/internal/config"
-	"github.com/ReanSn0w/horizon/internal/plugins"
-	"github.com/ReanSn0w/horizon/internal/session"
+	"github.com/ReanSn0w/horizon/harness/config"
+	"github.com/ReanSn0w/horizon/harness/plugins"
+	"github.com/ReanSn0w/horizon/harness/session"
 	flags "github.com/umputun/go-flags"
 )
 

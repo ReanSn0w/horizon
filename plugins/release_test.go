@@ -23,7 +23,7 @@ func TestReleaseBuildsMatchCatalog(t *testing.T) {
 	if err = yaml.Unmarshal(data, &config); err != nil {
 		t.Fatal(err)
 	}
-	expected := map[string]string{"horizon": "."}
+	expected := map[string]string{"horizon": "./harness"}
 	for _, p := range Embedded().Plugins {
 		expected[p.Binary] = p.Source
 	}

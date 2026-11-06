@@ -11,7 +11,7 @@ import (
 	"path/filepath"
 	"sort"
 
-	"github.com/ReanSn0w/horizon/internal/distribution"
+	"github.com/ReanSn0w/horizon/harness/distribution"
 )
 
 func main() {

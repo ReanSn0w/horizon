@@ -15,14 +15,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ReanSn0w/horizon/internal/config"
-	"github.com/ReanSn0w/horizon/internal/session"
+	"github.com/ReanSn0w/horizon/harness/config"
+	"github.com/ReanSn0w/horizon/harness/session"
 	"gopkg.in/yaml.v3"
 )
 
 func TestIdleCompactionWithBuiltHorizon(t *testing.T) {
 	binary := filepath.Join(t.TempDir(), "horizon")
-	build := exec.Command("go", "build", "-o", binary, "../..")
+	build := exec.Command("go", "build", "-o", binary, "../../harness")
 	if output, err := build.CombinedOutput(); err != nil {
 		t.Fatalf("build Horizon: %v: %s", err, output)
 	}

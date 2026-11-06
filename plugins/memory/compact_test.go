@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/ReanSn0w/horizon/internal/config"
+	"github.com/ReanSn0w/horizon/harness/config"
 	"io"
 	"net/http"
 	"net/http/httptest"

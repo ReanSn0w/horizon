@@ -3,14 +3,14 @@ project_name: horizon
 builds:
   - &build
     id: horizon
-    main: .
+    main: ./harness
     binary: horizon
     env: [CGO_ENABLED=0]
     goos: [linux, darwin]
     goarch: [amd64, arm64]
     flags: [-trimpath]
     ldflags:
-      - -s -w -X github.com/ReanSn0w/horizon/internal/buildinfo.Version={{ .Env.HORIZON_RELEASE_TAG }} -X github.com/ReanSn0w/horizon/internal/buildinfo.Commit={{ .Env.HORIZON_RELEASE_COMMIT }}
+      - -s -w -X github.com/ReanSn0w/horizon/harness/buildinfo.Version={{ .Env.HORIZON_RELEASE_TAG }} -X github.com/ReanSn0w/horizon/harness/buildinfo.Commit={{ .Env.HORIZON_RELEASE_COMMIT }}
   - <<: *build
     id: decision
     main: ./plugins/decision

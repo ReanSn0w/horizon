@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ReanSn0w/horizon/internal/config"
+	"github.com/ReanSn0w/horizon/harness/config"
 	"gopkg.in/yaml.v3"
 )
 

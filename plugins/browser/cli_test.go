@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ReanSn0w/horizon/internal/session"
+	"github.com/ReanSn0w/horizon/harness/session"
 )
 
 func TestBrowserCLIListAndCloseStale(t *testing.T) {

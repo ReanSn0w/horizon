@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ReanSn0w/horizon/internal/config"
+	"github.com/ReanSn0w/horizon/harness/config"
 	"gopkg.in/yaml.v3"
 )
 

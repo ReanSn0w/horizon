@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/ReanSn0w/horizon/internal/buildinfo"
+	"github.com/ReanSn0w/horizon/harness/buildinfo"
 	catalog "github.com/ReanSn0w/horizon/plugins"
 	"io"
 	"os"
@@ -13,8 +13,8 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/ReanSn0w/horizon/internal/config"
-	"github.com/ReanSn0w/horizon/internal/plugins"
+	"github.com/ReanSn0w/horizon/harness/config"
+	"github.com/ReanSn0w/horizon/harness/plugins"
 	flags "github.com/umputun/go-flags"
 )
 

@@ -12,9 +12,9 @@ import (
 	"runtime"
 	"strings"
 
-	"github.com/ReanSn0w/horizon/internal/buildinfo"
-	"github.com/ReanSn0w/horizon/internal/config"
-	"github.com/ReanSn0w/horizon/internal/distribution"
+	"github.com/ReanSn0w/horizon/harness/buildinfo"
+	"github.com/ReanSn0w/horizon/harness/config"
+	"github.com/ReanSn0w/horizon/harness/distribution"
 	catalog "github.com/ReanSn0w/horizon/plugins"
 	flags "github.com/umputun/go-flags"
 )

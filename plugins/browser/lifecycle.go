@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/ReanSn0w/horizon/internal/plugins"
+	"github.com/ReanSn0w/horizon/harness/plugins"
 )
 
 type browserLifecycle struct {

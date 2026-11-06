@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ReanSn0w/horizon/internal/session"
+	"github.com/ReanSn0w/horizon/harness/session"
 )
 
 const (

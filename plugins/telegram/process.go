@@ -5,7 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/ReanSn0w/horizon/internal/config"
+	"github.com/ReanSn0w/horizon/harness/config"
 	"io"
 	"os"
 	"os/exec"

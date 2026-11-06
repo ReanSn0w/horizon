@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ReanSn0w/horizon/internal/plugins"
+	"github.com/ReanSn0w/horizon/harness/plugins"
 )
 
 func TestBrowserLifecycleCreateReuseAndStop(t *testing.T) {
