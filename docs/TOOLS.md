@@ -2,7 +2,7 @@
 
 По умолчанию модель получает четыре последовательных function tools: `skill_read`,
 `shell_exec`, `shell_wait` и `shell_cancel`. Их схемы и исполнение находятся в
-`internal/agenttool`.
+`harness/internal/agenttool`.
 Используется `strict: true`, `additionalProperties: false` и
 `parallel_tool_calls: false`. Результат возвращается в
 `function_call_output` с исходным `call_id` и сохраняется в журнале сессии.

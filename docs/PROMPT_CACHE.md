@@ -37,7 +37,7 @@
 отдельно от пользовательской сессии:
 
 ```sh
-HORIZON_CACHE_CHECK=1 go test ./internal/responses -run TestConfiguredPromptCacheRouting -v -count=1
+HORIZON_CACHE_CHECK=1 go test ./harness/responses -run TestConfiguredPromptCacheRouting -v -count=1
 ```
 
 Он не печатает ключ и текст запроса. Значения кеша могут отличаться из-за

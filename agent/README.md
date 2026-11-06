@@ -6,5 +6,5 @@ Agent запускает harness как внешнюю CLI-утилиту и и�
 
 [Границы проекта](../docs/ARCHITECTURE.md) определяют ответственность и правила
 взаимодействия. Каталог пока не содержит реализации; исходная интеграция
-Telegram находится в `plugins/telegram/`. Цикл модели из `internal/agent/`
+Telegram находится в `plugins/telegram/`. Цикл модели из `harness/internal/agent/`
 принадлежит harness и не предназначен для переноса сюда.
