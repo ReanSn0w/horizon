@@ -7,8 +7,8 @@ import (
 	"net/url"
 	"strconv"
 
-	"github.com/ReanSn0w/horizon/harness/plugins"
-	"github.com/ReanSn0w/horizon/harness/session"
+	"github.com/ReanSn0w/horizon/internal/plugins"
+	"github.com/ReanSn0w/horizon/session"
 	"github.com/chromedp/chromedp"
 )
 

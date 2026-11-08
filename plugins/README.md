@@ -1,8 +1,9 @@
 # Исходники плагинов
 
-Каждый плагин хранится в отдельном каталоге `plugins/<имя>/`. Этот каталог
-содержит исходники и не сканируется Horizon. Доступные плагины — `decision`, `telegram`, `memory`, `browser`, `update` и
-`plugins`. Описания и зависимости находятся в [catalog.yaml](catalog.yaml).
+Плагины хранятся в отдельных каталогах `plugins/<имя>/`. Agent находится
+в `plugins/agent/` и пока реализует Telegram-интеграцию. Каталог исходников
+содержит исходники и не сканируется Horizon. Доступные плагины — `telegram`,
+`browser`. Memory и decision встроены в ядро. Описания возвращаются самими плагинами в метаданных.
 
 Можно установить symlink на исполняемый файл. Для удаления достаточно удалить
 `<home>/plugins/horizon-<имя>`. `init` плагины автоматически не устанавливает.
@@ -11,37 +12,6 @@
 существующие значения. Старый сторонний плагин без шаблона будет пропущен с
 сообщением. Инициализация не добавляет имя в `agent_plugins`.
 Протокол описан в [docs/PLUGINS.md](../docs/PLUGINS.md).
-
-## Decision
-
-Плагин возвращает структурированные оценки Jev для внешних систем и скриптов:
-
-```sh
-make install-decision HORIZON_HOME=/path/to/home
-horizon --home /path/to/home init
-horizon --home /path/to/home decision request.json
-cat request.json | horizon --home /path/to/home decision - -o result.json
-```
-
-Заполните общую секцию `decision` в `/path/to/home/config.yaml`:
-
-```yaml
-decision:
-  provider:
-    url: https://openrouter.ai/api/alpha/decisions
-    key: YOUR_DECISION_API_KEY
-  model: typesafe/jev-1.13
-```
-
-Принимается также базовый URL `https://openrouter.ai/api`. Конфигурация
-загружается общим загрузчиком Horizon: основные настройки `provider` и
-моделей, если они заданы, тоже должны быть валидными. Метаданные и `--help`
-работают без конфигурации. `plugins.decision` не требуется.
-
-Формат входа, выхода и коды завершения описаны в
-[plugins/decision/README.md](decision/README.md). `-o` записывает ответ только
-в файл; без этого флага JSON идёт в stdout. Плагин устанавливается вручную,
-не создаёт сессии и не запускает цикл агента.
 
 ## Telegram
 
@@ -54,25 +24,16 @@ horizon --home /path/to/home init
 horizon --home /path/to/home telegram start
 ```
 
-Для режима собеседника также нужен установленный `decision`:
-`make install-decision HORIZON_HOME=/path/to/home`.
-[Настройки, правила групп, send и управление службами](telegram/README.md).
+Режим собеседника использует встроенную команду `horizon decision` и общую
+секцию `decision` в конфигурации.
+[Настройки, правила групп, send и управление службами](agent/README.md).
 
-`make install-plugins` по умолчанию устанавливает `update`, `plugins`, `decision`,
-`telegram` и `memory`. Команда `make install-plugin-plugins` устанавливает только
-менеджер плагинов; `make install-plugins` остаётся общей целью.
-Для отдельной установки используйте `make install-decision` или
-`make install-telegram`; `PLUGINS=decision` выбирает только decision.
+`make install-plugins` по умолчанию устанавливает только `telegram`.
+Для отдельной установки используйте `make install-telegram`;
+`PLUGINS=browser` выбирает только browser.
 `HORIZON_HOME` берётся из окружения или равен `~/.horizon`.
 Бинарники устанавливаются с правами `0700`; ошибка сборки сохраняет
 ранее установленную версию. Конфигурация и сессии не изменяются.
-
-## Memory
-
-`make install-memory` устанавливает отдельный плагин памяти. Включение контекста
-и инструментов: `agent_plugins: [memory]` в config.yaml; настройки — plugins.memory,
-которую дополняет повторный `horizon init`.
-[Команды, сжатие и уровни памяти](memory/README.md).
 
 ## Browser
 
@@ -81,14 +42,11 @@ horizon --home /path/to/home telegram start
 Включение инструментов: `agent_plugins: [browser]`.
 [Конфигурация, команды и очистка после сбоя](browser/README.md).
 
-## Релизная установка
+## Установка и удаление
 
-В управляемой установке используйте `horizon plugins install <имя>`:
-`telegram` автоматически доставляет `decision` той же версии. Повторный
-`horizon init` добавит настройки, но не включит расширение агента.
+Используйте `make install-telegram` или `make install-browser`, затем выполните
+`horizon init` с тем же home. Установка не включает расширение агента автоматически.
 
-[plugins](plugins/README.md) показывает каталог релиза и управляет установкой
-с учётом зависимостей. [update](update/README.md) обновляет весь установленный
-комплект, включая себя. Оба входят в начальную поставку и не удаляются менеджером.
-Исходный каталог публикуется в release.json конкретного тега, не читается из master.
-Ручные неизвестные файлы не обслуживаются менеджером.
+Апдейтер и менеджер плагинов больше не поставляются. Для удаления плагина
+остановите его сервис, если он запущен, отключите его в `agent_plugins`, если
+он включён, и удалите соответствующий бинарник. Данные остаются в home.

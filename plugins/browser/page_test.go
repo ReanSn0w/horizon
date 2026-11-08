@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ReanSn0w/horizon/harness/plugins"
+	"github.com/ReanSn0w/horizon/internal/plugins"
 )
 
 func TestBrowserToolSchemasAndNoImplicitCreation(t *testing.T) {

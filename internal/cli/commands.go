@@ -1,0 +1,482 @@
+package cli
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"net/http"
+	"os"
+	"os/signal"
+	"path/filepath"
+	"sort"
+	"text/tabwriter"
+
+	"github.com/ReanSn0w/horizon/config"
+	"github.com/ReanSn0w/horizon/decision"
+	"github.com/ReanSn0w/horizon/internal/agent"
+	"github.com/ReanSn0w/horizon/internal/bootstrap"
+	"github.com/ReanSn0w/horizon/internal/eventstream"
+	"github.com/ReanSn0w/horizon/internal/instructions"
+	"github.com/ReanSn0w/horizon/internal/memory"
+	"github.com/ReanSn0w/horizon/internal/plugins"
+	"github.com/ReanSn0w/horizon/responses"
+	"github.com/ReanSn0w/horizon/session"
+	flags "github.com/umputun/go-flags"
+)
+
+type optionalString struct {
+	Value string
+	Set   bool
+}
+
+type initCommand struct {
+	app    *App
+	global *globalOptions
+}
+
+func (command *initCommand) Execute(args []string) error {
+	if err := rejectArgs(args); err != nil {
+		return err
+	}
+	home := command.global.Home
+	result, err := bootstrap.Ensure(home)
+	if err != nil {
+		return failure(err.Error(), err)
+	}
+	if _, err := config.MigrateMemory(home); err != nil {
+		return failure(fmt.Sprintf("migrate memory configuration: %v", err), err)
+	}
+	statuses, skipped, err := initializePluginConfig(home, command.app.reserved)
+	if err != nil {
+		return failure(fmt.Sprintf("initialize plugin configuration: %v", err), err)
+	}
+	fmt.Fprintf(command.app.out, "Horizon home: %s\n", home)
+	configPath := filepath.Join(home, "config.yaml")
+	if result.ConfigCreated {
+		fmt.Fprintf(command.app.out, "Отредактируйте %s: задайте providers.<имя>.url и key, models.<профиль>.provider и model; проверьте default_model, decision_model и compact_threshold.\n", configPath)
+	} else {
+		fmt.Fprintf(command.app.out, "Существующая конфигурация сохранена: %s.\n", configPath)
+	}
+	fmt.Fprintf(command.app.out, "При необходимости добавьте инструкции агента в %s.\n", filepath.Join(home, "AGENTS.md"))
+	for _, name := range sortedKeys(statuses) {
+		fmt.Fprintf(command.app.out, "Плагин %s: %s.\n", name, statuses[name])
+	}
+	for _, name := range skipped {
+		fmt.Fprintf(command.app.errOut, "horizon: настройки плагина %s пропущены (шаблон недоступен).\n", name)
+	}
+	return nil
+}
+
+func (value *optionalString) UnmarshalFlag(text string) error {
+	value.Value = text
+	value.Set = true
+	return nil
+}
+
+type modelsCommand struct {
+	app    *App
+	global *globalOptions
+}
+
+func (command *modelsCommand) Execute(args []string) error {
+	if err := rejectArgs(args); err != nil {
+		return err
+	}
+	_, cfg, err := command.app.loadConfig(command.global)
+	if err != nil {
+		return err
+	}
+	if len(cfg.Models) == 0 {
+		fmt.Fprintln(command.app.out, "No model profiles configured.")
+		return nil
+	}
+
+	names := make([]string, 0, len(cfg.Models))
+	for name := range cfg.Models {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+
+	writer := tabwriter.NewWriter(command.app.out, 0, 4, 2, ' ', 0)
+	fmt.Fprintln(writer, "NAME\tPROVIDER\tMODEL\tREASONING\tSCORE\tDEFAULT")
+	for _, name := range names {
+		profile := cfg.Models[name]
+		reasoning := profile.Reasoning
+		if reasoning == "" {
+			reasoning = "-"
+		}
+		score := "-"
+		if profile.Score != nil {
+			score = fmt.Sprint(*profile.Score)
+		}
+		isDefault := "-"
+		if name == cfg.DefaultModel {
+			isDefault = "*"
+		}
+		fmt.Fprintf(writer, "%s\t%s\t%s\t%s\t%s\t%s\n", name, profile.Provider, profile.Model, reasoning, score, isDefault)
+	}
+	return writer.Flush()
+}
+
+type resumeCommand struct {
+	app     *App
+	global  *globalOptions
+	Session string         `long:"session" description:"session ID; defaults to the most recently accessed session in this workspace"`
+	Mode    string         `short:"o" long:"mode" default:"text" choice:"text" choice:"plain" choice:"jsonl" description:"text: tool status and answer; plain: answer only (-m or stdin); jsonl: all events"`
+	Model   string         `long:"model" description:"named model profile; defaults to default_model"`
+	Access  string         `long:"access" choice:"read" choice:"write" choice:"full" description:"command review mode (default: write)"`
+	Message optionalString `short:"m" long:"message" description:"message; otherwise read redirected stdin or open the interactive editor"`
+}
+
+func (command *resumeCommand) Execute(args []string) error {
+	if err := rejectArgs(args); err != nil {
+		return err
+	}
+	home, cfg, err := command.app.loadConfig(command.global)
+	if err != nil {
+		return err
+	}
+	profileName, profile, err := cfg.SelectModel(command.Model)
+	if err != nil {
+		return usage(err.Error(), err)
+	}
+	access, err := effectiveAccess(command.Access)
+	if err != nil {
+		return usage(err.Error(), err)
+	}
+	if access != "full" {
+		if err := cfg.RequireDecision(); err != nil {
+			return usage(err.Error(), err)
+		}
+	}
+	message, err := command.app.readMessageMode(command.Message, command.Mode)
+	if err != nil {
+		return err
+	}
+	store, workspace, err := command.app.sessionContext(command.global, "")
+	if err != nil {
+		return err
+	}
+	locked, value, err := store.AcquireForResume(workspace, command.Session, message)
+	if err != nil {
+		return failure(err.Error(), err)
+	}
+	defer locked.Close()
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer stop()
+	snapshot, extensions, memoryService, err := command.app.buildPluginInstructions(ctx, home, workspace, cfg, access, true)
+	if err != nil {
+		return failure(err.Error(), err)
+	}
+	responsesURL, err := cfg.Endpoint(profile.Provider, "responses")
+	if err != nil {
+		return failure(err.Error(), err)
+	}
+	compactURL, err := cfg.Endpoint(profile.Provider, "responses/compact")
+	if err != nil {
+		return failure(err.Error(), err)
+	}
+	var reviewer decision.Reviewer
+	if access != "full" {
+		decisionProfile := cfg.Models[cfg.DecisionModel]
+		decisionURL, err := cfg.Endpoint(decisionProfile.Provider, "responses")
+		if err != nil {
+			return usage(err.Error(), err)
+		}
+		reviewer = &decision.CommandPolicy{Client: &decision.Client{Endpoint: decisionURL, APIKey: cfg.Providers[decisionProfile.Provider].Key, Model: decisionProfile.Model, HTTPClient: http.DefaultClient}, Secrets: cfg.ProviderKeys()}
+
+	}
+	runtime := &agent.Runtime{
+		Client: &responses.Client{ResponsesURL: responsesURL, CompactURL: compactURL, APIKey: cfg.Providers[profile.Provider].Key, HTTPClient: http.DefaultClient},
+		Locked: locked, Store: store, Workspace: workspace, Session: value,
+		ProfileName:    profileName,
+		Access:         access,
+		Reviewer:       reviewer,
+		Profile:        session.ModelProfile{Provider: profile.Provider, Name: profileName, Model: profile.Model, Reasoning: profile.Reasoning, CompactThreshold: profile.CompactThreshold},
+		Instructions:   snapshot,
+		Extensions:     extensions,
+		Memory:         memoryService,
+		MaxRequests:    cfg.Limits.MaxModelRequests,
+		MaxInputTokens: cfg.Limits.MaxInputTokens,
+		MaxDuration:    cfg.Limits.MaxTurnDuration,
+		Publish:        newEventPublisher(command.Mode, command.global.Verbose, command.app.out, command.app.errOut),
+	}
+	result, err := runtime.Run(ctx, message)
+	if err != nil {
+		var runtimeError *agent.Error
+		if errors.As(err, &runtimeError) && runtimeError.Code == "turn_cancelled" {
+			return &Error{Code: ExitInterrupted, Message: err.Error(), Cause: err}
+		}
+		return failure(err.Error(), err)
+	}
+	if command.Mode != "jsonl" && result.Text != "" {
+		fmt.Fprintln(command.app.out, result.Text)
+	}
+	return nil
+}
+
+type sessionsListCommand struct {
+	app       *App
+	global    *globalOptions
+	Workspace string `long:"workspace" description:"filter by workspace directory"`
+	Active    bool   `long:"active" description:"show only sessions with an active turn"`
+}
+
+func (command *sessionsListCommand) Execute(args []string) error {
+	if err := rejectArgs(args); err != nil {
+		return err
+	}
+	store, workspace, err := command.app.sessionContext(command.global, command.Workspace)
+	if err != nil {
+		return err
+	}
+	items, err := store.List(workspace, command.Active)
+	if err != nil {
+		return failure(err.Error(), err)
+	}
+	writer := tabwriter.NewWriter(command.app.out, 0, 4, 2, ' ', 0)
+	fmt.Fprintln(writer, "ID\tTITLE\tLAST ACCESSED\tACTIVE")
+	for _, item := range items {
+		fmt.Fprintf(writer, "%s\t%s\t%s\t%t\n", item.Session.SessionID, item.Session.Title, item.Session.LastAccessedAt.Format("2006-01-02T15:04:05Z07:00"), item.Active)
+	}
+	return writer.Flush()
+}
+
+type sessionsCreateCommand struct {
+	app    *App
+	global *globalOptions
+	Fork   string `long:"fork" description:"source session ID to fork"`
+}
+
+func (command *sessionsCreateCommand) Execute(args []string) error {
+	if err := rejectArgs(args); err != nil {
+		return err
+	}
+	store, workspace, err := command.app.sessionContext(command.global, "")
+	if err != nil {
+		return err
+	}
+	if command.Fork != "" {
+		created, err := store.Fork(workspace, command.Fork)
+		if err != nil {
+			return failure(err.Error(), err)
+		}
+		fmt.Fprintln(command.app.out, created.SessionID)
+		return nil
+	}
+	created, err := store.Create(workspace)
+	if err != nil {
+		return failure(err.Error(), err)
+	}
+	fmt.Fprintln(command.app.out, created.SessionID)
+	return nil
+}
+
+type sessionsReadCommand struct {
+	app    *App
+	global *globalOptions
+	ID     string `long:"id" required:"true" description:"session ID"`
+	Turns  int    `long:"turns" default:"16" description:"number of complete turns to show, including failed and cancelled turns"`
+}
+
+func (command *sessionsReadCommand) Execute(args []string) error {
+	if err := rejectArgs(args); err != nil {
+		return err
+	}
+	if command.Turns <= 0 {
+		return usage("--turns must be positive", nil)
+	}
+	store, workspace, err := command.app.sessionContext(command.global, "")
+	if err != nil {
+		return err
+	}
+	value, err := store.ReadForWorkspace(workspace, command.ID)
+	if err != nil {
+		return failure(err.Error(), err)
+	}
+	if err := session.WriteHistory(command.app.out, value, command.Turns); err != nil {
+		return failure(err.Error(), err)
+	}
+	return nil
+}
+
+type sessionsDeleteCommand struct {
+	app    *App
+	global *globalOptions
+	ID     string `long:"id" required:"true" description:"session ID"`
+}
+
+func (command *sessionsDeleteCommand) Execute(args []string) error {
+	if err := rejectArgs(args); err != nil {
+		return err
+	}
+	store, workspace, err := command.app.sessionContext(command.global, "")
+	if err != nil {
+		return err
+	}
+	if err := store.Delete(workspace, command.ID); err != nil {
+		return failure(err.Error(), err)
+	}
+	return nil
+}
+
+type sessionsCompactCommand struct {
+	app       *App
+	global    *globalOptions
+	ID        string `long:"id" description:"session ID; defaults to the most recently accessed session"`
+	Mode      string `short:"o" long:"mode" default:"text" choice:"text" choice:"jsonl" description:"output format"`
+	IfNewTurn bool   `long:"if-new-turn" description:"skip if the latest completed turn was already compacted"`
+}
+
+type sessionsCommand struct{}
+
+func (command *sessionsCompactCommand) Execute(args []string) error {
+	if err := rejectArgs(args); err != nil {
+		return err
+	}
+	store, workspace, err := command.app.sessionContext(command.global, "")
+	if err != nil {
+		return err
+	}
+	locked, value, err := store.AcquireForCompact(workspace, command.ID)
+	if err != nil {
+		return failure(err.Error(), err)
+	}
+	defer locked.Close()
+	publish := newEventPublisher(command.Mode, command.global.Verbose, command.app.out, command.app.errOut)
+	_, hasCompleted := value.LastCompletedTurn()
+	if !hasCompleted || (command.IfNewTurn && value.LatestCompletedTurnCompacted()) {
+		if command.Mode == "jsonl" {
+			publish(eventstream.New("compaction_completed", value.SessionID, nil, map[string]any{"compacted": false}))
+		} else {
+			fmt.Fprintln(command.app.out, "сжимать нечего")
+		}
+		return nil
+	}
+	home, cfg, err := command.app.loadConfig(command.global)
+	if err != nil {
+		return err
+	}
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer stop()
+	snapshot, _, _, err := command.app.buildPluginInstructions(ctx, home, workspace, cfg, "read", false)
+	if err != nil {
+		return failure(err.Error(), err)
+	}
+	_, profile, _, _ := agent.SuccessfulWindow(value)
+	if profile.Provider == "" {
+		// Old sessions did not store a provider name; resolve their named profile.
+		_, configured, err := cfg.SelectModel(profile.Name)
+		if err != nil {
+			return usage(err.Error(), err)
+		}
+		profile.Provider = configured.Provider
+	}
+	responsesURL, err := cfg.Endpoint(profile.Provider, "responses")
+	if err != nil {
+		return failure(err.Error(), err)
+	}
+	compactURL, err := cfg.Endpoint(profile.Provider, "responses/compact")
+	if err != nil {
+		return failure(err.Error(), err)
+	}
+	client := &responses.Client{ResponsesURL: responsesURL, CompactURL: compactURL, APIKey: cfg.Providers[profile.Provider].Key, HTTPClient: http.DefaultClient}
+	result, err := agent.Compact(ctx, client, locked, value, snapshot.Prompt, cfg.Limits.MaxTurnDuration, publish)
+	if err != nil {
+		return failure(err.Error(), err)
+	}
+	if command.Mode == "text" {
+		fmt.Fprintf(command.app.out, "Сессия %s сжата.\n", result.SessionID)
+	}
+	return nil
+}
+
+func (a *App) addCommands(parser *flags.Parser, global *globalOptions) error {
+	if err := a.addSkillCommands(parser, global); err != nil {
+		return err
+	}
+	if err := a.addMemoryCommands(parser, global); err != nil {
+		return err
+	}
+	commands := []struct {
+		name, short, long string
+		data              any
+	}{
+		{"init", "Initialize Horizon home", "Create missing home files and show what to configure.", &initCommand{app: a, global: global}},
+		{"decision", "Evaluate structured JSON", decisionLongDescription(), &decisionCommand{app: a, global: global}},
+		{"models", "List model profiles", "Print configured model profiles without contacting the provider.", &modelsCommand{app: a, global: global}},
+		{"resume", "Run one agent turn", "Read a message and execute one turn.", &resumeCommand{app: a, global: global}},
+	}
+	for _, item := range commands {
+		if _, err := parser.AddCommand(item.name, item.short, item.long, item.data); err != nil {
+			return err
+		}
+	}
+
+	sessions, err := parser.AddCommand("sessions", "Manage sessions", "Create, inspect, compact, and delete stored sessions.", &sessionsCommand{})
+	if err != nil {
+		return err
+	}
+	subcommands := []struct {
+		name, short, long string
+		data              any
+	}{
+		{"list", "List sessions", "List stored sessions.", &sessionsListCommand{app: a, global: global}},
+		{"create", "Create a session", "Create an empty session or fork a session in this workspace.", &sessionsCreateCommand{app: a, global: global}},
+		{"read", "Read session history", "Print the latest complete turns in a session.", &sessionsReadCommand{app: a, global: global}},
+		{"delete", "Delete a session", "Delete a session and its artifacts.", &sessionsDeleteCommand{app: a, global: global}},
+		{"compact", "Compact session context", "Compact the working context of a session.", &sessionsCompactCommand{app: a, global: global}},
+	}
+	for _, item := range subcommands {
+		if _, err := sessions.AddCommand(item.name, item.short, item.long, item.data); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func rejectArgs(args []string) error {
+	if len(args) == 0 {
+		return nil
+	}
+	return usage(fmt.Sprintf("unexpected arguments: %v", args), nil)
+}
+
+func buildInstructions(home, workspace string, cfg config.Config) (*instructions.Snapshot, error) {
+	return instructions.Build(home, workspace, agent.Introduction, instructions.Options{DisabledSkills: cfg.DisabledSkills, SoulEnabled: cfg.SoulEnabled})
+}
+
+func (a *App) buildPluginInstructions(ctx context.Context, home string, workspace session.Workspace, cfg config.Config, access string, maintain bool) (*instructions.Snapshot, []plugins.Extension, *memory.Service, error) {
+	var memoryService *memory.Service
+	blocks := make([]instructions.Extension, 0, len(cfg.AgentPlugins)+1)
+	if cfg.Memory.Enabled {
+		var err error
+		memoryService, err = memory.New(home, workspace.Dir, cfg)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		if maintain && access != "read" {
+			if _, err := memoryService.Maintain(ctx); err != nil {
+				fmt.Fprintf(a.errOut, "horizon: memory maintenance: %v\n", err)
+			}
+		}
+		data, err := memoryService.Context()
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		converted := make([]plugins.Block, len(data))
+		for i := range data {
+			converted[i] = plugins.Block{Source: data[i].Source, Text: data[i].Text}
+		}
+		blocks = append(blocks, instructions.Extension{Name: "memory", Instructions: memory.Instructions, Data: converted})
+	}
+	extensions, err := plugins.Prepare(ctx, home, workspace, access, cfg.AgentPlugins, maintain, func(message string) { fmt.Fprintln(a.errOut, message) })
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	for _, extension := range extensions {
+		blocks = append(blocks, instructions.Extension{Name: extension.Name, Instructions: extension.Description.Instructions, Data: extension.Context})
+	}
+	snapshot, err := instructions.Build(home, workspace.Dir, agent.Introduction, instructions.Options{DisabledSkills: cfg.DisabledSkills, SoulEnabled: cfg.SoulEnabled, Extensions: blocks})
+	return snapshot, extensions, memoryService, err
+}

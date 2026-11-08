@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ReanSn0w/horizon/harness/config"
-	"github.com/ReanSn0w/horizon/harness/session"
+	"github.com/ReanSn0w/horizon/config"
+	"github.com/ReanSn0w/horizon/session"
 	"github.com/chromedp/chromedp"
 )
 
