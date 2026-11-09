@@ -421,13 +421,13 @@ func TestBuiltBinaryInitializationAndSkillCreation(t *testing.T) {
 	workspace := t.TempDir()
 	stdout, stderr, err := run(binary, workspace, "do not consume", "--home", home, "--mode", "plain")
 	exit, ok := err.(*exec.ExitError)
-	if !ok || exit.ExitCode() != 2 || stdout != "" || !strings.Contains(stderr, "horizon init") {
+	if !ok || exit.ExitCode() != 2 || stdout != "" || !strings.Contains(stderr, "horizon-manager install") {
 		t.Fatalf("first launch: %q %q %v", stdout, stderr, err)
 	}
 	if _, err := os.Stat(home); !os.IsNotExist(err) {
 		t.Fatalf("first launch created home: %v", err)
 	}
-	stdout, stderr, err = run(binary, workspace, "", "--home", home, "init")
+	stdout, stderr, err = initializeHome(binary, workspace, "", "--home", home, "init")
 	if err != nil || stderr != "" || !strings.Contains(stdout, filepath.Join(home, "config.yaml")) || !strings.Contains(stdout, filepath.Join(home, "AGENTS.md")) {
 		t.Fatalf("init: %q %q %v", stdout, stderr, err)
 	}

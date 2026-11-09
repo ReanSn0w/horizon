@@ -11,7 +11,7 @@ import (
 
 func pluginScript(t *testing.T, home, name, script string) {
 	t.Helper()
-	dir := filepath.Join(home, "plugins")
+	dir := filepath.Join(home, "bin")
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		t.Fatal(err)
 	}
@@ -84,7 +84,7 @@ func TestPluginExitCodesSelectionAndIsolation(t *testing.T) {
 		t.Fatalf("reserved command code %d", code)
 	}
 	pluginScript(t, homeA, "broken", "exit 1\n")
-	path := filepath.Join(homeA, "plugins", "horizon-broken")
+	path := filepath.Join(homeA, "bin", "horizon-broken")
 	if err := os.WriteFile(path, []byte("#!/bin/sh\nexit 1\n"), 0700); err != nil {
 		t.Fatal(err)
 	}
@@ -115,7 +115,7 @@ func TestPluginHelpBudgetAndDiagnostics(t *testing.T) {
 	home := t.TempDir()
 	for _, name := range []string{"a", "b", "c", "d"} {
 		pluginScript(t, home, name, "echo okay\n")
-		path := filepath.Join(home, "plugins", "horizon-"+name)
+		path := filepath.Join(home, "bin", "horizon-"+name)
 		if err := os.WriteFile(path, []byte("#!/bin/sh\nsleep 3\n"), 0700); err != nil {
 			t.Fatal(err)
 		}
@@ -129,7 +129,7 @@ func TestPluginHelpBudgetAndDiagnostics(t *testing.T) {
 
 func TestBuiltinsDoNotRunPluginMetadata(t *testing.T) {
 	home := testHome(t, "mode: unit\ndefault_model: coding\nmodels:\n  coding:\n    provider: default\n    model: local\n    compact_threshold: 1000\nproviders:\n  default:\n    url: https://example.test/v1\n    key: x\n")
-	dir := filepath.Join(home, "plugins")
+	dir := filepath.Join(home, "bin")
 	if err := os.Mkdir(dir, 0700); err != nil {
 		t.Fatal(err)
 	}
@@ -163,7 +163,7 @@ func TestPluginsAreNotSearchedOutsideSelectedHome(t *testing.T) {
 	pluginScript(t, parent, "stray", "echo found\n")
 	pathDir := t.TempDir()
 	pluginScript(t, pathDir, "path-only", "echo found\n")
-	t.Setenv("PATH", filepath.Join(pathDir, "plugins")+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("PATH", filepath.Join(pathDir, "bin")+string(os.PathListSeparator)+os.Getenv("PATH"))
 	for _, name := range []string{"stray", "path-only"} {
 		code, _, diagnostic := runAppAt(t, workspace, "", "--home", home, name)
 		if code != ExitUsage || !strings.Contains(diagnostic, "Unknown command") {

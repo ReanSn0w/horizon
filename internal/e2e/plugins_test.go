@@ -23,7 +23,7 @@ func TestBuiltBinaryPluginWorkflow(t *testing.T) {
 	binary := buildBinary(t)
 	homeA, homeB := t.TempDir(), t.TempDir()
 	workspace := t.TempDir()
-	if out, errout, err := run(binary, workspace, "", "--home", homeA, "init"); err != nil || errout != "" || !strings.Contains(out, "Horizon home") {
+	if out, errout, err := initializeHome(binary, workspace, "", "--home", homeA, "init"); err != nil || errout != "" || !strings.Contains(out, "Horizon home") {
 		t.Fatalf("init %v %q %q", err, out, errout)
 	}
 	for _, home := range []string{homeA, homeB} {
@@ -31,7 +31,7 @@ func TestBuiltBinaryPluginWorkflow(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	installed := filepath.Join(homeA, "plugins", "horizon-fixture")
+	installed := filepath.Join(homeA, "bin", "horizon-fixture")
 	data := []byte(`#!/bin/sh
 if [ "$1" = horizon-plugin-metadata ]; then
   printf '%s\n' '{"protocol_version":1,"version":"1.0.0","description":"Test fixture"}'
@@ -66,10 +66,10 @@ exit 2
 func TestPluginNestedShellTimeout(t *testing.T) {
 	binary := buildBinary(t)
 	home, workspace := t.TempDir(), t.TempDir()
-	if err := os.MkdirAll(filepath.Join(home, "plugins"), 0700); err != nil {
+	if err := os.MkdirAll(filepath.Join(home, "bin"), 0700); err != nil {
 		t.Fatal(err)
 	}
-	plugin := filepath.Join(home, "plugins", "horizon-sleeper")
+	plugin := filepath.Join(home, "bin", "horizon-sleeper")
 	script := "#!/bin/sh\nif [ \"$1\" = horizon-plugin-metadata ]; then echo '{\"protocol_version\":1,\"version\":\"1\",\"description\":\"Sleeper\"}'; exit; fi\necho $$ > plugin.pid\nsleep 30\n"
 	if err := os.WriteFile(plugin, []byte(script), 0700); err != nil {
 		t.Fatal(err)
@@ -124,10 +124,10 @@ func TestPluginNestedShellTimeout(t *testing.T) {
 func TestPluginNestedShellCancellation(t *testing.T) {
 	binary := buildBinary(t)
 	home, workspace := t.TempDir(), t.TempDir()
-	if err := os.MkdirAll(filepath.Join(home, "plugins"), 0700); err != nil {
+	if err := os.MkdirAll(filepath.Join(home, "bin"), 0700); err != nil {
 		t.Fatal(err)
 	}
-	plugin := filepath.Join(home, "plugins", "horizon-sleeper")
+	plugin := filepath.Join(home, "bin", "horizon-sleeper")
 	script := "#!/bin/sh\nif [ \"$1\" = horizon-plugin-metadata ]; then echo '{\"protocol_version\":1,\"version\":\"1\",\"description\":\"Sleeper\"}'; exit; fi\necho $$ > plugin.pid\nsleep 30\n"
 	if err := os.WriteFile(plugin, []byte(script), 0700); err != nil {
 		t.Fatal(err)
@@ -186,13 +186,13 @@ func TestPluginNestedShellCancellation(t *testing.T) {
 func TestPluginSignalWithInheritedAccessFromUserEnvironment(t *testing.T) {
 	binary := buildBinary(t)
 	home, workspace := t.TempDir(), t.TempDir()
-	if err := os.MkdirAll(filepath.Join(home, "plugins"), 0700); err != nil {
+	if err := os.MkdirAll(filepath.Join(home, "bin"), 0700); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(home, "config.yaml"), []byte("x"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	plugin := filepath.Join(home, "plugins", "horizon-child")
+	plugin := filepath.Join(home, "bin", "horizon-child")
 	script := "#!/bin/sh\nif [ \"$1\" = horizon-plugin-metadata ]; then echo '{\"protocol_version\":1,\"version\":\"1\",\"description\":\"Child\"}'; exit; fi\n( trap '' TERM; echo ready > child.ready; sleep 2; echo survived > child.marker ) &\nwait\n"
 	if err := os.WriteFile(plugin, []byte(script), 0700); err != nil {
 		t.Fatal(err)
@@ -243,13 +243,13 @@ func TestPluginSignalWithInheritedAccessFromUserEnvironment(t *testing.T) {
 func TestBuiltBinaryPluginPTY(t *testing.T) {
 	binary := buildBinary(t)
 	home := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(home, "plugins"), 0700); err != nil {
+	if err := os.MkdirAll(filepath.Join(home, "bin"), 0700); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(home, "config.yaml"), []byte("x"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	plugin := filepath.Join(home, "plugins", "horizon-interactive")
+	plugin := filepath.Join(home, "bin", "horizon-interactive")
 	script := "#!/bin/sh\nif [ \"$1\" = horizon-plugin-metadata ]; then echo '{\"protocol_version\":1,\"version\":\"1\",\"description\":\"Interactive\"}'; exit; fi\necho READY\nread line\necho GOT:$line\n"
 	if err := os.WriteFile(plugin, []byte(script), 0700); err != nil {
 		t.Fatal(err)

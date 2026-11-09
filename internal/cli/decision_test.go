@@ -142,7 +142,7 @@ func TestDecisionArguments(t *testing.T) {
 func TestDecisionHelpDoesNotInitializeHome(t *testing.T) {
 	home := filepath.Join(t.TempDir(), "missing")
 	marker := filepath.Join(t.TempDir(), "marker")
-	pluginDir := filepath.Join(home, "plugins")
+	pluginDir := filepath.Join(home, "bin")
 	if err := os.MkdirAll(pluginDir, 0700); err != nil {
 		t.Fatal(err)
 	}

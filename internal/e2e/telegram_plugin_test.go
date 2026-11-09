@@ -142,11 +142,11 @@ func TestBuiltTelegramTelegramWorkflow(t *testing.T) {
 		}
 	}))
 	defer server.Close()
-	if err := os.MkdirAll(filepath.Join(home, "plugins"), 0700); err != nil {
+	if err := os.MkdirAll(filepath.Join(home, "bin"), 0700); err != nil {
 		t.Fatal(err)
 	}
 	for _, plugin := range []string{"telegram"} {
-		args := []string{"build", "-o", filepath.Join(home, "plugins", "horizon-"+plugin)}
+		args := []string{"build", "-o", filepath.Join(home, "bin", "horizon-"+plugin)}
 		if plugin == "telegram" {
 			args = append(args, "-ldflags", "-X main.telegramEndpoint="+server.URL)
 		}
@@ -167,7 +167,7 @@ func TestBuiltTelegramTelegramWorkflow(t *testing.T) {
 			t.Fatalf("help %v: %v %q %q", args, err, out, diag)
 		}
 	}
-	if out, diag, err := run(binary, cwd, "", "--home", home, "init"); err != nil {
+	if out, diag, err := initializeHome(binary, cwd, "", "--home", home, "init"); err != nil {
 		t.Fatalf("init %v %s %s", err, out, diag)
 	}
 	cfg := fmt.Sprintf(`mode: unit
@@ -198,7 +198,7 @@ plugins:
 	if err := os.WriteFile(filepath.Join(home, "config.yaml"), []byte(cfg), 0600); err != nil {
 		t.Fatal(err)
 	}
-	if out, diag, err := run(binary, cwd, "", "--home", home, "init"); err != nil {
+	if out, diag, err := initializeHome(binary, cwd, "", "--home", home, "init"); err != nil {
 		t.Fatalf("repeat horizon init %v %s %s", err, out, diag)
 	}
 	start := func() func() {

@@ -5,7 +5,7 @@ Only text messages are supported. Private chats accept the owner only.
 
 Setup:
   make install-plugins
-  horizon init
+  horizon manager plugins install telegram
   Edit <home>/config.yaml, then run horizon telegram start.
 
 New groups inherit group_defaults. owner_only filters the author independently
@@ -35,7 +35,7 @@ Unknown external outcomes are retained and never blindly retried.
 
 // Write separately: go-flags' paragraph wrapping removes YAML indentation.
 const telegramConfigHelp = `
-Example config.yaml section (horizon init adds missing defaults):
+Example config.yaml section (horizon manager plugins install telegram adds missing defaults):
 plugins:
   telegram:
     telegram:

@@ -10,7 +10,7 @@ import (
 func TestInitIsExplicitIdempotentAndUsesSelectedHome(t *testing.T) {
 	home := filepath.Join(t.TempDir(), "custom home")
 	t.Setenv("HORIZON_HOME", home)
-	code, out, diagnostics := runApp(t, "", "init")
+	code, out, diagnostics := runInitialize(t, "", "init")
 	if code != ExitOK || diagnostics != "" {
 		t.Fatalf("init: code=%d out=%q err=%q", code, out, diagnostics)
 	}
@@ -33,7 +33,7 @@ func TestInitIsExplicitIdempotentAndUsesSelectedHome(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	code, out, diagnostics = runApp(t, "", "init")
+	code, out, diagnostics = runInitialize(t, "", "init")
 	if code != ExitOK || diagnostics != "" || !strings.Contains(out, "Существующая конфигурация сохранена") {
 		t.Fatalf("repeat init: code=%d out=%q err=%q", code, out, diagnostics)
 	}
@@ -61,7 +61,7 @@ func TestInitAddsBundledSkillWithoutChangingExistingHome(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	code, _, diagnostics := runApp(t, "", "--home", home, "init")
+	code, _, diagnostics := runInitialize(t, "", "--home", home, "init")
 	if code != ExitOK || diagnostics != "" {
 		t.Fatalf("init: code=%d err=%q", code, diagnostics)
 	}
@@ -83,12 +83,12 @@ func TestInitDoesNotAddProviderAttribution(t *testing.T) {
 	if err := os.WriteFile(path, []byte(initial), 0600); err != nil {
 		t.Fatal(err)
 	}
-	code, out, diag := runApp(t, "", "--home", home, "init")
+	code, out, diag := runInitialize(t, "", "--home", home, "init")
 	data, err := os.ReadFile(path)
 	if code != ExitOK || err != nil || diag != "" || !strings.Contains(out, "Существующая конфигурация сохранена") || string(data) != initial {
 		t.Fatalf("init: code=%d out=%q diag=%q config=%q err=%v", code, out, diag, data, err)
 	}
-	code, _, diag = runApp(t, "", "--home", home, "init")
+	code, _, diag = runInitialize(t, "", "--home", home, "init")
 	again, _ := os.ReadFile(path)
 	if code != ExitOK || diag != "" || string(again) != string(data) {
 		t.Fatalf("repeat init rewrote config: code=%d diag=%q", code, diag)
@@ -99,7 +99,7 @@ func TestOnlyInitCreatesUninitializedHome(t *testing.T) {
 	for _, args := range [][]string{{"models"}, {"sessions", "list"}, {"skills", "list"}, {"resume", "-m", "hello"}} {
 		home := filepath.Join(t.TempDir(), "uninitialized")
 		code, out, diagnostics := runApp(t, "", append([]string{"--home", home}, args...)...)
-		if code != ExitUsage || out != "" || !strings.Contains(diagnostics, "horizon init") {
+		if code != ExitUsage || out != "" || !strings.Contains(diagnostics, "horizon-manager install") {
 			t.Fatalf("%v: %d %q %q", args, code, out, diagnostics)
 		}
 		if _, err := os.Stat(home); !os.IsNotExist(err) {

@@ -23,10 +23,10 @@ import (
 func TestBuiltBrowserPluginTurnAndCleanup(t *testing.T) {
 	binary := buildBinary(t)
 	home, workspace := t.TempDir(), t.TempDir()
-	if err := os.Mkdir(filepath.Join(home, "plugins"), 0700); err != nil {
+	if err := os.Mkdir(filepath.Join(home, "bin"), 0700); err != nil {
 		t.Fatal(err)
 	}
-	build := exec.Command("go", "build", "-o", filepath.Join(home, "plugins", "horizon-browser"), "./plugins/browser")
+	build := exec.Command("go", "build", "-o", filepath.Join(home, "bin", "horizon-browser"), "./plugins/browser")
 	build.Dir = "../.."
 	if output, err := build.CombinedOutput(); err != nil {
 		t.Fatalf("build browser plugin: %v %s", err, output)
@@ -305,10 +305,10 @@ func TestBuiltBrowserPluginFinalizesFailedAndCancelledTurns(t *testing.T) {
 	for _, mode := range []string{"failure", "cancel", "cdp-failure"} {
 		t.Run(mode, func(t *testing.T) {
 			home, workspace := t.TempDir(), t.TempDir()
-			if err := os.Mkdir(filepath.Join(home, "plugins"), 0700); err != nil {
+			if err := os.Mkdir(filepath.Join(home, "bin"), 0700); err != nil {
 				t.Fatal(err)
 			}
-			build := exec.Command("go", "build", "-o", filepath.Join(home, "plugins", "horizon-browser"), "./plugins/browser")
+			build := exec.Command("go", "build", "-o", filepath.Join(home, "bin", "horizon-browser"), "./plugins/browser")
 			build.Dir = "../.."
 			if output, err := build.CombinedOutput(); err != nil {
 				t.Fatalf("build browser plugin: %v %s", err, output)

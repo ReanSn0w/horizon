@@ -111,7 +111,7 @@ func loadSettings(home string, ready bool) (settings, error) {
 	}
 	section := nodeValue(nodeValue(document.Content[0], "plugins"), "telegram")
 	if section == nil {
-		return settings{}, errors.New("plugins.telegram is missing; run 'horizon init'")
+		return settings{}, errors.New("plugins.telegram is missing; run 'horizon manager plugins install telegram'")
 	}
 	if section.Kind != yaml.MappingNode {
 		return settings{}, errors.New("plugins.telegram must be a mapping")
@@ -190,7 +190,7 @@ func ensureGroup(home string, id int64, contexts ...context.Context) (groupSetti
 	_, err := config.UpdateDocumentContext(optionalContext(contexts), home, func(doc *yaml.Node) (bool, error) {
 		telegram := nodeValue(nodeValue(doc.Content[0], "plugins"), "telegram")
 		if telegram == nil {
-			return false, errors.New("run horizon init")
+			return false, errors.New("run horizon manager plugins install telegram")
 		}
 		s, err := loadSettings(home, false)
 		if err != nil {

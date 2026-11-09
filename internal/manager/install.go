@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -138,7 +139,19 @@ func (e *Engine) execute(ctx context.Context, o Options, in io.Reader, out io.Wr
 	if err = writeJSON(filepath.Join(o.Home, ".manager", "state.json"), state); err != nil {
 		return err
 	}
+	if err = Initialize(o.Home, out, out); err != nil {
+		return err
+	}
 	fmt.Fprintf(out, "Installed Horizon in %s\nSource: %s (%s)\nFill providers, models, default_model and decision_model in %s before running Horizon.\n", o.Home, ref, commit, filepath.Join(o.Home, "config.yaml"))
+	if path, err := exec.LookPath("horizon"); err == nil {
+		absolute, _ := filepath.Abs(path)
+		if absolute != filepath.Join(o.Home, "bin", "horizon") {
+			fmt.Fprintf(out, "Existing horizon in PATH: %s. It was preserved; check PATH order after setup.\n", path)
+		}
+	}
+	if entries, err := os.ReadDir(filepath.Join(o.Home, "plugins")); err == nil && len(entries) > 0 {
+		fmt.Fprintln(out, "Legacy plugins were preserved in home/plugins. Select known plugins with install --adopt NAME; stop and reinstall existing Telegram services for the new binary path.")
+	}
 	printShellSetup(o, out)
 	return nil
 }
