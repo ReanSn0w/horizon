@@ -23,7 +23,7 @@ func TestCLIProtocolAndArguments(t *testing.T) {
 	}
 	var got Options
 	var out bytes.Buffer
-	code := Run(context.Background(), []string{"install", "--home", home, "--branch", "feature/install", "--no-shell"}, nil, &out, &out, func(_ context.Context, o Options, _ io.Reader, _ io.Writer) error { got = o; return nil })
+	code := Run(context.Background(), []string{"install", "--home", home, "--branch", "feature/install"}, nil, &out, &out, func(_ context.Context, o Options, _ io.Reader, _ io.Writer) error { got = o; return nil })
 	if code != 0 || got.Home != home || got.Source.Branch != "feature/install" {
 		t.Fatal(got, code)
 	}

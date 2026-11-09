@@ -22,7 +22,7 @@ func fixtureEngine(t *testing.T) *Engine {
 func TestInstallPreservesUserResources(t *testing.T) {
 	e := fixtureEngine(t)
 	home := filepath.Join(t.TempDir(), "home with spaces")
-	o := Options{Command: "install", Home: home, Yes: true, NoShell: true, Source: &config.Source{Type: "branch", Branch: "feature/install"}}
+	o := Options{Command: "install", Home: home, Yes: true, Source: &config.Source{Type: "branch", Branch: "feature/install"}}
 	if err := e.execute(context.Background(), o, strings.NewReader(""), io.Discard); err != nil {
 		t.Fatal(err)
 	}
@@ -52,7 +52,7 @@ func TestInstallBuildFailureLeavesBinaries(t *testing.T) {
 	e := fixtureEngine(t)
 	home := t.TempDir()
 	e.build = func(context.Context, string, string, string) error { return io.ErrUnexpectedEOF }
-	err := e.execute(context.Background(), Options{Command: "install", Home: home, Yes: true, NoShell: true, Source: &config.Source{Type: "branch", Branch: "feature/install"}}, strings.NewReader(""), io.Discard)
+	err := e.execute(context.Background(), Options{Command: "install", Home: home, Yes: true, Source: &config.Source{Type: "branch", Branch: "feature/install"}}, strings.NewReader(""), io.Discard)
 	if err == nil {
 		t.Fatal("expected failure")
 	}

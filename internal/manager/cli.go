@@ -13,7 +13,7 @@ import (
 )
 
 const Help = `Usage:
-  horizon-manager install [--home PATH] [--branch NAME | --release] [--yes] [--shell bash|zsh|fish] [--no-shell] [--adopt NAME]
+  horizon-manager install [--home PATH] [--branch NAME | --release] [--yes] [--shell bash|zsh|fish] [--adopt NAME]
   horizon-manager update [--home PATH]
   horizon-manager plugins list [--home PATH]
   horizon-manager plugins install NAME [--home PATH]
@@ -24,7 +24,7 @@ After installation: horizon manager <command>.
 type Options struct {
 	Command, Name, Home, Shell string
 	Source                     *config.Source
-	Yes, NoShell, ExplicitHome bool
+	Yes, ExplicitHome          bool
 	Adopt                      []string
 }
 
@@ -36,8 +36,6 @@ func Parse(args []string) (Options, error) {
 		switch arg {
 		case "--yes":
 			o.Yes = true
-		case "--no-shell":
-			o.NoShell = true
 		case "--release":
 			if o.Source != nil {
 				return o, errors.New("choose one source")
@@ -85,7 +83,7 @@ func Parse(args []string) (Options, error) {
 	} else {
 		return o, errors.New("expected install, update or plugins command")
 	}
-	if o.Command != "install" && (o.Source != nil || o.Yes || o.NoShell || o.Shell != "" || len(o.Adopt) > 0) {
+	if o.Command != "install" && (o.Source != nil || o.Yes || o.Shell != "" || len(o.Adopt) > 0) {
 		return o, errors.New("installation options require install")
 	}
 	if o.Source != nil {

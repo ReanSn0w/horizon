@@ -30,7 +30,7 @@ func chooseHome(o *Options, in io.Reader, out io.Writer) error {
 		return nil
 	}
 	if !interactive(in) {
-		return errors.New("non-interactive installation requires --yes (use --no-shell to leave shell configuration unchanged)")
+		return errors.New("non-interactive installation requires --yes")
 	}
 	if !o.ExplicitHome {
 		fmt.Fprintf(out, "Horizon home [%s]: ", o.Home)
@@ -139,6 +139,7 @@ func (e *Engine) execute(ctx context.Context, o Options, in io.Reader, out io.Wr
 		return err
 	}
 	fmt.Fprintf(out, "Installed Horizon in %s\nSource: %s (%s)\nFill providers, models, default_model and decision_model in %s before running Horizon.\n", o.Home, ref, commit, filepath.Join(o.Home, "config.yaml"))
+	printShellSetup(o, out)
 	return nil
 }
 func binaryNames(names []string) []string {
