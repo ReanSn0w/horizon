@@ -9,7 +9,6 @@ import (
 	"github.com/ReanSn0w/horizon/internal/config"
 	"github.com/ReanSn0w/horizon/internal/plugins"
 	"io"
-	"os"
 	"strings"
 )
 
@@ -139,19 +138,4 @@ func Run(ctx context.Context, args []string, in io.Reader, out, diag io.Writer, 
 		return 1
 	}
 	return 0
-}
-
-// Execute is extended by the installation pipeline; list is useful independently.
-func Execute(ctx context.Context, o Options, in io.Reader, out io.Writer) error {
-	if o.Command != "plugins list" {
-		return errors.New("installation pipeline is not available in this development revision")
-	}
-	catalog, err := Catalog(o.Home + string(os.PathSeparator) + "source")
-	if err != nil {
-		return err
-	}
-	for name, p := range catalog {
-		fmt.Fprintf(out, "%s\t%s\n", name, p.Description)
-	}
-	return nil
 }
