@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/ReanSn0w/horizon/internal/config"
 	"io"
 	"net/http"
 	"os"
@@ -14,6 +13,8 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"github.com/ReanSn0w/horizon/internal/config"
 )
 
 const repositoryURL = "https://github.com/ReanSn0w/horizon.git"

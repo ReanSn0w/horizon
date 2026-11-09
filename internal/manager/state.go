@@ -3,10 +3,11 @@ package manager
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/ReanSn0w/horizon/internal/config"
 	"os"
 	"path/filepath"
 	"regexp"
+
+	"github.com/ReanSn0w/horizon/internal/config"
 )
 
 const stateVersion = 1

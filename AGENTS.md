@@ -105,7 +105,7 @@ HORIZON_API_CHECK=1 go test ./internal/responses -run TestConfiguredEndpointComp
 
 - Разрабатываемые здесь плагины размещаются в `plugins/<имя>/`; `plugins/agent`
   пока собирается как `horizon-telegram` для сохранения текущих команд. Установленный
-  файл хранится в `<home>/plugins/horizon-<имя>`. Дерево исходников репозитория
+  файл хранится в `<home>/bin/horizon-<имя>`. Дерево исходников репозитория
   не является источником автоматического обнаружения. При изменении хоста или
   плагина сохраняй протокол из `docs/PLUGINS.md`.
 - Настройки плагинов находятся в `plugins.<имя>` в config.yaml и проверяются
@@ -130,10 +130,10 @@ HORIZON_API_CHECK=1 go test ./internal/responses -run TestConfiguredEndpointComp
   без текстового оформления; диагностика CLI остаётся в stderr.
 - Сохраняй коды завершения: `0` — успех, `1` — ошибка выполнения,
   `2` — аргументы или конфигурация, `130` — отмена через Ctrl+C.
-- `horizon init` подготавливает home и выводит пути к `config.yaml` и
+- `horizon-manager install` подготавливает home и выводит пути к `config.yaml` и
   `AGENTS.md`. Рабочие команды не создают home автоматически; при отсутствии
-  конфигурации они предлагают запустить `init`. Справка и ошибки разбора
-  аргументов тоже ничего не создают. Повторный `init` не перезаписывает
+  конфигурации они предлагают запустить `install`. Менеджер только печатает команды HORIZON_HOME/PATH и не меняет shell-файлы. Справка и ошибки разбора
+  аргументов тоже ничего не создают. Повторный `install` не перезаписывает
   пользовательские файлы. Новые каталоги имеют права `0700`, файлы — `0600`.
 - `config.example.yaml` и `internal/bootstrap/assets/config.yaml` должны
   совпадать побайтово: это проверяет `TestEmbeddedResources`. При изменении
@@ -142,7 +142,7 @@ HORIZON_API_CHECK=1 go test ./internal/responses -run TestConfiguredEndpointComp
   Responses API и ключ. `models.<профиль>.provider` ссылается на имя подключения.
   `default_model` и `decision_model` выбирают профили диалога и решений.
   В проверках решений reasoning всегда отключён. Старые блоки `provider` и
-  `decision` не поддерживаются; `init` не переписывает пользовательский YAML.
+  `decision` не поддерживаются; `install` не переписывает пользовательский YAML.
   Отсутствующий или неизвестный `decision_model` даёт адресную ошибку до создания
   хода `read`/`write`; в `full` он не требуется.
   Сжатие памяти использует провайдера её профиля. Новые сессии сохраняют имя
@@ -187,7 +187,7 @@ HORIZON_API_CHECK=1 go test ./internal/responses -run TestConfiguredEndpointComp
 - Встроенный `skill-creator` использует CLI-валидацию; обновления бинарника
   по-прежнему не перезаписывают пользовательскую копию навыка.
 - Встроенный `filesystem` описывает файловые операции через `shell_exec`.
-  Повторный `init` устанавливает отсутствующий навык, сохраняя существующие
+  Повторный `install` устанавливает отсутствующий навык, сохраняя существующие
   пользовательские версии обоих навыков.
 
 ### Сессии и восстановление
@@ -272,3 +272,12 @@ HORIZON_API_CHECK=1 go test ./internal/responses -run TestConfiguredEndpointComp
 или миграции без необходимости. При изменении пользовательского поведения
 обновляй соответствующую документацию. В отчёте указывай результат, фактически
 выполненные проверки и оставшиеся ограничения.
+
+### Менеджер установки
+
+- `plugins/manager` — CLI, `internal/manager` — source/build/deploy/state; `internal/maintenance` — общая блокировка обслуживания.
+- Home содержит `bin`, `source`, `.manager`, `dialogs`, `memory/workspaces`, навыки и начальные файлы. `horizon init` удалён.
+- `installation.source` выбирает release или branch; установленный commit и набор плагинов сохраняются отдельно в `.manager/state.json`.
+- Обновление собирает один commit, проверяет метаданные, заменяет набор с журналом и rollback. Source с локальными изменениями не перезаписывается.
+- Рабочие команды удерживают shared maintenance lock, manager — exclusive. Родительский `horizon manager`, metadata и config-template не должны мешать обслуживанию.
+- Тестируй manager на временных home, локальных Git fixtures и HTTP-серверах. Не меняй пользовательский home и shell-настройки. Вся настройка shell — только печатные команды.

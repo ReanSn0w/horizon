@@ -21,7 +21,7 @@ func validateMemory(raw rawConfig, legacyEnabled bool, models map[string]Model) 
 	legacyNode, hasLegacySettings := raw.Plugins["memory"]
 	agentPlugins := slices.DeleteFunc(slices.Clone(raw.AgentPlugins), func(name string) bool { return name == "memory" })
 	if raw.Memory.Node != nil && (legacyEnabled || hasLegacySettings) {
-		return Memory{}, nil, errors.New("memory conflicts with legacy agent_plugins/plugins.memory; remove one definition, then run horizon init")
+		return Memory{}, nil, errors.New("memory conflicts with legacy agent_plugins/plugins.memory; remove one definition, then run horizon-manager install")
 	}
 	if raw.Memory.Node == nil && !legacyEnabled && !hasLegacySettings {
 		return Memory{}, agentPlugins, nil

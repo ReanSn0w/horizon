@@ -12,6 +12,7 @@ PLUGIN_TARGETS := $(addprefix install-plugin-,$(PLUGIN_NAMES))
 
 help:
 	@printf '%s\n' \
+	  'make build-manager           Build the standalone manager in the repository root' \
 	  'make install                 Install Horizon into HORIZON_HOME/bin' \
 	  'make install-plugins         Install selected plugins into HORIZON_HOME/bin' \
 	  'make install-telegram        Install the Telegram integration plugin' \

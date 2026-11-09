@@ -1,10 +1,11 @@
 package manager
 
 import (
-	"github.com/ReanSn0w/horizon/internal/config"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/ReanSn0w/horizon/internal/config"
 )
 
 func TestStateSeparatesInstalledRevision(t *testing.T) {

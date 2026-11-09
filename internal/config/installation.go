@@ -2,10 +2,11 @@ package config
 
 import (
 	"errors"
-	"gopkg.in/yaml.v3"
 	"os"
 	"path/filepath"
 	"strings"
+
+	"gopkg.in/yaml.v3"
 )
 
 type Installation struct {
@@ -49,17 +50,46 @@ func WriteInstallation(home string, value Installation) error {
 		return err
 	}
 	_, err := UpdateDocument(home, func(doc *yaml.Node) (bool, error) {
-		var node yaml.Node
-		if err := node.Encode(value); err != nil {
+		root := doc.Content[0]
+		old := mappingValue(root, "installation")
+		if old == nil {
+			var node yaml.Node
+			if err := node.Encode(value); err != nil {
+				return false, err
+			}
+			appendMapping(root, "installation", &node)
+			return true, nil
+		}
+		var previous Installation
+		if err := old.Decode(&previous); err != nil {
 			return false, err
 		}
-		root := doc.Content[0]
-		if old := mappingValue(root, "installation"); old != nil {
-			node.HeadComment = old.HeadComment
-			node.LineComment = old.LineComment
-			*old = node
+		if previous == value {
+			return false, nil
+		}
+		source := mappingValue(old, "source")
+		if source == nil || source.Kind != yaml.MappingNode {
+			return false, errors.New("installation.source must be a mapping")
+		}
+		set := func(key, text string) {
+			if node := mappingValue(source, key); node != nil {
+				node.Value = text
+				node.Tag = "!!str"
+				node.Kind = yaml.ScalarNode
+			} else {
+				appendMapping(source, key, &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: text})
+			}
+		}
+		set("type", value.Source.Type)
+		if value.Source.Type == "branch" {
+			set("branch", value.Source.Branch)
 		} else {
-			appendMapping(root, "installation", &node)
+			for i := 0; i+1 < len(source.Content); i += 2 {
+				if source.Content[i].Value == "branch" {
+					source.Content = append(source.Content[:i], source.Content[i+2:]...)
+					break
+				}
+			}
 		}
 		return true, nil
 	})

@@ -199,7 +199,7 @@ plugins:
 		t.Fatal(err)
 	}
 	if out, diag, err := initializeHome(binary, cwd, "", "--home", home, "init"); err != nil {
-		t.Fatalf("repeat horizon init %v %s %s", err, out, diag)
+		t.Fatalf("repeat manager resource preparation %v %s %s", err, out, diag)
 	}
 	start := func() func() {
 		cmd := exec.Command(binary, "--home", home, "telegram", "start", "--log-file", filepath.Join(home, "gateway", "service.log"))

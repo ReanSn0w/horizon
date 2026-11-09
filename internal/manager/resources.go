@@ -2,10 +2,11 @@ package manager
 
 import (
 	"fmt"
-	"github.com/ReanSn0w/horizon/internal/bootstrap"
-	"github.com/ReanSn0w/horizon/internal/config"
 	"io"
 	"path/filepath"
+
+	"github.com/ReanSn0w/horizon/internal/bootstrap"
+	"github.com/ReanSn0w/horizon/internal/config"
 )
 
 // Initialize installs missing resources and merges installed plugin templates.

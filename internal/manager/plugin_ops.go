@@ -3,14 +3,15 @@ package manager
 import (
 	"context"
 	"fmt"
-	"github.com/ReanSn0w/horizon/internal/config"
-	"github.com/ReanSn0w/horizon/internal/maintenance"
-	"github.com/ReanSn0w/horizon/internal/plugins"
-	"gopkg.in/yaml.v3"
 	"io"
 	"os"
 	"path/filepath"
 	"slices"
+
+	"github.com/ReanSn0w/horizon/internal/config"
+	"github.com/ReanSn0w/horizon/internal/maintenance"
+	"github.com/ReanSn0w/horizon/internal/plugins"
+	"gopkg.in/yaml.v3"
 )
 
 func checkLegacyBusy(home string) error {

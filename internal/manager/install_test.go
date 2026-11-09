@@ -2,12 +2,13 @@ package manager
 
 import (
 	"context"
-	"github.com/ReanSn0w/horizon/internal/config"
 	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/ReanSn0w/horizon/internal/config"
 )
 
 func fixtureEngine(t *testing.T) *Engine {

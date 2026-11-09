@@ -5,7 +5,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/ReanSn0w/horizon/internal/maintenance"
 	"io"
 	"os"
 	"os/exec"
@@ -15,6 +14,7 @@ import (
 
 	"github.com/ReanSn0w/horizon/internal/bootstrap"
 	"github.com/ReanSn0w/horizon/internal/config"
+	"github.com/ReanSn0w/horizon/internal/maintenance"
 	"github.com/ReanSn0w/horizon/internal/plugins"
 	"golang.org/x/term"
 )
@@ -199,6 +199,7 @@ func (e *Engine) execute(ctx context.Context, o Options, in io.Reader, out io.Wr
 		return err
 	}
 	fmt.Fprintf(out, "Installed Horizon in %s\nSource: %s (%s)\nFill providers, models, default_model and decision_model in %s before running Horizon.\n", o.Home, ref, commit, filepath.Join(o.Home, "config.yaml"))
+	fmt.Fprintf(out, "Global instructions: %s\n", filepath.Join(o.Home, "AGENTS.md"))
 	if o.Command == "install" {
 		if path, err := exec.LookPath("horizon"); err == nil {
 			absolute, _ := filepath.Abs(path)

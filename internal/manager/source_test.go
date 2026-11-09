@@ -3,12 +3,13 @@ package manager
 import (
 	"context"
 	"fmt"
-	"github.com/ReanSn0w/horizon/internal/config"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/ReanSn0w/horizon/internal/config"
 )
 
 func fixtureRepo(t *testing.T) string {
