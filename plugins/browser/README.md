@@ -2,6 +2,10 @@
 
 Плагин управляет удалённым Chromium через [Browser Use Browsers API v4](https://docs.browser-use.com/cloud/openapi/v4.json) и CDP. Локальный браузер не устанавливается. Плагин не входит в набор `make install-plugins` по умолчанию.
 
+Команды установки выполняются из корня репозитория Horizon. Нужны Go версии
+из `go.mod` или новее и `make`. Плагин собирается из исходников и устанавливается
+в `<home>/plugins/horizon-browser`; `HORIZON_HOME` выбирает этот home.
+
 ```sh
 make install-browser HORIZON_HOME=/path/to/home
 horizon --home /path/to/home init
@@ -64,3 +68,16 @@ Browser Use может вернуть HTTP(S)-адрес CDP вместо гот
 Навигация ждёт `DOMContentLoaded` основного документа, а не завершения всех
 фоновых ресурсов. Динамическое содержимое, появившееся позже, можно прочитать
 следующим `browser__snapshot`.
+
+## Локальные данные
+
+Настройки находятся в `plugins.browser` общего `<home>/config.yaml`.
+Служебное состояние плагина хранится в `<home>/browser/`:
+
+- `home-id` — идентификатор home для меток удалённых браузеров;
+- `state.lock` — блокировка изменения состояния;
+- `turn-<turn-id>.json` — привязка браузера к ходу и сессии Horizon,
+  данные CDP-подключения и ссылки на элементы страницы.
+
+Удаление локального состояния не останавливает удалённый браузер. Для остановки
+используйте описанные выше команды `horizon browser close`.

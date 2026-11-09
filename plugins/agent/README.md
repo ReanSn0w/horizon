@@ -10,6 +10,12 @@ for each chat, and sends only successful final responses. The plugin follows
 
 ## Installation and configuration
 
+Run the installation commands from the Horizon repository root with Go (the
+version specified in `go.mod` or a newer compatible version) and `make` installed.
+`make install-all` builds Horizon and the default plugin set, currently Telegram.
+`BIN_DIR` selects the Horizon binary directory; `HORIZON_HOME` selects the home
+whose `plugins/` directory receives the plugin binary.
+
 ```sh
 make install-all
 horizon init
@@ -371,6 +377,22 @@ Round-robin scheduling fixes this reproduced defect. The original October 1
 Mac Mini incident was not captured, so its exact cause remains unconfirmed.
 
 ## Persistence and failure handling
+
+The plugin uses these paths under the selected Horizon home:
+
+- `plugins/horizon-telegram`: installed executable.
+- `gateway/identity` and `gateway/process.lock`: bot identity and process lock.
+- `gateway/telegram/<bot_id>/state.yaml` and `state.lock`: durable chat state,
+  pending jobs and delivery progress.
+- `gateway/health.json`: current diagnostic snapshot.
+- `gateway/service.yaml` and `service.lock`: installed service descriptor and lock.
+- `gateway/service.log`, plus `gateway/launchd.log` when using launchd: logs;
+  rotation keeps a `.1` file.
+- `workspaces/telegram/telegram_<bot_id>_<chat_id>/`: default chat workspaces,
+  configurable through `plugins.telegram.workspace_dir`.
+
+Horizon session history remains in the core `dialogs/` store. Plugin settings
+remain under `plugins.telegram` in the shared `config.yaml`.
 
 State lives in `<home>/gateway/telegram/<bot_id>/state.yaml`, protected by a
 permanent lock and atomic writes. Workspaces use numeric bot/chat IDs and retain

@@ -25,7 +25,7 @@ horizon --home /path/to/home telegram start
 ```
 
 Режим собеседника использует встроенную команду `horizon decision` и общую
-секцию `decision` в конфигурации.
+настройку `decision_model` в конфигурации.
 [Настройки, правила групп, send и управление службами](agent/README.md).
 
 `make install-plugins` по умолчанию устанавливает только `telegram`.
