@@ -1,6 +1,11 @@
 # Horizon performs one agent turn per process.
 mode: unit
 
+# Source for installation and updates; models use their own provider settings.
+installation:
+  source:
+    type: release
+
 # Include <home>/SOUL.md in agent instructions when explicitly enabled.
 soul_enabled: false
 
