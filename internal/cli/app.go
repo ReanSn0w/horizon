@@ -10,6 +10,7 @@ import (
 
 	"github.com/ReanSn0w/horizon/internal/buildinfo"
 	"github.com/ReanSn0w/horizon/internal/config"
+	"github.com/ReanSn0w/horizon/internal/maintenance"
 	"github.com/ReanSn0w/horizon/internal/plugins"
 	"github.com/ReanSn0w/horizon/internal/session"
 	flags "github.com/umputun/go-flags"
@@ -89,6 +90,11 @@ func (a *App) Run(args []string) int {
 		if err := requireInitializedHome(home); err != nil {
 			return err
 		}
+		release, err := maintenance.Acquire(home, false)
+		if err != nil {
+			return failure(err.Error(), err)
+		}
+		defer release()
 		return command.Execute(remaining)
 	}
 	if err := a.addCommands(parser, &options); err != nil {
@@ -105,6 +111,14 @@ func (a *App) Run(args []string) int {
 		}
 		name := args[index]
 		if parser.Find(name) == nil {
+			if name != "manager" {
+				release, err := maintenance.Acquire(home, false)
+				if err != nil {
+					fmt.Fprintln(a.errOut, err)
+					return ExitFailure
+				}
+				defer release()
+			}
 			entry := plugins.Inspect(home, name, reserved)
 			if entry.Err == nil || !os.IsNotExist(entry.Err) {
 				if entry.Err != nil {

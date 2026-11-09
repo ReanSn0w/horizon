@@ -3,9 +3,9 @@ package manager
 import (
 	"bufio"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/ReanSn0w/horizon/internal/maintenance"
 	"io"
 	"os"
 	"os/exec"
@@ -49,35 +49,80 @@ func chooseHome(o *Options, in io.Reader, out io.Writer) error {
 	return nil
 }
 func (e *Engine) execute(ctx context.Context, o Options, in io.Reader, out io.Writer) error {
+	if o.Command == "install" {
+		if err := chooseHome(&o, in, out); err != nil {
+			return err
+		}
+	}
 	if o.Command != "install" {
-		return errors.New("command requires the update pipeline")
+		if _, err := os.Stat(filepath.Join(o.Home, ".manager")); err != nil {
+			return fmt.Errorf("installation is not managed; run horizon-manager install")
+		}
 	}
-	if err := chooseHome(&o, in, out); err != nil {
+	if o.Command == "install" {
+		if _, err := os.Stat(filepath.Join(o.Home, ".manager")); os.IsNotExist(err) {
+			if err = checkTools(ctx); err != nil {
+				return err
+			}
+		}
+	}
+	if err := os.MkdirAll(filepath.Join(o.Home, ".manager"), 0700); err != nil {
 		return err
 	}
-	if err := checkTools(ctx); err != nil {
+	for _, name := range []string{".manager", "bin"} {
+		info, err := os.Lstat(filepath.Join(o.Home, name))
+		if err == nil && (!info.IsDir() || info.Mode()&os.ModeSymlink != 0) {
+			return fmt.Errorf("%s must be a directory, not a symlink", name)
+		}
+		if err != nil && !os.IsNotExist(err) {
+			return err
+		}
+	}
+	unlock, err := maintenance.Lock(filepath.Join(o.Home, ".manager", "operation.lock"), true)
+	if err != nil {
 		return err
 	}
-	source := config.Source{Type: "release"}
+	defer unlock()
+	release, err := maintenance.Acquire(o.Home, o.Command != "plugins list")
+	if err != nil {
+		return err
+	}
+	defer release()
+	if o.Command == "plugins list" {
+		if _, err := os.Stat(filepath.Join(transactionDir(o.Home), "journal.json")); err == nil {
+			return errors.New("interrupted installation; run manager update or install to recover")
+		}
+	} else {
+		if err = recoverTransaction(o.Home); err != nil {
+			return err
+		}
+		if err = checkLegacyBusy(o.Home); err != nil {
+			return err
+		}
+	}
 	old, err := ReadState(o.Home)
+	installed := err == nil
 	if err != nil && !os.IsNotExist(err) {
 		return err
 	}
-	installed := err == nil
-	if installed {
-		cfg, err := config.ReadInstallation(o.Home)
-		if err != nil {
+	if !installed && o.Command != "install" {
+		return errors.New("installation state is missing; run horizon-manager install")
+	}
+	if o.Command == "plugins list" {
+		return listPlugins(o.Home, old, out)
+	}
+	if o.Command != "plugins remove" {
+		if err = checkTools(ctx); err != nil {
 			return err
 		}
-		source = cfg.Source
 	}
-	if o.Source != nil {
-		source = *o.Source
+	expectedCommit := old.Commit
+	if o.Command == "install" {
+		if _, err := os.Stat(filepath.Join(o.Home, "source")); os.IsNotExist(err) {
+			expectedCommit = ""
+		}
 	}
-	if err = e.checkCheckout(ctx, filepath.Join(o.Home, "source"), old.Commit); err != nil {
-		return err
-	}
-	if err = os.MkdirAll(filepath.Join(o.Home, ".manager"), 0700); err != nil {
+	if err = e.checkCheckout(ctx, filepath.Join(o.Home, "source"), expectedCommit); err != nil {
 		return err
 	}
 	stage, err := os.MkdirTemp(filepath.Join(o.Home, ".manager"), "staging-")
@@ -85,6 +130,23 @@ func (e *Engine) execute(ctx context.Context, o Options, in io.Reader, out io.Wr
 		return err
 	}
 	defer os.RemoveAll(stage)
+	if o.Command == "plugins install" || o.Command == "plugins remove" {
+		return e.changePlugin(ctx, o, old, stage, out)
+	}
+	source := config.Source{Type: "release"}
+	if installed {
+		settings, err := config.ReadInstallation(o.Home)
+		if err != nil {
+			return err
+		}
+		source = settings.Source
+		if _, err := os.Stat(filepath.Join(o.Home, "config.yaml")); os.IsNotExist(err) {
+			source = old.Source
+		}
+	}
+	if o.Source != nil {
+		source = *o.Source
+	}
 	commit, ref, catalog, err := e.prepare(ctx, stage, source)
 	if err != nil {
 		return err
@@ -102,11 +164,9 @@ func (e *Engine) execute(ctx context.Context, o Options, in io.Reader, out io.Wr
 		}
 	}
 	slices.Sort(names)
-	if err = e.buildSet(ctx, filepath.Join(stage, "source"), stage, catalog, names); err != nil {
-		return err
-	}
 	for _, name := range append([]string{"horizon", "horizon-manager"}, binaryNames(names)...) {
-		if !installed {
+		owned := installed && (name == "horizon" || name == "horizon-manager" || slices.Contains(binaryNames(old.Plugins), name))
+		if !owned {
 			if _, err := os.Lstat(filepath.Join(o.Home, "bin", name)); err == nil {
 				return fmt.Errorf("unmanaged binary %s already exists; move it aside explicitly", name)
 			} else if !os.IsNotExist(err) {
@@ -114,45 +174,43 @@ func (e *Engine) execute(ctx context.Context, o Options, in io.Reader, out io.Wr
 			}
 		}
 	}
+	if err = e.buildSet(ctx, filepath.Join(stage, "source"), stage, catalog, names); err != nil {
+		return err
+	}
 	if _, err = bootstrap.Ensure(o.Home); err != nil {
 		return err
 	}
-	if err = config.WriteInstallation(o.Home, config.Installation{Source: source}); err != nil {
+	if err = prepareConfig(o.Home, stage, append([]string{"manager"}, names...)); err != nil {
 		return err
 	}
-	// All builds finish before replacing a live file. Durable recovery is added by
-	// the deployment transaction shared with updates.
-	paths := append([]string{"source", "bin/horizon"}, pluginPaths(names)...)
-	paths = append(paths, "bin/horizon-manager")
-	for _, path := range paths {
-		dest := filepath.Join(o.Home, path)
-		if _, err := os.Lstat(dest); err == nil {
-			if err = os.Rename(dest, filepath.Join(stage, "old-"+strings.ReplaceAll(path, "/", "-"))); err != nil {
-				return err
-			}
-		}
-		if err = os.Rename(filepath.Join(stage, path), dest); err != nil {
-			return err
-		}
+	if err = config.WriteInstallation(stage, config.Installation{Source: source}); err != nil {
+		return err
 	}
 	state := State{Version: stateVersion, Commit: commit, Ref: ref, Source: source, Plugins: names}
-	if err = writeJSON(filepath.Join(o.Home, ".manager", "state.json"), state); err != nil {
+	if err = writeJSON(filepath.Join(stage, ".manager", "state.json"), state); err != nil {
 		return err
 	}
-	if err = Initialize(o.Home, out, out); err != nil {
+	paths := append([]string{"source", "bin/horizon"}, pluginPaths(names)...)
+	paths = append(paths, "config.yaml", "bin/horizon-manager", ".manager/state.json")
+	if err = ctx.Err(); err != nil {
+		return err
+	}
+	if err = e.deploy(o.Home, stage, paths, nil); err != nil {
 		return err
 	}
 	fmt.Fprintf(out, "Installed Horizon in %s\nSource: %s (%s)\nFill providers, models, default_model and decision_model in %s before running Horizon.\n", o.Home, ref, commit, filepath.Join(o.Home, "config.yaml"))
-	if path, err := exec.LookPath("horizon"); err == nil {
-		absolute, _ := filepath.Abs(path)
-		if absolute != filepath.Join(o.Home, "bin", "horizon") {
-			fmt.Fprintf(out, "Existing horizon in PATH: %s. It was preserved; check PATH order after setup.\n", path)
+	if o.Command == "install" {
+		if path, err := exec.LookPath("horizon"); err == nil {
+			absolute, _ := filepath.Abs(path)
+			if absolute != filepath.Join(o.Home, "bin", "horizon") {
+				fmt.Fprintf(out, "Existing horizon in PATH: %s. It was preserved; check PATH order after setup.\n", path)
+			}
 		}
+		if entries, err := os.ReadDir(filepath.Join(o.Home, "plugins")); err == nil && len(entries) > 0 {
+			fmt.Fprintln(out, "Legacy plugins were preserved in home/plugins. Select known plugins with install --adopt NAME; stop and reinstall existing Telegram services for the new binary path.")
+		}
+		printShellSetup(o, out)
 	}
-	if entries, err := os.ReadDir(filepath.Join(o.Home, "plugins")); err == nil && len(entries) > 0 {
-		fmt.Fprintln(out, "Legacy plugins were preserved in home/plugins. Select known plugins with install --adopt NAME; stop and reinstall existing Telegram services for the new binary path.")
-	}
-	printShellSetup(o, out)
 	return nil
 }
 func binaryNames(names []string) []string {
@@ -187,14 +245,10 @@ func (e *Engine) buildSet(ctx context.Context, source, stage string, catalog map
 		if err := e.buildBinary(ctx, source, p.Package, path); err != nil {
 			return err
 		}
-		data, err := command(ctx, "", path, "horizon-plugin-metadata")
-		if err != nil {
-			return err
+		if entry := plugins.Inspect(stage, name, nil); entry.Err != nil {
+			return fmt.Errorf("incompatible metadata for %s: %w", name, entry.Err)
 		}
-		var metadata plugins.Metadata
-		if err = json.Unmarshal([]byte(data), &metadata); err != nil || metadata.ProtocolVersion != 1 || metadata.Version == "" || metadata.Description == "" {
-			return fmt.Errorf("incompatible metadata for %s", name)
-		}
+
 	}
 	return nil
 }

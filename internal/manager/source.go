@@ -143,6 +143,9 @@ func (e *Engine) prepare(ctx context.Context, staging string, source config.Sour
 		return "", "", nil, err
 	}
 	dest := filepath.Join(staging, "source")
+	if err = os.Mkdir(dest, 0700); err != nil {
+		return "", "", nil, err
+	}
 	if _, err = command(ctx, "", "git", "init", "--quiet", dest); err != nil {
 		return "", "", nil, err
 	}

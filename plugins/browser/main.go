@@ -13,6 +13,7 @@ import (
 	"syscall"
 
 	"github.com/ReanSn0w/horizon/internal/config"
+	"github.com/ReanSn0w/horizon/internal/maintenance"
 	"github.com/ReanSn0w/horizon/internal/plugins"
 	flags "github.com/umputun/go-flags"
 )
@@ -57,6 +58,15 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 		}
 		return 0
 	}
+	home, err := config.ResolveHome("")
+	if err != nil {
+		return fail(2, err)
+	}
+	release, err := maintenance.Acquire(home, false)
+	if err != nil {
+		return fail(1, err)
+	}
+	defer release()
 	if len(args) == 1 && strings.HasPrefix(args[0], "horizon-plugin-agent-") {
 		return protocol(ctx, strings.TrimPrefix(args[0], "horizon-plugin-agent-"), stdin, stdout, stderr)
 	}
