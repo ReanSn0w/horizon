@@ -1,0 +1,1 @@
+{"name":"telegram","description":"Telegram agent integration","package":"./plugins/agent","binary":"horizon-telegram"}

@@ -104,7 +104,7 @@ func TestEmptyMessageDoesNotCreateState(t *testing.T) {
 func TestSessionCommands(t *testing.T) {
 	home := t.TempDir()
 	workspace := t.TempDir()
-	if code, _, stderr := runApp(t, "", "--home", home, "init"); code != ExitOK || stderr != "" {
+	if code, _, stderr := runInitialize(t, "", "--home", home, "init"); code != ExitOK || stderr != "" {
 		t.Fatalf("init code=%d stderr=%q", code, stderr)
 	}
 	code, stdout, stderr := runAppAt(t, workspace, "", "--home", home, "sessions", "create")

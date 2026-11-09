@@ -21,6 +21,7 @@ const (
 )
 
 type Config struct {
+	Installation   *Installation
 	AgentPlugins   []string
 	Plugins        map[string]yaml.Node
 	DisabledSkills []string
@@ -68,6 +69,7 @@ type Limits struct {
 }
 
 type rawConfig struct {
+	Installation   *Installation        `yaml:"installation"`
 	AgentPlugins   []string             `yaml:"agent_plugins"`
 	Plugins        map[string]yaml.Node `yaml:"plugins"`
 	DisabledSkills disabledIDs          `yaml:"disabled_skills"`
@@ -151,6 +153,11 @@ func Load(home string) (Config, error) {
 }
 
 func validate(raw rawConfig) (Config, error) {
+	if raw.Installation != nil {
+		if err := raw.Installation.Source.Validate(); err != nil {
+			return Config{}, err
+		}
+	}
 	if len(raw.AgentPlugins) > 16 {
 		return Config{}, errors.New("agent_plugins supports at most 16 plugins")
 	}
@@ -243,6 +250,7 @@ func validate(raw rawConfig) (Config, error) {
 		return Config{}, err
 	}
 	return Config{
+		Installation:   raw.Installation,
 		Plugins:        raw.Plugins,
 		AgentPlugins:   agentPlugins,
 		DisabledSkills: append([]string(nil), raw.DisabledSkills...),

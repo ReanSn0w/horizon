@@ -12,6 +12,7 @@ import (
 	"syscall"
 
 	"github.com/ReanSn0w/horizon/internal/config"
+	"github.com/ReanSn0w/horizon/internal/maintenance"
 	flags "github.com/umputun/go-flags"
 )
 
@@ -106,7 +107,18 @@ func runCLI(ctx context.Context, args []string, out, errOut io.Writer) int {
 		return 0
 	}
 	a := &app{ctx: ctx, out: out, errOut: errOut}
-	a.dispatch = func(name string, value any) error { return execute(a, name, value) }
+	a.dispatch = func(name string, value any) error {
+		home, err := config.ResolveHome("")
+		if err != nil {
+			return err
+		}
+		release, err := maintenance.Acquire(home, false)
+		if err != nil {
+			return err
+		}
+		defer release()
+		return execute(a, name, value)
+	}
 	parser := flags.NewNamedParser("horizon telegram", flags.HelpFlag|flags.PassDoubleDash)
 	parser.LongDescription = telegramHelp
 	commands := []struct {

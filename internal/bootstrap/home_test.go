@@ -17,7 +17,7 @@ func TestEnsureCreatesAndPreservesHome(t *testing.T) {
 	if data, err := os.ReadFile(filepath.Join(home, "AGENTS.md")); err != nil || !bytes.Equal(data, agentsTemplate) {
 		t.Fatalf("initial agent instructions differ from template: %v", err)
 	}
-	for _, name := range []string{"", "dialogs", "plugins", "skills", "skills/skill-creator", "skills/filesystem", "config.yaml", "AGENTS.md", "skills/skill-creator/SKILL.md", "skills/filesystem/SKILL.md"} {
+	for _, name := range []string{"", "dialogs", "bin", "skills", "skills/skill-creator", "skills/filesystem", "config.yaml", "AGENTS.md", "skills/skill-creator/SKILL.md", "skills/filesystem/SKILL.md"} {
 		info, err := os.Stat(filepath.Join(home, name))
 		if err != nil {
 			t.Fatal(err)
@@ -31,7 +31,7 @@ func TestEnsureCreatesAndPreservesHome(t *testing.T) {
 		}
 	}
 	custom := []byte("user content")
-	pluginDir := filepath.Join(home, "plugins")
+	pluginDir := filepath.Join(home, "bin")
 	if err := os.WriteFile(filepath.Join(pluginDir, "horizon-personal"), custom, 0700); err != nil {
 		t.Fatal(err)
 	}

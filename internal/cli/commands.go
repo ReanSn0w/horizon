@@ -7,12 +7,10 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"sort"
 	"text/tabwriter"
 
 	"github.com/ReanSn0w/horizon/internal/agent"
-	"github.com/ReanSn0w/horizon/internal/bootstrap"
 	"github.com/ReanSn0w/horizon/internal/config"
 	"github.com/ReanSn0w/horizon/internal/decision"
 	"github.com/ReanSn0w/horizon/internal/eventstream"
@@ -27,44 +25,6 @@ import (
 type optionalString struct {
 	Value string
 	Set   bool
-}
-
-type initCommand struct {
-	app    *App
-	global *globalOptions
-}
-
-func (command *initCommand) Execute(args []string) error {
-	if err := rejectArgs(args); err != nil {
-		return err
-	}
-	home := command.global.Home
-	result, err := bootstrap.Ensure(home)
-	if err != nil {
-		return failure(err.Error(), err)
-	}
-	if _, err := config.MigrateMemory(home); err != nil {
-		return failure(fmt.Sprintf("migrate memory configuration: %v", err), err)
-	}
-	statuses, skipped, err := initializePluginConfig(home, command.app.reserved)
-	if err != nil {
-		return failure(fmt.Sprintf("initialize plugin configuration: %v", err), err)
-	}
-	fmt.Fprintf(command.app.out, "Horizon home: %s\n", home)
-	configPath := filepath.Join(home, "config.yaml")
-	if result.ConfigCreated {
-		fmt.Fprintf(command.app.out, "Отредактируйте %s: задайте providers.<имя>.url и key, models.<профиль>.provider и model; проверьте default_model, decision_model и compact_threshold.\n", configPath)
-	} else {
-		fmt.Fprintf(command.app.out, "Существующая конфигурация сохранена: %s.\n", configPath)
-	}
-	fmt.Fprintf(command.app.out, "При необходимости добавьте инструкции агента в %s.\n", filepath.Join(home, "AGENTS.md"))
-	for _, name := range sortedKeys(statuses) {
-		fmt.Fprintf(command.app.out, "Плагин %s: %s.\n", name, statuses[name])
-	}
-	for _, name := range skipped {
-		fmt.Fprintf(command.app.errOut, "horizon: настройки плагина %s пропущены (шаблон недоступен).\n", name)
-	}
-	return nil
 }
 
 func (value *optionalString) UnmarshalFlag(text string) error {
@@ -402,7 +362,6 @@ func (a *App) addCommands(parser *flags.Parser, global *globalOptions) error {
 		name, short, long string
 		data              any
 	}{
-		{"init", "Initialize Horizon home", "Create missing home files and show what to configure.", &initCommand{app: a, global: global}},
 		{"decision", "Evaluate structured JSON", decisionLongDescription(), &decisionCommand{app: a, global: global}},
 		{"models", "List model profiles", "Print configured model profiles without contacting the provider.", &modelsCommand{app: a, global: global}},
 		{"resume", "Run one agent turn", "Read a message and execute one turn.", &resumeCommand{app: a, global: global}},

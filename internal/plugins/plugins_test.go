@@ -11,7 +11,7 @@ import (
 
 func candidate(t *testing.T, home, name, script string) string {
 	t.Helper()
-	dir := filepath.Join(home, "plugins")
+	dir := filepath.Join(home, "bin")
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		t.Fatal(err)
 	}
@@ -28,7 +28,7 @@ func TestDiscoverAndInspect(t *testing.T) {
 		t.Fatalf("empty: %v %v", got, err)
 	}
 	good := candidate(t, home, "good", "printf '%s' '{\"protocol_version\":1,\"version\":\"1.2\",\"description\":\"Useful\",\"extra\":true}'\n")
-	if err := os.Symlink(good, filepath.Join(home, "plugins", "horizon-link")); err != nil {
+	if err := os.Symlink(good, filepath.Join(home, "bin", "horizon-link")); err != nil {
 		t.Fatal(err)
 	}
 	candidate(t, home, "bad-json", "echo nope\n")
@@ -38,10 +38,10 @@ func TestDiscoverAndInspect(t *testing.T) {
 	candidate(t, home, "huge", "yes a | head -c 70000\n")
 	candidate(t, home, "resume", "echo forbidden\n")
 	candidate(t, home, "UPPER", "echo forbidden\n")
-	if err := os.Mkdir(filepath.Join(home, "plugins", "horizon-dir"), 0700); err != nil {
+	if err := os.Mkdir(filepath.Join(home, "bin", "horizon-dir"), 0700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(home, "plugins", "horizon-noexec"), []byte("x"), 0600); err != nil {
+	if err := os.WriteFile(filepath.Join(home, "bin", "horizon-noexec"), []byte("x"), 0600); err != nil {
 		t.Fatal(err)
 	}
 	got, err := Discover(home, []string{"resume"})
@@ -110,7 +110,7 @@ func TestMetadataTimeoutKillsChildHoldingOutputPipe(t *testing.T) {
 
 func TestDiscoveryDirectoryError(t *testing.T) {
 	home := t.TempDir()
-	if err := os.WriteFile(filepath.Join(home, "plugins"), []byte("file"), 0600); err != nil {
+	if err := os.WriteFile(filepath.Join(home, "bin"), []byte("file"), 0600); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := Discover(home, nil); err == nil {

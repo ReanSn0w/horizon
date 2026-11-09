@@ -1,0 +1,1 @@
+{"name":"manager","description":"Install and maintain Horizon from source","package":"./plugins/manager","binary":"horizon-manager"}

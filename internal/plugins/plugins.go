@@ -39,7 +39,7 @@ type Entry struct {
 	Err      error
 }
 
-func directory(home string) string { return filepath.Join(home, "plugins") }
+func directory(home string) string { return filepath.Join(home, "bin") }
 
 // Candidates returns installed executable paths without starting them.
 func Candidates(home string, reserved []string) ([]Entry, error) {

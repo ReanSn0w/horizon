@@ -10,35 +10,30 @@ for each chat, and sends only successful final responses. The plugin follows
 
 ## Installation and configuration
 
-Run the installation commands from the Horizon repository root with Go (the
-version specified in `go.mod` or a newer compatible version) and `make` installed.
-`make install-all` builds Horizon and the default plugin set, currently Telegram.
-`BIN_DIR` selects the Horizon binary directory; `HORIZON_HOME` selects the home
-whose `plugins/` directory receives the plugin binary.
+Install Horizon with [Manager](../manager/README.md), then install this optional plugin:
 
 ```sh
-make install-all
-horizon init
+horizon manager plugins install telegram
 # Edit ~/.horizon/config.yaml, then:
 horizon telegram start
 ```
 
-Use `make install-telegram` to install only this plugin. The built-in `decision`
-command is used for conversation mode. Horizon's provider map, model profiles and `decision_model`
-settings must also be configured; the default read/write access modes require
-decision for shell command evaluation. `horizon init` adds missing Telegram fields
-without requiring API keys and preserves existing values, comments and file
-permissions. Run it again after installing the plugin into an existing home.
+The binary is `<home>/bin/horizon-telegram`; the source directory remains
+`plugins/agent`. Installation adds missing `plugins.telegram` fields without
+changing existing values or starting a service. Configure provider/model profiles
+and `decision_model` as well: read/write turns require command review.
+Repeat `horizon manager plugins install telegram` to rebuild the installed revision
+and add missing settings, or `horizon manager update` to update the managed set.
 Empty `groups: {}` remains valid until a group is added.
 
 ### Upgrade from gateway
 
 The plugin command and executable are now `telegram` and `horizon-telegram`.
 Stop the old foreground process or run `horizon gateway service stop` before
-switching. Install the new binary with `make install-telegram`, then run
-`horizon init`: it renames `plugins.gateway` to `plugins.telegram`
+switching. Install the new binary with `horizon manager plugins install telegram`, then run
+`horizon manager plugins install telegram`: it renames `plugins.gateway` to `plugins.telegram`
 under the configuration lock, preserving values and comments. If both sections
-exist, init refuses to choose one; keep the intended section before retrying.
+exist, the manager refuses to choose one; keep the intended section before retrying.
 
 State paths under `<home>/gateway/`, workspace markers `.horizon-gateway.json`,
 and service identifiers `io.horizon.gateway.<home-hash>` are retained for
@@ -120,7 +115,7 @@ keys, and it does not become conversation history for later model turns. decisio
 is not called to decide whether to display it. The confirmed status message ID
 is stored with the job for recovery. If the bridge crashes after Telegram
 accepts a status but before its ID is saved, that message may remain in the
-chat; the bridge does not send another one blindly. A fresh `horizon init`
+chat; the bridge does not send another one blindly. A fresh `horizon manager plugins install telegram`
 adds a missing `progress_messages` key without changing existing values.
 
 ### Idle session compaction
@@ -130,7 +125,7 @@ the chat's Horizon session has a new completed turn and a working checkpoint of
 at least 128 KiB. If so, it calls `/responses/compact` in the background. This
 applies to private and group chats. Set `idle_compact_after: 6h` for an earlier
 check or `idle_compact_after: 0` to disable it; any other positive duration must
-be at least one hour. Re-run `horizon init` after upgrading to add the missing
+be at least one hour. Re-run `horizon manager plugins install telegram` after upgrading to add the missing
 setting to an existing config without changing values or comments.
 
 Only one background compaction runs at a time. Normal chat jobs take priority;
@@ -294,8 +289,8 @@ Stop Telegram before replacing binaries. From a source checkout:
 ```sh
 horizon telegram service stop
 make install
-make install-telegram
-horizon init
+horizon manager plugins install telegram
+horizon manager plugins install telegram
 horizon telegram service start
 horizon telegram service status
 ```
@@ -308,7 +303,8 @@ paths unchanged, or reinstall the service definition after moving binaries.
 After installing the new binaries, update an existing macOS service definition:
 
 ```sh
-make install-all
+horizon telegram service stop
+horizon manager update
 horizon telegram service install --manager launchd
 horizon telegram service restart
 horizon telegram service status
@@ -324,10 +320,10 @@ Write/rotation failures are reported through the fallback rather than silently
 ignored; they never authorize repeating an external action.
 
 For an existing Linux service whose executable path has not changed, install
-the new Telegram plugin, run `horizon init` with the service's home, and restart
+the new Telegram plugin, run `horizon manager plugins install telegram` with the service's home, and restart
 that service. Reinstall its service definition if the executable path or PATH
 changed. Existing `progress_messages` and other filled configuration values
-are preserved by `init`.
+are preserved by the manager.
 
 For a real Telegram smoke test, send a short owner message and confirm that
 `typing` appears before the final reply. Then run a controlled task lasting
@@ -380,7 +376,7 @@ Mac Mini incident was not captured, so its exact cause remains unconfirmed.
 
 The plugin uses these paths under the selected Horizon home:
 
-- `plugins/horizon-telegram`: installed executable.
+- `bin/horizon-telegram`: installed executable.
 - `gateway/identity` and `gateway/process.lock`: bot identity and process lock.
 - `gateway/telegram/<bot_id>/state.yaml` and `state.lock`: durable chat state,
   pending jobs and delivery progress.
@@ -460,3 +456,11 @@ the LaunchAgent:
 
 Local automated tests cover fake APIs, built binaries and substituted managers.
 They do not establish real launchd, Telegram or provider behavior on the target Mac.
+
+### Moving an existing installation into home/bin
+
+Stop the old service before running `horizon-manager install --adopt telegram`.
+The manager preserves old binaries and service definitions. Uninstall the old
+service definition, then run `horizon telegram service install` and
+`horizon telegram service start` using the new binary and PATH. The manager does
+not rewrite launchd/systemd files. Existing gateway data remains in place.
