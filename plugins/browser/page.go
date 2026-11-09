@@ -8,7 +8,7 @@ import (
 	"strconv"
 
 	"github.com/ReanSn0w/horizon/internal/plugins"
-	"github.com/ReanSn0w/horizon/session"
+	"github.com/ReanSn0w/horizon/internal/session"
 	"github.com/chromedp/chromedp"
 )
 

@@ -12,7 +12,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/ReanSn0w/horizon/responses"
+	"github.com/ReanSn0w/horizon/internal/responses"
 )
 
 func TestBuiltBinaryAccessAndDecisionGate(t *testing.T) {

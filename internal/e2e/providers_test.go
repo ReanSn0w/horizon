@@ -11,7 +11,7 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/ReanSn0w/horizon/session"
+	"github.com/ReanSn0w/horizon/internal/session"
 )
 
 func TestSelectedProviderAndSessionCompaction(t *testing.T) {

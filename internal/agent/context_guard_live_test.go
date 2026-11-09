@@ -7,10 +7,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ReanSn0w/horizon/config"
+	"github.com/ReanSn0w/horizon/internal/config"
 	"github.com/ReanSn0w/horizon/internal/instructions"
-	"github.com/ReanSn0w/horizon/responses"
-	"github.com/ReanSn0w/horizon/session"
+	"github.com/ReanSn0w/horizon/internal/responses"
+	"github.com/ReanSn0w/horizon/internal/session"
 )
 
 // Opt-in: this makes three small paid requests to the configured provider.

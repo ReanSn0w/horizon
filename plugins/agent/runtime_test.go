@@ -6,7 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/ReanSn0w/horizon/config"
+	"github.com/ReanSn0w/horizon/internal/config"
 	"gopkg.in/yaml.v3"
 	"strings"
 	"testing"

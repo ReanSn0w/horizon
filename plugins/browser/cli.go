@@ -7,7 +7,7 @@ import (
 	"os"
 	"sort"
 
-	"github.com/ReanSn0w/horizon/config"
+	"github.com/ReanSn0w/horizon/internal/config"
 )
 
 func browserCLI(ctx context.Context, command string, args []string, stale bool, stdout, stderr io.Writer) int {

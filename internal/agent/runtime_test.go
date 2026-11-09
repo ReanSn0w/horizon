@@ -14,12 +14,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ReanSn0w/horizon/decision"
+	"github.com/ReanSn0w/horizon/internal/decision"
 	"github.com/ReanSn0w/horizon/internal/eventstream"
 	"github.com/ReanSn0w/horizon/internal/instructions"
 	"github.com/ReanSn0w/horizon/internal/plugins"
-	"github.com/ReanSn0w/horizon/responses"
-	"github.com/ReanSn0w/horizon/session"
+	"github.com/ReanSn0w/horizon/internal/responses"
+	"github.com/ReanSn0w/horizon/internal/session"
 )
 
 type fakeClient struct {

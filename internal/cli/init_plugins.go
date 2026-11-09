@@ -3,7 +3,7 @@ package cli
 import (
 	"sort"
 
-	"github.com/ReanSn0w/horizon/config"
+	"github.com/ReanSn0w/horizon/internal/config"
 	"github.com/ReanSn0w/horizon/internal/plugins"
 )
 

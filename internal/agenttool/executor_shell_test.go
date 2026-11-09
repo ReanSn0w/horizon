@@ -14,8 +14,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ReanSn0w/horizon/decision"
-	"github.com/ReanSn0w/horizon/session"
+	"github.com/ReanSn0w/horizon/internal/decision"
+	"github.com/ReanSn0w/horizon/internal/session"
 )
 
 type reviewStub struct {

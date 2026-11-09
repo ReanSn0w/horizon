@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ReanSn0w/horizon/config"
 	"github.com/ReanSn0w/horizon/internal/bootstrap"
+	"github.com/ReanSn0w/horizon/internal/config"
 )
 
 func runSkillCLI(t *testing.T, home string, args ...string) (int, string, string) {

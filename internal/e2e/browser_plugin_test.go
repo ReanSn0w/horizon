@@ -14,7 +14,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ReanSn0w/horizon/session"
+	"github.com/ReanSn0w/horizon/internal/session"
 
 	"github.com/gobwas/ws"
 	"github.com/gobwas/ws/wsutil"

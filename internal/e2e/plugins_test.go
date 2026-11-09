@@ -15,7 +15,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ReanSn0w/horizon/responses"
+	"github.com/ReanSn0w/horizon/internal/responses"
 	"github.com/creack/pty"
 )
 

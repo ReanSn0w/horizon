@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/ReanSn0w/horizon/internal/memory"
-	"github.com/ReanSn0w/horizon/session"
+	"github.com/ReanSn0w/horizon/internal/session"
 	flags "github.com/umputun/go-flags"
 )
 

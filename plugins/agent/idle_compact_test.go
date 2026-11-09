@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ReanSn0w/horizon/session"
+	"github.com/ReanSn0w/horizon/internal/session"
 )
 
 func TestIdleCompactAfterConfig(t *testing.T) {

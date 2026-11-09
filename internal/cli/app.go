@@ -8,10 +8,10 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/ReanSn0w/horizon/buildinfo"
-	"github.com/ReanSn0w/horizon/config"
+	"github.com/ReanSn0w/horizon/internal/buildinfo"
+	"github.com/ReanSn0w/horizon/internal/config"
 	"github.com/ReanSn0w/horizon/internal/plugins"
-	"github.com/ReanSn0w/horizon/session"
+	"github.com/ReanSn0w/horizon/internal/session"
 	flags "github.com/umputun/go-flags"
 )
 

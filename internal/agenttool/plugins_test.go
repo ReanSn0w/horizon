@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"github.com/ReanSn0w/horizon/internal/plugins"
-	"github.com/ReanSn0w/horizon/session"
+	"github.com/ReanSn0w/horizon/internal/session"
 	"os"
 	"path/filepath"
 	"strings"

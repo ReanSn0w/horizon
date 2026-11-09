@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ReanSn0w/horizon/responses"
+	"github.com/ReanSn0w/horizon/internal/responses"
 )
 
 const maxRequestBytes = 32 * 1024

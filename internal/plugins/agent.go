@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ReanSn0w/horizon/session"
+	"github.com/ReanSn0w/horizon/internal/session"
 )
 
 const AgentProtocolVersion = 1

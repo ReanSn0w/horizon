@@ -209,7 +209,7 @@ func writeConfig(t *testing.T, contents string) string {
 }
 
 func TestSetupDiagnostics(t *testing.T) {
-	template, err := os.ReadFile("../internal/bootstrap/assets/config.yaml")
+	template, err := os.ReadFile("../bootstrap/assets/config.yaml")
 	if err != nil {
 		t.Fatal(err)
 	}

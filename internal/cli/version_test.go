@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ReanSn0w/horizon/buildinfo"
+	"github.com/ReanSn0w/horizon/internal/buildinfo"
 	flags "github.com/umputun/go-flags"
 )
 

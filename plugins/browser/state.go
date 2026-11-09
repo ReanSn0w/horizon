@@ -12,7 +12,7 @@ import (
 	"syscall"
 
 	"github.com/ReanSn0w/horizon/internal/plugins"
-	"github.com/ReanSn0w/horizon/session"
+	"github.com/ReanSn0w/horizon/internal/session"
 )
 
 type browserRecord struct {

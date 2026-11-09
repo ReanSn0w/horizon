@@ -11,16 +11,16 @@ import (
 	"sort"
 	"text/tabwriter"
 
-	"github.com/ReanSn0w/horizon/config"
-	"github.com/ReanSn0w/horizon/decision"
 	"github.com/ReanSn0w/horizon/internal/agent"
 	"github.com/ReanSn0w/horizon/internal/bootstrap"
+	"github.com/ReanSn0w/horizon/internal/config"
+	"github.com/ReanSn0w/horizon/internal/decision"
 	"github.com/ReanSn0w/horizon/internal/eventstream"
 	"github.com/ReanSn0w/horizon/internal/instructions"
 	"github.com/ReanSn0w/horizon/internal/memory"
 	"github.com/ReanSn0w/horizon/internal/plugins"
-	"github.com/ReanSn0w/horizon/responses"
-	"github.com/ReanSn0w/horizon/session"
+	"github.com/ReanSn0w/horizon/internal/responses"
+	"github.com/ReanSn0w/horizon/internal/session"
 	flags "github.com/umputun/go-flags"
 )
 

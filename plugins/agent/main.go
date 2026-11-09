@@ -5,13 +5,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/ReanSn0w/horizon/buildinfo"
+	"github.com/ReanSn0w/horizon/internal/buildinfo"
 	"io"
 	"os"
 	"os/signal"
 	"syscall"
 
-	"github.com/ReanSn0w/horizon/config"
+	"github.com/ReanSn0w/horizon/internal/config"
 	flags "github.com/umputun/go-flags"
 )
 

@@ -7,9 +7,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ReanSn0w/horizon/config"
+	"github.com/ReanSn0w/horizon/internal/config"
 	"github.com/ReanSn0w/horizon/internal/memory"
-	"github.com/ReanSn0w/horizon/session"
+	"github.com/ReanSn0w/horizon/internal/session"
 )
 
 func TestBuiltInMemoryAccessAndJournal(t *testing.T) {

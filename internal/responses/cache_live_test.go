@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ReanSn0w/horizon/config"
+	"github.com/ReanSn0w/horizon/internal/config"
 )
 
 type cacheProbeTransport struct {

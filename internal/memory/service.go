@@ -11,8 +11,8 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/ReanSn0w/horizon/config"
-	"github.com/ReanSn0w/horizon/session"
+	"github.com/ReanSn0w/horizon/internal/config"
+	"github.com/ReanSn0w/horizon/internal/session"
 )
 
 const Instructions = memoryInstructions

@@ -11,7 +11,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ReanSn0w/horizon/session"
+	"github.com/ReanSn0w/horizon/internal/session"
 )
 
 func TestModelsOutputIsSorted(t *testing.T) {

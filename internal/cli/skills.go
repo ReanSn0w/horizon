@@ -9,7 +9,7 @@ import (
 	"text/tabwriter"
 	"unicode"
 
-	"github.com/ReanSn0w/horizon/config"
+	"github.com/ReanSn0w/horizon/internal/config"
 	"github.com/ReanSn0w/horizon/internal/instructions"
 	flags "github.com/umputun/go-flags"
 )

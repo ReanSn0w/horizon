@@ -3,7 +3,7 @@ package plugins
 import (
 	"context"
 	"encoding/json"
-	"github.com/ReanSn0w/horizon/session"
+	"github.com/ReanSn0w/horizon/internal/session"
 	"os"
 	"strings"
 	"testing"

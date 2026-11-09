@@ -14,7 +14,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"github.com/ReanSn0w/horizon/decision"
+	"github.com/ReanSn0w/horizon/internal/decision"
 )
 
 const maxDecisionInputBytes = 32 * 1024

@@ -8,8 +8,8 @@ import (
 	"time"
 
 	"github.com/ReanSn0w/horizon/internal/eventstream"
-	"github.com/ReanSn0w/horizon/responses"
-	"github.com/ReanSn0w/horizon/session"
+	"github.com/ReanSn0w/horizon/internal/responses"
+	"github.com/ReanSn0w/horizon/internal/session"
 )
 
 type CompactClient interface {

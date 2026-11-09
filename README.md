@@ -7,7 +7,8 @@
 
 ## Границы проекта
 
-Ядро Horizon находится в корне репозитория; memory и decision встроены.
+Точка входа Horizon находится в корне, логика ядра — в `internal/`;
+memory и decision встроены.
 [Agent](plugins/agent/README.md) развивается как плагин: текущая реализация
 сохраняет команду `horizon telegram` и запускает Horizon через CLI.
 Horizon работает без agent. Browser — опциональный плагин без установки

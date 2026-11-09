@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ReanSn0w/horizon/responses"
+	"github.com/ReanSn0w/horizon/internal/responses"
 )
 
 func decisionEvent(w http.ResponseWriter, status, text string) {

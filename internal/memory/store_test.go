@@ -2,7 +2,7 @@ package memory
 
 import (
 	"context"
-	"github.com/ReanSn0w/horizon/config"
+	"github.com/ReanSn0w/horizon/internal/config"
 	"os"
 	"path/filepath"
 	"strings"

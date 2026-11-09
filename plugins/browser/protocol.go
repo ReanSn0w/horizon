@@ -8,7 +8,7 @@ import (
 	"strings"
 
 	"github.com/ReanSn0w/horizon/internal/plugins"
-	"github.com/ReanSn0w/horizon/session"
+	"github.com/ReanSn0w/horizon/internal/session"
 )
 
 func protocol(ctx context.Context, op string, stdin io.Reader, stdout, stderr io.Writer) int {

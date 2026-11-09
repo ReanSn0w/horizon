@@ -9,14 +9,14 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/ReanSn0w/horizon/decision"
 	"github.com/ReanSn0w/horizon/internal/agenttool"
+	"github.com/ReanSn0w/horizon/internal/decision"
 	"github.com/ReanSn0w/horizon/internal/eventstream"
 	"github.com/ReanSn0w/horizon/internal/instructions"
 	"github.com/ReanSn0w/horizon/internal/memory"
 	"github.com/ReanSn0w/horizon/internal/plugins"
-	"github.com/ReanSn0w/horizon/responses"
-	"github.com/ReanSn0w/horizon/session"
+	"github.com/ReanSn0w/horizon/internal/responses"
+	"github.com/ReanSn0w/horizon/internal/session"
 )
 
 const Introduction = "You are an autonomous coding agent operating through Horizon. Work carefully in the current workspace, use tools when needed, and continue until the user's task is complete."

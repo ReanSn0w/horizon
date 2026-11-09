@@ -14,7 +14,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ReanSn0w/horizon/config"
+	"github.com/ReanSn0w/horizon/internal/config"
 )
 
 type roundTripFunc func(*http.Request) (*http.Response, error)
