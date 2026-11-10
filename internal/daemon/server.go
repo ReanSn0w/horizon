@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/ReanSn0w/horizon/internal/maintenance"
@@ -54,6 +55,9 @@ func serve(ctx context.Context, home string, handle Handler, setup func(context.
 		if e == nil {
 			probe.Close()
 			return errors.New("daemon socket is already active")
+		}
+		if !errors.Is(e, syscall.ECONNREFUSED) {
+			return errors.New("cannot prove daemon socket is stale")
 		}
 		if err = os.Remove(Socket(home)); err != nil {
 			return err

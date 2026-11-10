@@ -50,6 +50,7 @@ func Process(ctx context.Context, binary string, args, env []string, dir, input 
 	if err := cmd.Start(); err != nil {
 		return -1, err
 	}
+	defer syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
 	done := make(chan error, 1)
 	go func() { done <- cmd.Wait() }()
 	var err error

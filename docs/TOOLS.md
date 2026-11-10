@@ -176,3 +176,12 @@ Browser предоставляет `browser__navigate` с `{"url":"https://examp
 Навигация ждёт готовности DOM основного документа (`DOMContentLoaded`),
 без ожидания загрузки всех сторонних ресурсов. Для содержимого, появившегося
 позже, используйте новый `browser__snapshot`.
+
+## Subagent
+
+Install with `horizon manager plugins install subagent`, start daemon explicitly,
+and add `subagent` to `agent_plugins`. `horizon subagent status` checks connectivity.
+The `subagent__spawn/list/read/send/wait/cancel` tools manage separate child sessions
+in the shared workspace. Messages queue for the next turn; read access only permits
+reading and waiting. An unavailable explicitly enabled daemon fails preparation.
+See [Subagent](SUBAGENT.md) for schemas and unknown-outcome recovery.

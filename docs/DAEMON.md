@@ -81,7 +81,7 @@ section. Neither operation may read credentials or contact external services.
 HORIZON_DAEMON_SOCKET, HORIZON_ADAPTER_NAME and a per-start credential in its
 private environment, never command arguments. It handshakes over the socket
 with caller.kind=adapter and caller.source=<name>. Requests are bound to this
-credential; caller.route is supplied on submit and fixed for subsequent turns.
+credential; route is supplied on submit and fixed for subsequent turns.
 The adapter validates channel-specific permissions before submission. It consumes
 status/results through list/read/wait and marks confirmed delivery with ack.
 A failed/unknown delivery is not blindly repeated. User-facing messages can be

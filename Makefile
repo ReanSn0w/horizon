@@ -8,7 +8,7 @@ PLUGINS ?= manager
 PLUGIN_NAMES := $(filter-out agent,$(notdir $(patsubst %/main.go,%,$(wildcard plugins/*/main.go)))) telegram
 PLUGIN_TARGETS := $(addprefix install-plugin-,$(PLUGIN_NAMES))
 
-.PHONY: help install install-all install-plugins install-telegram install-browser install-daemon $(PLUGIN_TARGETS)
+.PHONY: help install install-all install-plugins install-telegram install-browser install-daemon install-subagent $(PLUGIN_TARGETS)
 
 help:
 	@printf '%s\n' \
@@ -38,6 +38,7 @@ install-plugins: $(addprefix install-plugin-,$(PLUGINS))
 install-telegram: install-plugin-telegram
 install-browser: install-plugin-browser
 install-daemon: install-plugin-daemon
+install-subagent: install-plugin-subagent
 # Build beside the destination and replace only after a successful build.
 $(PLUGIN_TARGETS): install-plugin-%:
 	@set -eu; \

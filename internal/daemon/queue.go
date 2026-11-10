@@ -28,7 +28,7 @@ type Settings struct {
 
 func Defaults() Settings { return Settings{Parallel: 2, Depth: 4, Children: 16, Queue: 128} }
 func (s Settings) Validate() error {
-	if s.Parallel < 1 || s.Parallel > 16 || s.Depth < 1 || s.Depth > 8 || s.Children < 1 || s.Children > 128 || s.Queue < 1 || s.Queue > 4096 {
+	if s.Parallel < 1 || s.Parallel > 16 || s.Depth < 1 || s.Depth > 8 || s.Children < 1 || s.Children > 128 || s.Queue < 1 || s.Queue > 4096 || len(s.Adapters) > 16 {
 		return errors.New("invalid daemon limits")
 	}
 	return nil
@@ -103,6 +103,9 @@ func OpenQueue(home string, settings Settings, runner Runner) (*Queue, error) {
 			return nil, errors.New("invalid daemon state")
 		}
 	} else if !os.IsNotExist(err) {
+		return nil, err
+	}
+	if err := q.state.validate(); err != nil {
 		return nil, err
 	}
 	changed := false
@@ -593,4 +596,35 @@ func (q *Queue) execute(ctx context.Context, t Task) {
 	}); err != nil {
 		q.fatal = err
 	}
+}
+
+func (s diskState) validate() error {
+	bad := errors.New("invalid daemon state; inspect offline before restart")
+	for id, t := range s.Tasks {
+		if t == nil || t.ID != id || t.Owner == "" || !filepath.IsAbs(t.Workspace) || level(t.Access) == 0 || t.Depth < 1 || t.Depth > 8 || t.Sequence == 0 || t.Sequence > s.Sequence {
+			return bad
+		}
+		root := s.Tasks[t.Child]
+		if root == nil || root.Child != root.ID {
+			return bad
+		}
+		switch t.State {
+		case "queued", "running", "succeeded", "failed", "cancelled", "unknown":
+		default:
+			return bad
+		}
+	}
+	for _, op := range s.Operations {
+		if s.Tasks[op.TaskID] == nil || len(op.Hash) != 64 {
+			return bad
+		}
+	}
+	var cursor uint64
+	for _, e := range s.Events {
+		if e.Cursor <= cursor || e.Cursor > s.Cursor || s.Tasks[e.TaskID] == nil {
+			return bad
+		}
+		cursor = e.Cursor
+	}
+	return nil
 }

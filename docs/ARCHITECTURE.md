@@ -91,3 +91,12 @@ Unix-сокет одного home. Адаптеры `agent-*` обнаружив
 Установка: `horizon manager plugins install daemon`; foreground-запуск:
 `horizon daemon start`. Перед обновлением остановите его через
 `horizon daemon stop`. Подробности и ограничения — [Daemon](DAEMON.md).
+
+## Subagent
+
+Install with `horizon manager plugins install subagent`, start daemon explicitly,
+and add `subagent` to `agent_plugins`. `horizon subagent status` checks connectivity.
+The `subagent__spawn/list/read/send/wait/cancel` tools manage separate child sessions
+in the shared workspace. Messages queue for the next turn; read access only permits
+reading and waiting. An unavailable explicitly enabled daemon fails preparation.
+See [Subagent](SUBAGENT.md) for schemas and unknown-outcome recovery.

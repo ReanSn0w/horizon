@@ -289,3 +289,6 @@ HORIZON_API_CHECK=1 go test ./internal/responses -run TestConfiguredEndpointComp
 - `agent-*` — отдельный протокол адаптеров, только явное включение. Manager использует `agent:NAME`, отдельно от CLI `NAME`.
 - Работающая задача после аварии становится unknown без автоматического повторения; daemon не пишет напрямую в JSON-сессии и не убивает восстановленные PID.
 - Telegram остаётся в `plugins/agent` со старым контрактом до отдельной миграции.
+
+- `plugins/subagent` is a short-lived daemon client enabled via `agent_plugins`; it never starts daemon or Horizon itself. See `docs/SUBAGENT.md`.
+- spawn/send/cancel use write_home; list/read/wait use read. Host context must not come from model arguments. Query by operation_id after outcome_unknown before retrying.
