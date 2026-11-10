@@ -50,3 +50,17 @@ Disconnecting or cancelling wait does not cancel accepted tasks. Parent completi
 does not cancel children; a later turn in the same parent session can collect them.
 Send queues the next turn, including for a completed child. Execution capacity is
 reserved per depth; explicit depth/queue/child limits prevent unbounded delegation.
+
+## Setup
+
+```sh
+horizon manager plugins install daemon
+horizon manager plugins install subagent
+horizon daemon start
+# In another terminal:
+horizon subagent status
+```
+
+Add `subagent` to the existing `agent_plugins` list in config.yaml. Installation
+never enables it automatically. `make install-subagent` is available for local
+development. Use an isolated temporary home for tests. Stop daemon before updates.
