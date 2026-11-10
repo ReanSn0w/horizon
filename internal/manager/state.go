@@ -40,7 +40,7 @@ func ReadState(home string) (State, error) {
 	}
 	seen := map[string]bool{}
 	for _, name := range s.Plugins {
-		if !namePattern.MatchString(name) || name == "manager" || seen[name] {
+		if !validManagedName(name) || name == "manager" || seen[name] {
 			return s, fmt.Errorf("invalid installed plugin name")
 		}
 		seen[name] = true

@@ -79,3 +79,15 @@ make install
 отражают commit всего управляемого набора. Desired source находится в config.yaml,
 installed commit — в `.manager/state.json`. Детали — в
 [README Manager](../plugins/manager/README.md).
+
+## Локальный daemon
+
+`horizon-daemon` управляет очередями и внешними процессами Horizon через
+Unix-сокет одного home. Адаптеры `agent-*` обнаруживаются только демоном
+и включаются явно. CLI-плагины сохраняют префикс `horizon-*`.
+Текущий `plugins/agent` / `horizon-telegram` продолжает работать отдельно;
+миграция Telegram и новый timer ещё не реализованы.
+
+Установка: `horizon manager plugins install daemon`; foreground-запуск:
+`horizon daemon start`. Перед обновлением остановите его через
+`horizon daemon stop`. Подробности и ограничения — [Daemon](DAEMON.md).

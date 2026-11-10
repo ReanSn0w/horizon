@@ -15,7 +15,6 @@ import (
 	"github.com/ReanSn0w/horizon/internal/bootstrap"
 	"github.com/ReanSn0w/horizon/internal/config"
 	"github.com/ReanSn0w/horizon/internal/maintenance"
-	"github.com/ReanSn0w/horizon/internal/plugins"
 	"golang.org/x/term"
 )
 
@@ -217,7 +216,7 @@ func (e *Engine) execute(ctx context.Context, o Options, in io.Reader, out io.Wr
 func binaryNames(names []string) []string {
 	r := make([]string, len(names))
 	for i, n := range names {
-		r[i] = "horizon-" + n
+		r[i] = managedBinary(n)
 	}
 	return r
 }
@@ -246,8 +245,8 @@ func (e *Engine) buildSet(ctx context.Context, source, stage string, catalog map
 		if err := e.buildBinary(ctx, source, p.Package, path); err != nil {
 			return err
 		}
-		if entry := plugins.Inspect(stage, name, nil); entry.Err != nil {
-			return fmt.Errorf("incompatible metadata for %s: %w", name, entry.Err)
+		if err := inspectManaged(stage, name); err != nil {
+			return fmt.Errorf("incompatible metadata for %s: %w", name, err)
 		}
 
 	}

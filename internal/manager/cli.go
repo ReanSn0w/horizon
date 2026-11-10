@@ -19,6 +19,7 @@ const Help = `Usage:
   horizon-manager plugins list [--home PATH]
   horizon-manager plugins install NAME [--home PATH]
   horizon-manager plugins remove NAME [--home PATH]
+Adapter names use agent:NAME; CLI plugin names remain NAME.
 After installation: horizon manager <command>.
 `
 
@@ -75,7 +76,7 @@ func Parse(args []string) (Options, error) {
 		if o.Command == "plugins list" && len(positional) == 2 {
 		} else if (o.Command == "plugins install" || o.Command == "plugins remove") && len(positional) == 3 {
 			o.Name = positional[2]
-			if !namePattern.MatchString(o.Name) || o.Name == "manager" {
+			if !validManagedName(o.Name) || o.Name == "manager" {
 				return o, errors.New("choose an optional plugin; manager is mandatory")
 			}
 		} else {

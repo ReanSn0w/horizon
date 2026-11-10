@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 
 	"github.com/ReanSn0w/horizon/internal/config"
 	"github.com/ReanSn0w/horizon/internal/maintenance"
@@ -19,7 +20,7 @@ func checkLegacyBusy(home string) error {
 	if err != nil {
 		return err
 	}
-	files = append(files, filepath.Join(home, "gateway", "process.lock"))
+	files = append(files, filepath.Join(home, "gateway", "process.lock"), filepath.Join(home, "run", "daemon.lock"))
 	for _, path := range files {
 		if _, err := os.Stat(path); os.IsNotExist(err) {
 			continue
@@ -43,6 +44,14 @@ func prepareConfig(home, stage string, names []string) error {
 	}
 	var templates []config.PluginTemplate
 	for _, name := range names {
+		if strings.HasPrefix(name, "agent:") {
+			template, e := adapterTemplate(stage, home, name)
+			if e != nil {
+				return e
+			}
+			templates = append(templates, template)
+			continue
+		}
 		entry := plugins.Inspect(stage, name, nil)
 		if entry.Err != nil {
 			return fmt.Errorf("validate %s: %w", name, entry.Err)
@@ -71,10 +80,18 @@ func enabledPlugins(home string) ([]string, error) {
 		return nil, err
 	}
 	var raw struct {
-		Names []string `yaml:"agent_plugins"`
+		Names   []string `yaml:"agent_plugins"`
+		Plugins struct {
+			Daemon struct {
+				Adapters []string `yaml:"adapters"`
+			} `yaml:"daemon"`
+		} `yaml:"plugins"`
 	}
 	if err = yaml.Unmarshal(data, &raw); err != nil {
 		return nil, fmt.Errorf("cannot read agent_plugins from configuration")
+	}
+	for _, name := range raw.Plugins.Daemon.Adapters {
+		raw.Names = append(raw.Names, "agent:"+name)
 	}
 	return raw.Names, nil
 }
@@ -102,6 +119,9 @@ func listPlugins(home string, state State, out io.Writer) error {
 	return nil
 }
 func disablePlugin(home, name string) error {
+	if strings.HasPrefix(name, "agent:") {
+		return disableAdapter(home, name)
+	}
 	_, err := config.UpdateDocument(home, func(doc *yaml.Node) (bool, error) {
 		root := doc.Content[0]
 		for i := 0; i+1 < len(root.Content); i += 2 {
@@ -133,7 +153,7 @@ func (e *Engine) changePlugin(ctx context.Context, o Options, state State, stage
 	if err != nil {
 		return err
 	}
-	path := "bin/horizon-" + o.Name
+	path := "bin/" + managedBinary(o.Name)
 	removing := o.Command == "plugins remove"
 	if removing {
 		if !slices.Contains(state.Plugins, o.Name) {
