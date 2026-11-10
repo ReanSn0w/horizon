@@ -17,6 +17,9 @@ type Handler func(context.Context, Request) (any, error)
 
 // Serve holds the singleton and maintenance locks for the full foreground lifetime.
 func Serve(ctx context.Context, home string, handle Handler) error {
+	return serve(ctx, home, handle, nil)
+}
+func serve(ctx context.Context, home string, handle Handler, setup func(context.Context) (Handler, func(), error)) error {
 	if len(Socket(home)) > 100 {
 		return errors.New("daemon Unix socket path exceeds 100 bytes; use a shorter home path")
 	}
@@ -68,6 +71,14 @@ func Serve(ctx context.Context, home string, handle Handler) error {
 	}
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
+	if setup != nil {
+		var cleanup func()
+		handle, cleanup, err = setup(ctx)
+		if err != nil {
+			return err
+		}
+		defer cleanup()
+	}
 	closeListener := context.AfterFunc(ctx, func() { _ = listener.Close() })
 	defer closeListener()
 	var wg sync.WaitGroup

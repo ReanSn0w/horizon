@@ -66,4 +66,4 @@ func run(ctx context.Context, args []string, out, diag io.Writer) int {
 	}
 	return 0
 }
-func start(ctx context.Context, home string) error { return daemon.Serve(ctx, home, nil) }
+func start(ctx context.Context, home string) error { return daemon.Start(ctx, home) }
