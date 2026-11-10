@@ -131,6 +131,3 @@ func description() plugins.Description {
 		tool("cancel", "Cancel a child; tree=true also cancels descendants.", "write_home", map[string]any{"task_id": str(), "tree": map[string]any{"type": "boolean"}}, "task_id", "tree"),
 	}}
 }
-func invoke(ctx context.Context, r plugins.Request) (any, error) {
-	return nil, errors.New("subagent tool is not implemented")
-}
