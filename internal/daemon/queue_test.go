@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 )
@@ -178,4 +180,71 @@ func TestDepthAndQueueLimits(t *testing.T) {
 	if _, e := q.Handle(context.Background(), r); e == nil {
 		t.Fatal("depth exceeded")
 	}
+}
+
+func TestCorruptStateRejected(t *testing.T) {
+	h := shortHome(t)
+	os.MkdirAll(filepath.Join(h, "daemon"), 0700)
+	os.WriteFile(filepath.Join(h, "daemon", "state.json"), []byte(`{"version":1,"tasks":{"bad":null},"operations":{}}`), 0600)
+	if _, e := OpenQueue(h, Defaults(), nil); e == nil {
+		t.Fatal("corrupt state accepted")
+	}
+}
+
+func TestMultipleWaitingParentsHaveChildCapacity(t *testing.T) {
+	s := Defaults()
+	s.Parallel = 2
+	s.Queue = 4
+	var q *Queue
+	runner := func(ctx context.Context, task Task, set func(string) error, stage func(string, string)) Outcome {
+		if e := set(task.Child); e != nil {
+			return Outcome{Err: e}
+		}
+		if task.Depth == 2 {
+			return Outcome{Text: "leaf"}
+		}
+		r := request("submit", "nested-"+task.ID)
+		r.Caller.Session = task.Child
+		v, e := q.Handle(ctx, r)
+		if e != nil {
+			return Outcome{Err: e}
+		}
+		id := v.(*Task).ID
+		tick := time.NewTicker(5 * time.Millisecond)
+		defer tick.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return Outcome{Err: ctx.Err()}
+			case <-tick.C:
+				q.mu.Lock()
+				state := q.state.Tasks[id].State
+				q.mu.Unlock()
+				if state == "succeeded" {
+					return Outcome{Text: "parent"}
+				}
+			}
+		}
+	}
+	var e error
+	q, e = OpenQueue(shortHome(t), s, runner)
+	if e != nil {
+		t.Fatal(e)
+	}
+	a := taskResult(t, q, request("submit", "a"))
+	b := taskResult(t, q, request("submit", "b"))
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	done := make(chan error, 1)
+	go func() { done <- q.Run(ctx) }()
+	defer func() { cancel(); <-done }()
+	for ctx.Err() == nil {
+		q.mu.Lock()
+		ok := q.state.Tasks[a.ID].State == "succeeded" && q.state.Tasks[b.ID].State == "succeeded"
+		q.mu.Unlock()
+		if ok {
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Fatal("parents starved their children")
 }

@@ -124,6 +124,11 @@ func TestUnknownResponseIncludesRecoveryID(t *testing.T) {
 		t.Fatal(e)
 	}
 	defer listener.Close()
+	queue, err := daemon.OpenQueue(h, daemon.Defaults(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var accepted daemon.Request
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
@@ -132,11 +137,23 @@ func TestUnknownResponseIncludesRecoveryID(t *testing.T) {
 			return
 		}
 		defer c.Close()
-		bufio.NewReader(c).ReadBytes('\n')
+		line, _ := bufio.NewReader(c).ReadBytes('\n')
+		json.Unmarshal(line, &accepted)
+		if _, err := queue.Handle(context.Background(), accepted); err != nil {
+			t.Error(err)
+		}
 	}()
 	_, e = invoke(context.Background(), hostRequest(h, "spawn", "lost-call", `{"message":"task","access":"write"}`))
 	<-done
 	if e == nil || !strings.Contains(e.Error(), "operation_id=lost-call") {
 		t.Fatal(e)
+	}
+	found, err := queue.Handle(context.Background(), daemon.Request{Method: "lookup", Caller: accepted.Caller, OperationID: accepted.OperationID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	retry, err := queue.Handle(context.Background(), accepted)
+	if err != nil || retry.(*daemon.Task).ID != found.(*daemon.Task).ID {
+		t.Fatal("lost response caused duplicate", err)
 	}
 }
