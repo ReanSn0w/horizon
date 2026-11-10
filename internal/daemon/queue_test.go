@@ -161,3 +161,21 @@ func TestQueueCancelTreeAndPaging(t *testing.T) {
 		t.Fatal("missing result")
 	}
 }
+
+func TestDepthAndQueueLimits(t *testing.T) {
+	s := Defaults()
+	s.Depth = 1
+	s.Queue = 1
+	q, _ := OpenQueue(shortHome(t), s, nil)
+	a := taskResult(t, q, request("submit", "one"))
+	if _, e := q.Handle(context.Background(), request("submit", "two")); e == nil {
+		t.Fatal("queue exceeded")
+	}
+	q.state.Tasks[a.ID].State = "succeeded"
+	q.state.Tasks[a.ID].Session = "child"
+	r := request("submit", "nested")
+	r.Caller.Session = "child"
+	if _, e := q.Handle(context.Background(), r); e == nil {
+		t.Fatal("depth exceeded")
+	}
+}

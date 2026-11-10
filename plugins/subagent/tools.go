@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 
 	"github.com/ReanSn0w/horizon/internal/daemon"
@@ -30,6 +31,12 @@ func invoke(ctx context.Context, r plugins.Request) (any, error) {
 	}
 	if selected == nil {
 		return nil, fmt.Errorf("unknown subagent tool")
+	}
+	if !plugins.Allowed(r.Access, selected.Effect) {
+		return nil, &daemon.Failure{Code: "access_denied", Message: "tool effect is not allowed in current access mode"}
+	}
+	if r.SessionID == "" || r.TurnID == "" || r.CallID == "" || r.OperationID == "" {
+		return nil, fmt.Errorf("tool requires host session/turn/call/operation context")
 	}
 	if err := plugins.Validate(selected.Parameters, r.Arguments); err != nil {
 		return nil, err
@@ -66,6 +73,10 @@ func invoke(ctx context.Context, r plugins.Request) (any, error) {
 	}
 	response, err := daemon.Call(ctx, r.Home, req)
 	if err != nil {
+		var failure *daemon.Failure
+		if errors.As(err, &failure) && failure.Code == "outcome_unknown" {
+			return nil, &daemon.Failure{Code: "outcome_unknown", Message: fmt.Sprintf("operation_id=%s; use subagent__read with operation_id and empty task_id before repeating: %s", r.OperationID, failure.Message)}
+		}
 		return nil, err
 	}
 	return response.Data, nil

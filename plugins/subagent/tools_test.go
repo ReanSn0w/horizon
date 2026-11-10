@@ -1,13 +1,16 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"github.com/ReanSn0w/horizon/internal/daemon"
 	"github.com/ReanSn0w/horizon/internal/plugins"
 	"github.com/ReanSn0w/horizon/internal/session"
+	"net"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -70,5 +73,70 @@ func TestRejectInvalidArguments(t *testing.T) {
 		if _, e := invoke(context.Background(), hostRequest("/tmp", tc.tool, "call", tc.args)); e == nil {
 			t.Fatal(tc)
 		}
+	}
+}
+
+func TestAccessAndForeignTask(t *testing.T) {
+	h, _ := testQueue(t)
+	ctx := context.Background()
+	r := hostRequest(h, "spawn", "first", `{"message":"task","access":"full"}`)
+	r.Access = "read"
+	if _, e := invoke(ctx, r); e == nil {
+		t.Fatal("read spawn")
+	}
+	r.Access = "write"
+	if _, e := invoke(ctx, r); e == nil {
+		t.Fatal("escalation")
+	}
+	r.Access = "full"
+	v, e := invoke(ctx, r)
+	if e != nil {
+		t.Fatal(e)
+	}
+	var task daemon.Task
+	json.Unmarshal(v.(json.RawMessage), &task)
+	send := hostRequest(h, "send", "next", `{"task_id":"`+task.ID+`","message":"next"}`)
+	v, e = invoke(ctx, send)
+	if e != nil {
+		t.Fatal(e)
+	}
+	var next daemon.Task
+	json.Unmarshal(v.(json.RawMessage), &next)
+	if next.Access != "write" {
+		t.Fatal("send retained full access")
+	}
+	read := hostRequest(h, "read", "read", `{"task_id":"`+task.ID+`","operation_id":"","offset":0}`)
+	read.SessionID = "other"
+	if _, e = invoke(ctx, read); e == nil {
+		t.Fatal("foreign task readable")
+	}
+}
+func TestUnknownResponseIncludesRecoveryID(t *testing.T) {
+	h, e := os.MkdirTemp("/tmp", "hsu-")
+	if e != nil {
+		t.Fatal(e)
+	}
+	defer os.RemoveAll(h)
+	h, _ = filepath.EvalSymlinks(h)
+	os.MkdirAll(filepath.Join(h, "run"), 0700)
+	listener, e := net.Listen("unix", daemon.Socket(h))
+	if e != nil {
+		t.Fatal(e)
+	}
+	defer listener.Close()
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		c, e := listener.Accept()
+		if e != nil {
+			return
+		}
+		defer c.Close()
+		bufio.NewReader(c).ReadBytes('\n')
+	}()
+	_, e = invoke(context.Background(), hostRequest(h, "spawn", "lost-call", `{"message":"task","access":"write"}`))
+	<-done
+	if e == nil || !strings.Contains(e.Error(), "operation_id=lost-call") {
+		t.Fatal(e)
 	}
 }
