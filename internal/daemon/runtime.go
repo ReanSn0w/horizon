@@ -38,10 +38,14 @@ func Start(ctx context.Context, home string) error {
 		if e != nil {
 			return nil, nil, e
 		}
+		cleanupAdapters, e := q.SuperviseAdapters(ctx)
+		if e != nil {
+			return nil, nil, e
+		}
 		runCtx, cancel := context.WithCancel(ctx)
 		done := make(chan error, 1)
 		go func() { done <- q.Run(runCtx) }()
-		return q.Handle, func() { cancel(); queueErr = <-done }, nil
+		return q.Handle, func() { cancel(); cleanupAdapters(); queueErr = <-done }, nil
 	})
 	if err != nil {
 		return err
