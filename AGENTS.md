@@ -281,3 +281,11 @@ HORIZON_API_CHECK=1 go test ./internal/responses -run TestConfiguredEndpointComp
 - Обновление собирает один commit, проверяет метаданные, заменяет набор с журналом и rollback. Source с локальными изменениями не перезаписывается.
 - Рабочие команды удерживают shared maintenance lock, manager — exclusive. Родительский `horizon manager`, metadata и config-template не должны мешать обслуживанию.
 - Тестируй manager на временных home, локальных Git fixtures и HTTP-серверах. Не меняй пользовательский home и shell-настройки. Вся настройка shell — только печатные команды.
+
+### Daemon
+
+- `plugins/daemon` — CLI; `internal/daemon` — сокет, долговечная очередь, runner и адаптеры. Контракт: `docs/DAEMON.md`.
+- Один foreground-демон на home; постоянный singleton lock и shared maintenance lock удерживаются весь срок работы. Перед manager update требуется остановка.
+- `agent-*` — отдельный протокол адаптеров, только явное включение. Manager использует `agent:NAME`, отдельно от CLI `NAME`.
+- Работающая задача после аварии становится unknown без автоматического повторения; daemon не пишет напрямую в JSON-сессии и не убивает восстановленные PID.
+- Telegram остаётся в `plugins/agent` со старым контрактом до отдельной миграции.

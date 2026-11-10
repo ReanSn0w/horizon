@@ -2,6 +2,7 @@ package manager
 
 import (
 	"context"
+	"fmt"
 	"github.com/ReanSn0w/horizon/internal/daemon"
 	"github.com/ReanSn0w/horizon/internal/maintenance"
 	"os"
@@ -54,5 +55,25 @@ func TestDaemonMaintenanceFailsPromptly(t *testing.T) {
 	defer release()
 	if _, e := maintenance.Acquire(h, true); e == nil {
 		t.Fatal("maintenance acquired while daemon active")
+	}
+}
+
+func TestAdapterRollback(t *testing.T) {
+	home := t.TempDir()
+	stage := t.TempDir()
+	for _, root := range []string{home, stage} {
+		os.MkdirAll(filepath.Join(root, "bin"), 0700)
+		os.MkdirAll(filepath.Join(root, ".manager"), 0700)
+		os.WriteFile(filepath.Join(root, "config.yaml"), []byte("plugins: {}\n"), 0600)
+	}
+	os.WriteFile(filepath.Join(home, "bin", "agent-test"), []byte("old"), 0700)
+	os.WriteFile(filepath.Join(stage, "bin", "agent-test"), []byte("new"), 0700)
+	e := &Engine{afterReplace: func(int) error { return fmt.Errorf("injected failure") }}
+	if err := e.deploy(home, stage, []string{"bin/agent-test"}, nil); err == nil {
+		t.Fatal("expected failure")
+	}
+	b, err := os.ReadFile(filepath.Join(home, "bin", "agent-test"))
+	if err != nil || string(b) != "old" {
+		t.Fatal("adapter not restored", err)
 	}
 }

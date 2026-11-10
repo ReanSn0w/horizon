@@ -204,6 +204,9 @@ func owner(c Caller) string {
 	return "session:" + c.Workspace + ":" + c.Session
 }
 func (q *Queue) caller(c Caller) (Caller, error) {
+	if len(c.Session) > 256 || len(c.Source) > 128 || len(c.Workspace) > 4096 {
+		return c, fail("invalid_request", "caller field exceeds limit")
+	}
 	if level(c.Access) == 0 {
 		return c, fail("invalid_request", "invalid access")
 	}
@@ -226,7 +229,14 @@ func (q *Queue) caller(c Caller) (Caller, error) {
 	}
 	return c, nil
 }
-func summary(t *Task) *Task { v := *t; v.Message = ""; v.Result = ""; return &v }
+func summary(t *Task) *Task {
+	v := *t
+	v.Owner = ""
+	v.Workspace = ""
+	v.Message = ""
+	v.Result = ""
+	return &v
+}
 func (q *Queue) Handle(ctx context.Context, r Request) (any, error) {
 	if r.Method == "wait" {
 		if r.WaitMS < 0 || r.WaitMS > 30000 {
@@ -267,8 +277,11 @@ func (q *Queue) Handle(ctx context.Context, r Request) (any, error) {
 	if level(c.Access) < 2 {
 		return nil, fail("access_denied", "mutation requires write access")
 	}
-	if r.OperationID == "" || len(r.OperationID) > 256 {
-		return nil, fail("invalid_request", "operation_id required (max 256 bytes)")
+	if len(r.Route) > 512 || len(r.TaskID) > 256 {
+		return nil, fail("invalid_request", "task or route exceeds limit")
+	}
+	if r.OperationID == "" || len(r.OperationID) > 512 {
+		return nil, fail("invalid_request", "operation_id required (max 512 bytes)")
 	}
 	if q.fatal != nil {
 		return nil, fail("storage_error", "scheduler stopped after a persistence failure")
@@ -440,6 +453,7 @@ func (q *Queue) read(r Request) (any, error) {
 			}
 			cursor = e.Cursor
 			if e.Owner == o {
+				e.Owner = ""
 				events = append(events, e)
 			}
 			if len(events) >= 32 {
