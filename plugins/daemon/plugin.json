@@ -1,0 +1,1 @@
+{"name":"daemon","description":"Local Horizon process supervisor","package":"./plugins/daemon","binary":"horizon-daemon"}

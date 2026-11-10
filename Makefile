@@ -8,7 +8,7 @@ PLUGINS ?= manager
 PLUGIN_NAMES := $(filter-out agent,$(notdir $(patsubst %/main.go,%,$(wildcard plugins/*/main.go)))) telegram
 PLUGIN_TARGETS := $(addprefix install-plugin-,$(PLUGIN_NAMES))
 
-.PHONY: help install install-all install-plugins install-telegram install-browser $(PLUGIN_TARGETS)
+.PHONY: help install install-all install-plugins install-telegram install-browser install-daemon $(PLUGIN_TARGETS)
 
 help:
 	@printf '%s\n' \
@@ -16,6 +16,7 @@ help:
 	  'make install                 Install Horizon into HORIZON_HOME/bin' \
 	  'make install-plugins         Install selected plugins into HORIZON_HOME/bin' \
 	  'make install-telegram        Install the Telegram integration plugin' \
+	  'make install-daemon          Install the local supervisor' \
 	  'make install-browser         Install the Browser Use plugin' \
 	  'make install-all             Install Horizon and selected plugins' \
 	  'Overrides: GO, BIN_DIR, HORIZON_HOME, PLUGINS'
@@ -36,6 +37,7 @@ install-plugins: $(addprefix install-plugin-,$(PLUGINS))
 
 install-telegram: install-plugin-telegram
 install-browser: install-plugin-browser
+install-daemon: install-plugin-daemon
 # Build beside the destination and replace only after a successful build.
 $(PLUGIN_TARGETS): install-plugin-%:
 	@set -eu; \

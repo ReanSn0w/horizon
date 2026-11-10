@@ -35,7 +35,7 @@ func TestCLIProtocolAndArguments(t *testing.T) {
 }
 func TestRepositoryCatalog(t *testing.T) {
 	c, err := Catalog("../..")
-	if err != nil || c["telegram"].Package != "./plugins/agent" || len(c) != 3 {
+	if err != nil || c["telegram"].Package != "./plugins/agent" || c["daemon"].Binary != "horizon-daemon" {
 		t.Fatal(c, err)
 	}
 }

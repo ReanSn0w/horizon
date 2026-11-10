@@ -26,6 +26,9 @@ func validReplacement(path string) bool {
 	if path == "source" || path == "config.yaml" || path == ".manager/state.json" || path == "bin/horizon" {
 		return true
 	}
+	if strings.HasPrefix(path, "bin/agent-") {
+		return namePattern.MatchString(strings.TrimPrefix(path, "bin/agent-"))
+	}
 	return strings.HasPrefix(path, "bin/horizon-") && namePattern.MatchString(strings.TrimPrefix(path, "bin/horizon-"))
 }
 func backupPath(tx string, i int) string { return filepath.Join(tx, "backup", fmt.Sprint(i)) }

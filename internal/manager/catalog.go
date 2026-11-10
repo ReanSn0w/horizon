@@ -9,6 +9,7 @@ import (
 )
 
 type Plugin struct {
+	Kind        string `json:"kind,omitempty"`
 	Name        string `json:"name"`
 	Description string `json:"description"`
 	Package     string `json:"package"`
@@ -33,10 +34,10 @@ func Catalog(source string) (map[string]Plugin, error) {
 			return nil, fmt.Errorf("invalid plugin description %s", filepath.Base(filepath.Dir(path)))
 		}
 		expected := "./plugins/" + filepath.Base(filepath.Dir(path))
-		if !namePattern.MatchString(p.Name) || reserved[p.Name] || p.Description == "" || p.Package != expected || p.Binary != "horizon-"+p.Name {
+		if !namePattern.MatchString(p.Name) || reserved[p.Name] || p.Description == "" || p.Package != expected || (p.Kind != "" && p.Kind != "cli" && p.Kind != "adapter") || p.Binary != managedBinary(pluginID(p)) {
 			return nil, fmt.Errorf("invalid plugin description in %s", expected)
 		}
-		if _, ok := result[p.Name]; ok {
+		if _, ok := result[pluginID(p)]; ok {
 			return nil, fmt.Errorf("duplicate plugin %s", p.Name)
 		}
 		resolved, err := filepath.EvalSymlinks(filepath.Dir(path))
@@ -51,10 +52,17 @@ func Catalog(source string) (map[string]Plugin, error) {
 		if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 			return nil, fmt.Errorf("plugin escapes source directory")
 		}
-		result[p.Name] = p
+		result[pluginID(p)] = p
 	}
 	if p, ok := result["manager"]; !ok || p.Package != "./plugins/manager" {
 		return nil, fmt.Errorf("source revision does not support horizon-manager")
 	}
 	return result, nil
+}
+
+func pluginID(p Plugin) string {
+	if p.Kind == "adapter" {
+		return "agent:" + p.Name
+	}
+	return p.Name
 }

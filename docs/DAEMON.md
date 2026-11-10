@@ -87,3 +87,22 @@ status/results through list/read/wait and marks confirmed delivery with ack.
 A failed/unknown delivery is not blindly repeated. User-facing messages can be
 returned as task results; pausing the core for interactive approval is not added.
 Restart is delayed with bounded backoff; stopping daemon stops all adapters.
+
+## Installation
+
+```sh
+horizon manager plugins install daemon
+horizon daemon start
+# In another terminal:
+horizon daemon status
+horizon daemon stop
+```
+
+Manager catalog entries optionally use `kind: "adapter"` (default `cli`).
+Adapter `name: "telegram"` has binary `agent-telegram` and manager identity
+`agent:telegram`, distinct from CLI plugin `telegram` / `horizon-telegram`.
+Source remains `plugins/<directory>/plugin.json`. Install/remove use
+`horizon manager plugins install|remove agent:NAME`. Config templates belong to
+`plugins.agent-NAME`; enabling is explicit via `plugins.daemon.adapters: [NAME]`.
+Removal disables that adapter while preserving settings and data. Manager stages
+and validates both kinds before replacement; transaction rollback covers both.
