@@ -63,7 +63,11 @@ limits:
 disabled_skills: []
 
 # Optional plugin-owned settings, keyed by command name (plugins.<name>).
-# Run 'horizon init' after installing plugins to add their missing settings.
+# Manager adds missing settings when installing plugins.
 
 # Installed agent extensions, explicitly enabled in this order.
 agent_plugins: []
+
+# Installed agent extensions allowed to communicate with an external channel.
+# Each must also appear in agent_plugins. For Telegram, use [telegram].
+agent_communication: []

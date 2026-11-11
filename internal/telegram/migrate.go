@@ -227,7 +227,7 @@ func Migrate(ctx context.Context, home, action string) (MigrationReport, error) 
 	}); err != nil {
 		return MigrationReport{}, err
 	}
-	if err := convertLegacyConfig(ctx, home, configPath, manifest.Before["config.yaml"], key, legacy.Telegram, settings); err != nil {
+	if err := convertLegacyConfig(ctx, home, configPath, manifest.Before["config.yaml"], key, legacy.Telegram, settings, legacy.Parallel); err != nil {
 		return MigrationReport{}, err
 	}
 	daemonSettings, err := daemon.LoadSettings(home)
@@ -451,7 +451,7 @@ func rollbackMigration(home, backup string, manifest migrationManifest) (Migrati
 	return manifest.Report, nil
 }
 
-func convertLegacyConfig(ctx context.Context, home, path, oldHash, key string, bot BotSettings, settings AdapterSettings) error {
+func convertLegacyConfig(ctx context.Context, home, path, oldHash, key string, bot BotSettings, settings AdapterSettings, parallel int) error {
 	_, err := config.UpdateDocumentContext(ctx, home, func(doc *yaml.Node) (bool, error) {
 		root := doc.Content[0]
 		p := yamlKey(root, "plugins")
@@ -492,6 +492,13 @@ func convertLegacyConfig(ctx context.Context, home, path, oldHash, key string, b
 		}
 		if err := appendYAML(d, "adapters", "telegram"); err != nil {
 			return false, err
+		}
+		if yamlKey(d, "max_active_adapter_dialogs") == nil {
+			value := &yaml.Node{}
+			if err := value.Encode(parallel); err != nil {
+				return false, err
+			}
+			setYAML(d, "max_active_adapter_dialogs", value)
 		}
 		return true, nil
 	})
