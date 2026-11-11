@@ -31,7 +31,11 @@ func run(ctx context.Context, args []string, out, diag io.Writer) int {
 		json.NewEncoder(out).Encode(plugins.Metadata{ProtocolVersion: 1, ConfigProtocolVersion: 1, Version: buildinfo.Version, Description: "Local Horizon process supervisor"})
 		return 0
 	case "horizon-plugin-config-template":
-		json.NewEncoder(out).Encode(map[string]any{"config_protocol_version": 1, "section": map[string]any{"parallel_per_depth": 2, "max_depth": 4, "max_children": 16, "max_queue": 128, "adapters": []string{}}})
+		settings := daemon.Defaults()
+		json.NewEncoder(out).Encode(map[string]any{"config_protocol_version": 1, "section": map[string]any{
+			"parallel_per_depth": settings.Parallel, "max_active_adapter_dialogs": settings.ActiveDialogs,
+			"max_depth": settings.Depth, "max_children": settings.Children, "max_queue": settings.Queue, "adapters": []string{},
+		}})
 		return 0
 	case "--help", "-h":
 		fmt.Fprintln(out, "horizon daemon start|status|stop\nStart runs in foreground. Stop before manager updates. Configure plugins.daemon.")
