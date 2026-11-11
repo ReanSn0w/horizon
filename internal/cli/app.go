@@ -110,6 +110,9 @@ func (a *App) Run(args []string) int {
 			return ExitUsage
 		}
 		name := args[index]
+		if name == "agent" {
+			return a.runAdapterAdmin(home, args[index+1:])
+		}
 		if parser.Find(name) == nil {
 			if name != "manager" {
 				release, err := maintenance.Acquire(home, false)

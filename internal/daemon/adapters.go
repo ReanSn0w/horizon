@@ -13,6 +13,8 @@ import (
 	"time"
 )
 
+const AdapterAdminCLI = "admin-cli"
+
 var adapterName = regexp.MustCompile(`^[a-z][a-z0-9-]*$`)
 
 type AdapterMetadata struct {
