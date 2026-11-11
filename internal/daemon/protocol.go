@@ -60,6 +60,9 @@ type Request struct {
 	Route       string `json:"route,omitempty"`
 	Delivery    string `json:"delivery,omitempty"`
 	Author      string `json:"author,omitempty"`
+	Channel     bool   `json:"channel,omitempty"`
+	InputID     string `json:"input_id,omitempty"`
+	TurnID      string `json:"turn_id,omitempty"`
 }
 type Failure struct {
 	Code    string `json:"code"`
