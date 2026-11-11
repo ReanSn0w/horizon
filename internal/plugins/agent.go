@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
@@ -17,17 +18,18 @@ const PreparationTimeout = 90 * time.Second
 
 // Request is host-selected execution context, never model-selected paths.
 type Request struct {
-	Home        string          `json:"home"`
-	Workspace   string          `json:"workspace"`
-	WorkspaceID string          `json:"workspace_id"`
-	Access      string          `json:"access"`
-	OperationID string          `json:"operation_id"`
-	SessionID   string          `json:"session_id,omitempty"`
-	TurnID      string          `json:"turn_id,omitempty"`
-	CallID      string          `json:"call_id,omitempty"`
-	Tool        string          `json:"tool,omitempty"`
-	Arguments   json.RawMessage `json:"arguments,omitempty"`
-	Route       string          `json:"route,omitempty"`
+	Home          string          `json:"home"`
+	Workspace     string          `json:"workspace"`
+	WorkspaceID   string          `json:"workspace_id"`
+	Access        string          `json:"access"`
+	OperationID   string          `json:"operation_id"`
+	SessionID     string          `json:"session_id,omitempty"`
+	TurnID        string          `json:"turn_id,omitempty"`
+	CallID        string          `json:"call_id,omitempty"`
+	Tool          string          `json:"tool,omitempty"`
+	Arguments     json.RawMessage `json:"arguments,omitempty"`
+	Route         string          `json:"route,omitempty"`
+	Communication bool            `json:"communication,omitempty"`
 }
 type Failure struct {
 	Code    string `json:"code"`
@@ -83,12 +85,31 @@ func validEffect(effect string) bool { return Allowed("full", effect) }
 
 // Prepare inspects only explicitly enabled plugins. The returned value is a turn snapshot.
 func Prepare(ctx context.Context, home string, workspace session.Workspace, access string, names []string, maintain bool, warn func(string)) ([]Extension, error) {
-	return PrepareForTurn(ctx, home, workspace, access, names, maintain, warn, nil)
+	return PrepareForTurn(ctx, home, workspace, access, names, maintain, warn, TurnPolicy{})
 }
 
-func PrepareForTurn(ctx context.Context, home string, workspace session.Workspace, access string, names []string, maintain bool, warn func(string), channel *TurnChannel) ([]Extension, error) {
+type TurnPolicy struct {
+	Channel       *TurnChannel
+	Communication []string
+	SessionID     string
+}
+
+const CommunicationEffect = "communicate"
+
+func ToolAllowed(request Request, effect string) bool {
+	if effect == CommunicationEffect {
+		return request.Communication && Allowed(request.Access, "read")
+	}
+	return Allowed(request.Access, effect)
+}
+
+func PrepareForTurn(ctx context.Context, home string, workspace session.Workspace, access string, names []string, maintain bool, warn func(string), policy TurnPolicy) ([]Extension, error) {
+	channel := policy.Channel
 	if err := validateTurnChannel(channel, names); err != nil {
 		return nil, err
+	}
+	if channel != nil && !slices.Contains(policy.Communication, channel.Extension) {
+		return nil, fmt.Errorf("host channel %s requires that extension in agent_communication", channel.Extension)
 	}
 	if len(names) == 0 {
 		return nil, nil
@@ -123,6 +144,14 @@ func PrepareForTurn(ctx context.Context, home string, workspace session.Workspac
 			return nil, err
 		}
 		extension := Extension{Name: name, Path: entry.Path, Request: Request{Home: home, Workspace: workspace.Dir, WorkspaceID: workspace.ID, Access: access, OperationID: id}}
+		grant := (channel == nil || channel.Extension == name) && slices.Contains(policy.Communication, name)
+		if grant && version != ChannelProtocolVersion {
+			return nil, fmt.Errorf("agent_communication for %s requires agent protocol %d", name, ChannelProtocolVersion)
+		}
+		if version == ChannelProtocolVersion {
+			extension.Request.Communication = grant
+			extension.Request.SessionID = policy.SessionID
+		}
 		if channel != nil && channel.Extension == name {
 			if version != ChannelProtocolVersion {
 				return nil, fmt.Errorf("host channel %s requires agent protocol %d", name, ChannelProtocolVersion)
@@ -147,7 +176,7 @@ func PrepareForTurn(ctx context.Context, home string, workspace session.Workspac
 		}
 		for _, tool := range extension.Description.Tools {
 			full := ToolName(name, tool.Name)
-			if tool.Name == "" || len(full) > 64 || !functionName.MatchString(full) || seen[full] || strings.TrimSpace(tool.Description) == "" || !validEffect(tool.Effect) {
+			if tool.Name == "" || len(full) > 64 || !functionName.MatchString(full) || seen[full] || strings.TrimSpace(tool.Description) == "" || (!validEffect(tool.Effect) && !(version == ChannelProtocolVersion && tool.Effect == CommunicationEffect)) {
 				return nil, fmt.Errorf("agent plugin %s: invalid or duplicate tool %q", name, tool.Name)
 			}
 			if err := CheckSchema(tool.Parameters); err != nil {
