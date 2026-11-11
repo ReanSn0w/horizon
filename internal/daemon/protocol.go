@@ -17,6 +17,25 @@ import (
 const Version = 1
 const MaxFrame = 1024 * 1024
 
+const (
+	ActiveInputCapability = "active-input"
+	ActiveDelivery        = "active"
+	MaxInputBytes         = 128 * 1024
+	MaxPendingInputs      = 32
+)
+
+// InputReceipt reports persistence separately from inclusion in a Horizon turn.
+// It deliberately carries no input text or author.
+type InputReceipt struct {
+	ID       string `json:"id"`
+	Sequence uint64 `json:"sequence"`
+	Source   string `json:"source"`
+	Route    string `json:"route"`
+	Status   string `json:"status"`
+	Session  string `json:"session_id,omitempty"`
+	Turn     string `json:"turn_id,omitempty"`
+}
+
 type Caller struct {
 	Kind       string `json:"kind"`
 	Source     string `json:"source"`
@@ -39,6 +58,8 @@ type Request struct {
 	WaitMS      int    `json:"wait_ms,omitempty"`
 	Tree        bool   `json:"tree,omitempty"`
 	Route       string `json:"route,omitempty"`
+	Delivery    string `json:"delivery,omitempty"`
+	Author      string `json:"author,omitempty"`
 }
 type Failure struct {
 	Code    string `json:"code"`
