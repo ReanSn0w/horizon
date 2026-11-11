@@ -46,20 +46,34 @@ type ModelProfile struct {
 }
 
 type Turn struct {
-	ID          string            `json:"id"`
-	Status      Status            `json:"status"`
-	StartedAt   time.Time         `json:"started_at"`
-	CompletedAt *time.Time        `json:"completed_at,omitempty"`
-	Model       ModelProfile      `json:"model"`
-	Messages    []Message         `json:"messages,omitempty"`
-	APIItems    []json.RawMessage `json:"api_items,omitempty"`
-	ToolCalls   []ToolCall        `json:"tool_calls,omitempty"`
-	Error       *TurnError        `json:"error,omitempty"`
+	ID           string            `json:"id"`
+	Status       Status            `json:"status"`
+	StartedAt    time.Time         `json:"started_at"`
+	CompletedAt  *time.Time        `json:"completed_at,omitempty"`
+	Model        ModelProfile      `json:"model"`
+	Messages     []Message         `json:"messages,omitempty"`
+	APIItems     []json.RawMessage `json:"api_items,omitempty"`
+	APIBatchEnds []int             `json:"api_batch_ends,omitempty"`
+	ToolCalls    []ToolCall        `json:"tool_calls,omitempty"`
+	Error        *TurnError        `json:"error,omitempty"`
 }
 
 type Message struct {
-	Role string `json:"role"`
-	Text string `json:"text"`
+	Role    string          `json:"role"`
+	Text    string          `json:"text"`
+	Inbound *InboundMessage `json:"inbound,omitempty"`
+}
+
+// InboundMessage locates a durable adapter message after the API and tool
+// records already saved at the safe boundary where the agent took it.
+type InboundMessage struct {
+	ID             string `json:"id"`
+	Sequence       uint64 `json:"sequence"`
+	Source         string `json:"source"`
+	Route          string `json:"route"`
+	Author         string `json:"author"`
+	AfterAPIItems  int    `json:"after_api_items"`
+	AfterToolCalls int    `json:"after_tool_calls"`
 }
 
 type TurnError struct {
@@ -119,6 +133,7 @@ func (s *Session) Validate() error {
 		return errors.New("created_at and last_accessed_at are required")
 	}
 	turnIDs := make(map[string]Status, len(s.Turns))
+	inboundIDs := make(map[string]bool)
 	for index := range s.Turns {
 		turn := &s.Turns[index]
 		if err := turn.validate(); err != nil {
@@ -128,6 +143,14 @@ func (s *Session) Validate() error {
 			return fmt.Errorf("duplicate turn ID %q", turn.ID)
 		}
 		turnIDs[turn.ID] = turn.Status
+		for _, message := range turn.Messages {
+			if in := message.Inbound; in != nil {
+				if inboundIDs[in.ID] {
+					return fmt.Errorf("duplicate inbound message ID %q", in.ID)
+				}
+				inboundIDs[in.ID] = true
+			}
+		}
 	}
 	for _, checkpoint := range s.Checkpoints {
 		if turnIDs[checkpoint.TurnID] != StatusCompleted {
@@ -164,7 +187,36 @@ func (t *Turn) validate() error {
 	default:
 		return fmt.Errorf("unknown status %q", t.Status)
 	}
+	boundaries := map[int]bool{0: true}
+	lastEnd := 0
+	for _, end := range t.APIBatchEnds {
+		if end <= lastEnd || end > len(t.APIItems) {
+			return errors.New("invalid API batch boundary")
+		}
+		boundaries[end] = true
+		lastEnd = end
+	}
+	if len(t.APIBatchEnds) > 0 && lastEnd != len(t.APIItems) {
+		return errors.New("API batch boundaries do not cover the journal")
+	}
+	lastAPI, lastTool := 0, 0
+	var lastSequence uint64
+	for _, message := range t.Messages {
+		in := message.Inbound
+		if in == nil {
+			continue
+		}
+		if message.Role != "user" || message.Text == "" || in.ID == "" || in.Source == "" || in.Route == "" || in.Author == "" ||
+			in.Sequence <= lastSequence || in.AfterAPIItems < lastAPI || !boundaries[in.AfterAPIItems] ||
+			in.AfterToolCalls < lastTool || in.AfterToolCalls > len(t.ToolCalls) {
+			return errors.New("invalid inbound message or chronology")
+		}
+		lastAPI, lastTool, lastSequence = in.AfterAPIItems, in.AfterToolCalls, in.Sequence
+	}
 	for index, call := range t.ToolCalls {
+		if index < lastTool && call.ResultState != ToolResultKnown {
+			return errors.New("inbound message follows an unresolved tool call")
+		}
 		switch call.ResultState {
 		case ToolResultPending, ToolResultUnknown:
 			if len(call.Result) != 0 {

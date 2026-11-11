@@ -36,12 +36,17 @@ func (w *cappedWriter) ReadFrom(r io.Reader) (int64, error) {
 
 // Process controls the process group even when the immediate child exits first.
 func Process(ctx context.Context, binary string, args, env []string, dir, input string, out io.Writer) (int, error) {
+	return process(ctx, binary, args, env, dir, input, out, nil)
+}
+
+func process(ctx context.Context, binary string, args, env []string, dir, input string, out io.Writer, extraFiles []*os.File) (int, error) {
 	if err := ctx.Err(); err != nil {
 		return -1, err
 	}
 	cmd := exec.Command(binary, args...)
 	cmd.Dir = dir
 	cmd.Env = env
+	cmd.ExtraFiles = extraFiles
 	cmd.Stdin = strings.NewReader(input)
 	cmd.Stdout = out
 	cmd.Stderr = io.Discard
@@ -121,6 +126,16 @@ func HorizonRunner(home string) Runner {
 				return Outcome{Err: err}
 			}
 		}
+		var inheritedFiles []*os.File
+		if t.ActiveInput {
+			input, err := inputCredentialPipe(t.inputCredential)
+			if err != nil {
+				return Outcome{Err: err}
+			}
+			defer input.Close()
+			inheritedFiles = []*os.File{input}
+			env = append(env, inputTaskEnv+"="+t.ID, inputRouteEnv+"="+t.Route)
+		}
 		// Parse incrementally; never retain opaque API payloads in daemon state.
 		ctx, cancel := context.WithCancel(ctx)
 		defer cancel()
@@ -172,7 +187,7 @@ func HorizonRunner(home string) Runner {
 			}
 			outcome <- result
 		}()
-		code, runErr := Process(ctx, binary, []string{"--home", home, "resume", "--session", t.Session, "--mode", "jsonl", "--access", t.Access}, env, t.Workspace, t.Message, writer)
+		code, runErr := process(ctx, binary, []string{"--home", home, "resume", "--session", t.Session, "--mode", "jsonl", "--access", t.Access}, env, t.Workspace, t.Message, writer, inheritedFiles)
 		writer.Close()
 		result := <-outcome
 		result.ExitCode = code
