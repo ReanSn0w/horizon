@@ -17,6 +17,7 @@ import (
 	"github.com/ReanSn0w/horizon/internal/plugins"
 	"github.com/ReanSn0w/horizon/internal/responses"
 	"github.com/ReanSn0w/horizon/internal/session"
+	"github.com/ReanSn0w/horizon/internal/turninput"
 )
 
 const Introduction = "You are an autonomous coding agent operating through Horizon. Work carefully in the current workspace, use tools when needed, and continue until the user's task is complete."
@@ -43,6 +44,7 @@ type Runtime struct {
 	MaxDuration    time.Duration
 	Publish        eventstream.Publish
 	Now            func() time.Time
+	Inbound        turninput.Channel
 }
 
 type Result struct {
@@ -69,6 +71,9 @@ func (e *Error) Unwrap() error { return e.Cause }
 func (r *Runtime) Run(ctx context.Context, message string) (Result, error) {
 	if r.Client == nil || r.Locked == nil || r.Store == nil || r.Session == nil || r.Instructions == nil {
 		return Result{}, errors.New("agent runtime is incomplete")
+	}
+	if r.Inbound != nil {
+		return Result{}, errors.New("active input runtime is unavailable")
 	}
 	now := r.Now
 	if now == nil {

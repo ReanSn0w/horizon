@@ -8,10 +8,12 @@ import (
 	"os"
 	"os/signal"
 	"sort"
+	"syscall"
 	"text/tabwriter"
 
 	"github.com/ReanSn0w/horizon/internal/agent"
 	"github.com/ReanSn0w/horizon/internal/config"
+	"github.com/ReanSn0w/horizon/internal/daemon"
 	"github.com/ReanSn0w/horizon/internal/decision"
 	"github.com/ReanSn0w/horizon/internal/eventstream"
 	"github.com/ReanSn0w/horizon/internal/instructions"
@@ -109,20 +111,34 @@ func (command *resumeCommand) Execute(args []string) error {
 			return usage(err.Error(), err)
 		}
 	}
-	message, err := command.app.readMessageMode(command.Message, command.Mode)
-	if err != nil {
-		return err
+	var message string
+	if !daemon.HasTurnInput() {
+		message, err = command.app.readMessageMode(command.Message, command.Mode)
+		if err != nil {
+			return err
+		}
 	}
 	store, workspace, err := command.app.sessionContext(command.global, "")
 	if err != nil {
 		return err
+	}
+	inbound, err := daemon.OpenTurnInput(home, workspace.Dir, command.Session)
+	if err != nil {
+		return failure(err.Error(), err)
+	}
+	if inbound != nil && command.Message.Set {
+		return usage("daemon input cannot be combined with an explicit message", nil)
 	}
 	locked, value, err := store.AcquireForResume(workspace, command.Session, message)
 	if err != nil {
 		return failure(err.Error(), err)
 	}
 	defer locked.Close()
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	signals := []os.Signal{os.Interrupt}
+	if inbound != nil {
+		signals = append(signals, syscall.SIGTERM)
+	}
+	ctx, stop := signal.NotifyContext(context.Background(), signals...)
 	defer stop()
 	snapshot, extensions, memoryService, err := command.app.buildPluginInstructions(ctx, home, workspace, cfg, access, true)
 	if err != nil {
@@ -160,6 +176,7 @@ func (command *resumeCommand) Execute(args []string) error {
 		MaxInputTokens: cfg.Limits.MaxInputTokens,
 		MaxDuration:    cfg.Limits.MaxTurnDuration,
 		Publish:        newEventPublisher(command.Mode, command.global.Verbose, command.app.out, command.app.errOut),
+		Inbound:        inbound,
 	}
 	result, err := runtime.Run(ctx, message)
 	if err != nil {
