@@ -56,6 +56,7 @@ type Task struct {
 	State           string        `json:"state"`
 	Result          string        `json:"result,omitempty"`
 	Error           string        `json:"error,omitempty"`
+	ErrorCode       string        `json:"error_code,omitempty"`
 	ExitCode        int           `json:"exit_code"`
 	Route           string        `json:"route,omitempty"`
 	Delivered       bool          `json:"delivered"`
@@ -68,6 +69,7 @@ type Task struct {
 	InputIDs        []string      `json:"input_ids,omitempty"`
 	IdleCompact     bool          `json:"idle_compact,omitempty"`
 	DispatchOrder   uint64        `json:"dispatch_order,omitempty"`
+	Executing       bool          `json:"executing,omitempty"`
 	inputCredential string
 }
 type Event struct {
@@ -93,10 +95,11 @@ type diskState struct {
 	Inputs        map[string]*storedInput `json:"inputs"`
 }
 type Outcome struct {
-	Text     string
-	Turn     string
-	ExitCode int
-	Err      error
+	Text      string
+	Turn      string
+	ErrorCode string
+	ExitCode  int
+	Err       error
 }
 type Runner func(context.Context, Task, func(string) error, func(string, string)) Outcome
 type Queue struct {
@@ -141,7 +144,8 @@ func OpenQueue(home string, settings Settings, runner Runner) (*Queue, error) {
 	}
 	changed := false
 	for _, t := range q.state.Tasks {
-		if t.State == "running" {
+		if t.State == "running" || t.Executing {
+			t.Executing = false
 			t.State = "unknown"
 			t.Error = "daemon restarted during execution"
 			q.event(t, "")
@@ -235,6 +239,9 @@ func owner(c Caller) string {
 	if c.Kind == "adapter" {
 		return "adapter:" + c.Source
 	}
+	if c.Kind == "operator" {
+		return "operator"
+	}
 	return "session:" + c.Workspace + ":" + c.Session
 }
 func (q *Queue) caller(c Caller) (Caller, error) {
@@ -271,6 +278,7 @@ func summary(t *Task) *Task {
 	v.Result = ""
 	v.InputIDs = nil
 	v.DispatchOrder = 0
+	v.Executing = false
 	v.inputCredential = ""
 	return &v
 }
@@ -310,9 +318,16 @@ func (q *Queue) Handle(ctx context.Context, r Request) (any, error) {
 	case "input_next", "input_close", "input_ack":
 		return q.handleTurnInput(r)
 	}
-	c, err := q.caller(r.Caller)
-	if err != nil {
-		return nil, err
+	operator := r.Method == "resolve_input" && r.Caller.Kind == "operator"
+	var c Caller
+	var err error
+	if operator {
+		c = Caller{Kind: "operator", Access: "write"}
+	} else {
+		c, err = q.caller(r.Caller)
+		if err != nil {
+			return nil, err
+		}
 	}
 	r.Caller = c
 	if level(c.Access) < 2 {
@@ -357,7 +372,7 @@ func (q *Queue) Handle(ctx context.Context, r Request) (any, error) {
 	var target *Task
 	if r.Method != "submit" {
 		target = q.state.Tasks[r.TaskID]
-		if target == nil || target.Owner != owner(c) {
+		if target == nil || !operator && target.Owner != owner(c) {
 			return nil, fail("not_found", "task not found")
 		}
 	}
@@ -586,6 +601,7 @@ func (q *Queue) Run(ctx context.Context) error {
 			}
 			err := q.transaction(func() error {
 				t.State = "running"
+				t.Executing = true
 				q.event(t, "")
 				t.DispatchOrder = q.state.Cursor
 				return nil
@@ -641,13 +657,16 @@ func (q *Queue) execute(ctx context.Context, t Task) {
 	delete(q.inputCredentials, t.ID)
 	if err := q.transaction(func() error {
 		current := q.state.Tasks[t.ID]
+		current.Executing = false
 		if current.State == "cancelled" {
+			current.ErrorCode = out.ErrorCode
 			q.moveInputToQueuedSuccessor(current)
 			return nil
 		}
 		current.Result = out.Text
 		current.Turn = out.Turn
 		current.ExitCode = out.ExitCode
+		current.ErrorCode = out.ErrorCode
 		current.State = "succeeded"
 		if out.Err != nil {
 			current.State = "failed"
@@ -671,6 +690,9 @@ func (s diskState) validate() error {
 	}
 	for id, t := range s.Tasks {
 		if t == nil || t.ID != id || t.Owner == "" || !filepath.IsAbs(t.Workspace) || level(t.Access) == 0 || t.Depth < 1 || t.Depth > 8 || t.Sequence == 0 || t.Sequence > s.Sequence || t.DispatchOrder > s.Cursor {
+			return bad
+		}
+		if t.Executing && t.State != "running" && t.State != "cancelled" {
 			return bad
 		}
 		root := s.Tasks[t.Child]

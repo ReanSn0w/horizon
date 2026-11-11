@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 
 	"github.com/ReanSn0w/horizon/internal/turninput"
@@ -181,5 +182,76 @@ func TestDaemonStateVersionCompatibility(t *testing.T) {
 	}
 	if _, err := OpenQueue(h, Defaults(), nil); err == nil || err.Error() != "unsupported daemon state version 123" {
 		t.Fatalf("unsupported version: %v", err)
+	}
+}
+
+func TestConcurrentCloseAndActiveSubmitRetainInput(t *testing.T) {
+	q, err := OpenQueue(shortHome(t), Defaults(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 20; i++ {
+		route := fmt.Sprintf("race-%d", i)
+		start := taskResult(t, q, activeRequest(q, route+"-initial", route, "initial"))
+		task := q.state.Tasks[start.ID]
+		task.State, task.Session = "running", "session-"+route
+		q.inputCredentials[task.ID] = "worker-credential"
+		ack := inputRequest(task)
+		ack.Method, ack.InputID = "input_ack", start.Input.ID
+		if _, err := q.Handle(context.Background(), ack); err != nil {
+			t.Fatal(err)
+		}
+		closeRequest := inputRequest(task)
+		closeRequest.Method = "input_close"
+		newInput := activeRequest(q, route+"-late", route, "racing message")
+		var closeReply, submitReply any
+		var closeErr, submitErr error
+		var race sync.WaitGroup
+		race.Add(2)
+		go func() { defer race.Done(); closeReply, closeErr = q.Handle(context.Background(), closeRequest) }()
+		go func() { defer race.Done(); submitReply, submitErr = q.Handle(context.Background(), newInput) }()
+		race.Wait()
+		if closeErr != nil || submitErr != nil {
+			t.Fatalf("close race failed: %v, %v", closeErr, submitErr)
+		}
+		receipt := submitReply.(*Task)
+		if receipt.ID == start.ID {
+			if message, ok := closeReply.(*turninput.Message); !ok || message.ID != receipt.Input.ID {
+				t.Fatalf("closing turn missed a message assigned to it: %v, %+v", closeReply, receipt)
+			}
+		} else if closeReply != nil || receipt.Child != start.Child || receipt.Session != task.Session {
+			t.Fatalf("late message did not enter the same session: %v, %+v", closeReply, receipt)
+		}
+	}
+}
+
+func TestCancelledWorkerThatHadNotExitedRestartsAsUnknown(t *testing.T) {
+	home := shortHome(t)
+	q, err := OpenQueue(home, Defaults(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := activeRequest(q, "stored-message", "chat", "retained")
+	original := taskResult(t, q, r)
+	task := q.state.Tasks[original.ID]
+	task.State, task.Executing = "running", true
+	cancelRequest := r
+	cancelRequest.Method, cancelRequest.TaskID, cancelRequest.OperationID, cancelRequest.Delivery = "cancel", task.ID, "cancel", ""
+	taskResult(t, q, cancelRequest)
+	resolve := Request{Method: "resolve_input", OperationID: "operator-resolve", TaskID: task.ID, Caller: Caller{Kind: "operator"}}
+	checkFailure(t, q, resolve, "invalid_state")
+
+	q, err = OpenQueue(home, Defaults(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if q.state.Tasks[task.ID].State != "unknown" || q.state.Tasks[task.ID].Executing {
+		t.Fatalf("in-flight cancellation was falsely resolved after a crash: %+v", q.state.Tasks[task.ID])
+	}
+	taskResult(t, q, resolve)
+	lookup := Request{Method: "lookup", OperationID: r.OperationID, Caller: r.Caller}
+	q.adapters[r.Caller.Source] = r.Caller.Credential
+	if got := taskResult(t, q, lookup); got.ID == task.ID || got.Input.Status != "stored" || got.Input.ID != original.Input.ID {
+		t.Fatalf("operator resolution lost the retained input: %+v", got)
 	}
 }

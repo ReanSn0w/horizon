@@ -18,7 +18,8 @@ startup. No session JSON is edited by daemon.
 One newline-delimited JSON request and response per connection. Version is 1;
 request IDs are echoed. Maximum frame is 1 MiB, at most 64 concurrent clients.
 Requests have `version`, `id`, `method`, and optional `operation_id`, `caller`,
-`task_id`, `message`, `access`, `cursor`, `offset`, `wait_ms`, `tree`, `route`.
+`task_id`, `message`, `access`, `cursor`, `offset`, `wait_ms`, `tree`, `route`,
+and the active-input fields described below.
 Caller identifies kind (subagent/adapter), source, workspace, parent session,
 access and an optional adapter credential. These are trusted local client fields,
 not model arguments. This is not an OS sandbox against the same user.
@@ -55,8 +56,8 @@ workspace for older adapter requests without a route. The scheduler prefers the
 dialog least recently dispatched and keeps queued order within each dialog.
 Subagent work has separate capacity per delegation depth, so waiting ancestors
 do not occupy descendants' slots. Active adapter input uses the same slot as
-its running turn. Depth, children per parent and pending queue are bounded. Reaching depth limit
-fails immediately. There is no guarantee of progress for cyclic peer dependencies.
+its running turn. Depth, children per parent and pending queue are bounded.
+Reaching the depth limit fails immediately. There is no guarantee of progress for cyclic peer dependencies.
 
 Ordinary `submit` and `send` put messages in a new turn. Session creation and
 resume use the Horizon CLI. Cancellation targets a task/child or explicit subtree;
@@ -104,16 +105,27 @@ An arrival after close waits for the next turn. Arrivals never interrupt a live
 Responses stream or a tool.
 
 After restart, an interrupted task is unknown and its dialog stays blocked.
-An adapter operator can explicitly resolve that task with `resolve_input` and
-a new operation ID after investigating the unknown outcome. The task retains
-its unknown status. Unconfirmed input is eligible for a later turn, and Horizon
-checks its session journal for already included IDs before passing input to
-the model. The interrupted process and any tool effects are not replayed.
+A cancellation recorded before the worker exited is also unknown on restart.
+After investigating the outcome, run `horizon daemon resolve-input TASK_ID`
+to unblock the dialog. The adapter protocol exposes the same operation as
+`resolve_input` with a fresh operation ID. The task retains its terminal status.
+Horizon checks the journal before passing retained messages to the model.
+If the retained input only needs its acknowledgment reconciled, the daemon
+records the original turn and Horizon skips the model request.
+
+On a known failure or cancellation, any input still stored in the daemon
+stays available to a successor in the same dialog. A later submission can
+carry it forward, or an operator can use `resolve-input` once the worker has
+exited. Input already acknowledged in the history stays with its original
+turn. A model request, token or time limit applies to the whole turn even
+when new messages arrive.
 
 The process channel is bound by the daemon to one task, normalized workspace,
 session and route. Its short-lived credential is inherited by Horizon through
 a private descriptor. Message content and authors stay out of diagnostic status
 events. A persistence or transport error never constitutes acknowledgment.
+Task summaries can include a machine-readable `error_code` for channel,
+session-write, cancellation and budget errors.
 
 ## Adapter contract
 

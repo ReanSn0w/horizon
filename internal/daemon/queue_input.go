@@ -200,8 +200,8 @@ func (q *Queue) queuedInputSuccessor(task *Task) *Task {
 }
 
 func (q *Queue) resolveActiveInput(task *Task, key, digest string) (*Task, error) {
-	if !task.ActiveInput || task.State != "unknown" {
-		return nil, fail("invalid_state", "expected an unknown active-input task")
+	if !task.ActiveInput || task.Executing || (task.State != "unknown" && task.State != "failed" && task.State != "cancelled") {
+		return nil, fail("invalid_state", "expected a stopped active-input task")
 	}
 	err := q.transaction(func() error {
 		if !task.InputResolved && q.countPendingInputs(task) != 0 {

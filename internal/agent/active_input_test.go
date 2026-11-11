@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/ReanSn0w/horizon/internal/decision"
@@ -192,5 +194,75 @@ func TestActiveInputLostAcknowledgmentRecoversWithoutModelReplay(t *testing.T) {
 	after, err := runtime.Locked.Load()
 	if err != nil || len(after.Turns) != 1 || len(after.Turns[0].Messages) != 1 {
 		t.Fatalf("redelivery duplicated session history: %+v %v", after, err)
+	}
+}
+
+func TestActiveInputAcknowledgmentRecoveryAfterToolEffect(t *testing.T) {
+	initial := journalInput("original", 1, "sender", "make a marker")
+	clarification := journalInput("later", 2, "sender two", "clarify the marker")
+	in := newInboundFixture(initial)
+	call := json.RawMessage(`{"type":"function_call","call_id":"create-marker","name":"shell_exec","arguments":"{\"command\":\"printf effect >> marker\",\"timeout_ms\":null,\"max_output_chars\":null}"}`)
+	client := &fakeClient{outputs: [][]json.RawMessage{{call}}}
+	runtime, cleanup := testRuntime(t, client)
+	defer cleanup()
+	runtime.Inbound = in
+	runtime.Publish = func(e eventstream.Event) {
+		if e.Type == "tool_completed" {
+			in.add(t, clarification)
+			in.failAck = true
+		}
+	}
+	_, err := runtime.Run(context.Background(), "")
+	assertRuntimeCode(t, err, "input_channel_failed")
+	stored, err := runtime.Locked.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	turn := stored.Turns[0]
+	if len(turn.ToolCalls) != 1 || turn.ToolCalls[0].ResultState != session.ToolResultKnown || len(turn.Messages) != 2 || client.calls != 1 {
+		t.Fatalf("tool result or clarification was not saved before the failed ack: %+v", turn)
+	}
+	runtime.Session = stored
+	if _, err := runtime.Run(context.Background(), ""); err != nil || client.calls != 1 || in.acked[clarification.ID] != turn.ID {
+		t.Fatalf("ack recovery made a new model request: %v, calls=%d", err, client.calls)
+	}
+
+	// A genuinely new message can continue from history after reconciliation.
+	runtime.Inbound = newInboundFixture(journalInput("new", 3, "sender", "continue explicitly"))
+	client.outputs = [][]json.RawMessage{finalResponse("continued").Output}
+	result, err := runtime.Run(context.Background(), "")
+	if err != nil || result.Text != "continued" || client.calls != 2 {
+		t.Fatalf("new input failed to continue: %+v %v calls=%d", result, err, client.calls)
+	}
+	input, _ := json.Marshal(client.requests[1].Input)
+	if bytes.Count(input, []byte("clarify the marker")) != 1 || !bytes.Contains(input, []byte(`"type":"function_call_output"`)) {
+		t.Fatalf("recovery lost or duplicated prior context: %s", input)
+	}
+	marker, err := os.ReadFile(filepath.Join(runtime.Workspace.Dir, "marker"))
+	if err != nil || string(marker) != "effect" {
+		t.Fatalf("tool side effect was repeated: %q %v", marker, err)
+	}
+}
+
+func TestActiveInputCancellationKeepsPendingSeparate(t *testing.T) {
+	in := newInboundFixture(journalInput("initial", 1, "sender", "initial input"))
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	client := streamFunc(func(ctx context.Context, _ responses.Request) (*responses.Response, error) {
+		in.add(t, journalInput("pending", 2, "sender", "later input"))
+		cancel()
+		return nil, ctx.Err()
+	})
+	runtime, cleanup := testRuntime(t, client)
+	defer cleanup()
+	runtime.Inbound = in
+	_, err := runtime.Run(ctx, "")
+	assertRuntimeCode(t, err, "turn_cancelled")
+	stored, err := runtime.Locked.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(in.pending) != 1 || len(in.acked) != 1 || stored.Turns[0].Status != session.StatusCancelled || len(stored.Turns[0].Messages) != 1 {
+		t.Fatalf("cancel lost or acknowledged input: pending=%+v, history=%+v", in.pending, stored.Turns)
 	}
 }
