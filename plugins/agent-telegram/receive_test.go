@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/ReanSn0w/horizon/internal/daemon"
 	"github.com/ReanSn0w/horizon/internal/telegram"
@@ -107,5 +109,45 @@ func TestOffsetAdvancesOnlyAfterDurableDaemonReceipt(t *testing.T) {
 	value, err = a.store.Snapshot()
 	if err != nil || value.Offset != 13 || value.Pending != nil || calls != 1 || len(value.Find(1).History) != 1 {
 		t.Fatalf("recovered state = %#v, error = %v, calls = %d", value, err, calls)
+	}
+}
+
+func TestTypingStopsForEveryTerminalState(t *testing.T) {
+	a := fixture(t)
+	registry := telegram.Registry{Chats: map[int64]*telegram.Conversation{1: {ID: 1, Origin: 1, Available: true}}}
+	for _, state := range []string{"succeeded", "failed", "cancelled"} {
+		ctx, stop := context.WithCancel(context.Background())
+		active := map[string]typingAction{}
+		var wg sync.WaitGroup
+		started, cancelled := make(chan struct{}), make(chan struct{})
+		send := func(ctx context.Context, chat, thread int64) error {
+			if chat != 1 || thread != 0 {
+				t.Errorf("typing route = %d/%d", chat, thread)
+			}
+			close(started)
+			<-ctx.Done()
+			close(cancelled)
+			return ctx.Err()
+		}
+		task := daemon.Task{ID: "active", State: "running", Channel: true, Route: "1"}
+		a.refreshTyping(ctx, []daemon.Task{task}, registry, active, &wg, send)
+		select {
+		case <-started:
+		case <-time.After(time.Second):
+			stop()
+			wg.Wait()
+			t.Fatal("typing was not started")
+		}
+		task.State = state
+		a.refreshTyping(ctx, []daemon.Task{task}, registry, active, &wg, send)
+		select {
+		case <-cancelled:
+		case <-time.After(time.Second):
+			stop()
+			wg.Wait()
+			t.Fatalf("typing was not stopped after %s", state)
+		}
+		stop()
+		wg.Wait()
 	}
 }

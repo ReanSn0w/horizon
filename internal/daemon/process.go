@@ -101,6 +101,9 @@ var sessionID = regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
 
 func HorizonRunner(home string) Runner {
 	return func(ctx context.Context, t Task, set func(string) error, stage func(string, string)) Outcome {
+		if t.IdleCompact {
+			return compactIdle(ctx, home, t)
+		}
 		cfg, err := config.Load(home)
 		if err != nil {
 			return Outcome{Err: errors.New("invalid Horizon configuration")}

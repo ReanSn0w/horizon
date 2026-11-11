@@ -36,6 +36,8 @@ type Conversation struct {
 	Thread      int64     `json:"thread,omitempty"`
 	LastInput   time.Time `json:"last_input,omitempty"`
 	LastCompact time.Time `json:"last_compact,omitempty"`
+	IdleFor     time.Time `json:"idle_for,omitempty"`
+	IdleTask    string    `json:"idle_task,omitempty"`
 	LastTask    string    `json:"last_task,omitempty"`
 }
 

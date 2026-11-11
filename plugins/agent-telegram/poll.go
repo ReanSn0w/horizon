@@ -74,7 +74,16 @@ func start(ctx context.Context) error {
 	if err := a.hello(ctx); err != nil {
 		return err
 	}
-	return a.poll(ctx)
+	observerCtx, stop := context.WithCancel(ctx)
+	observerDone := make(chan struct{})
+	go func() {
+		defer close(observerDone)
+		a.observe(observerCtx)
+	}()
+	err = a.poll(ctx)
+	stop()
+	<-observerDone
+	return err
 }
 
 func (a *adapter) hello(ctx context.Context) error {

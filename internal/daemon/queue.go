@@ -59,6 +59,7 @@ type Task struct {
 	InputClosed     bool          `json:"input_closed,omitempty"`
 	InputResolved   bool          `json:"input_resolved,omitempty"`
 	InputIDs        []string      `json:"input_ids,omitempty"`
+	IdleCompact     bool          `json:"idle_compact,omitempty"`
 	inputCredential string
 }
 type Event struct {
@@ -295,6 +296,8 @@ func (q *Queue) Handle(ctx context.Context, r Request) (any, error) {
 	switch r.Method {
 	case "list", "read", "lookup":
 		return q.read(r)
+	case "list_running":
+		return q.runningDialogs(r)
 	case "input_next", "input_close", "input_ack":
 		return q.handleTurnInput(r)
 	}
@@ -319,7 +322,7 @@ func (q *Queue) Handle(ctx context.Context, r Request) (any, error) {
 		return nil, fail("invalid_request", "active delivery requires adapter submit")
 	}
 	switch r.Method {
-	case "submit", "send", "cancel", "ack", "resolve_input":
+	case "submit", "send", "cancel", "ack", "resolve_input", "idle_compact", "idle_cancel":
 	default:
 		return nil, fail("unknown_method", "unsupported method")
 	}
@@ -339,12 +342,18 @@ func (q *Queue) Handle(ctx context.Context, r Request) (any, error) {
 	if r.Delivery == ActiveDelivery {
 		return q.acceptActiveInput(r, key, digest)
 	}
+	if r.Method == "idle_compact" {
+		return q.submitIdle(r, key, digest)
+	}
 	var target *Task
 	if r.Method != "submit" {
 		target = q.state.Tasks[r.TaskID]
 		if target == nil || target.Owner != owner(c) {
 			return nil, fail("not_found", "task not found")
 		}
+	}
+	if r.Method == "idle_cancel" {
+		return q.cancelIdle(r, target, key, digest)
 	}
 	if r.Method == "resolve_input" {
 		return q.resolveActiveInput(target, key, digest)
@@ -551,7 +560,7 @@ func (q *Queue) Run(ctx context.Context) error {
 		sort.Slice(tasks, func(i, j int) bool { return tasks[i].Sequence < tasks[j].Sequence })
 		blocked := map[string]bool{}
 		for _, t := range tasks {
-			if t.State == "unknown" && !t.InputResolved {
+			if t.State == "unknown" && !t.InputResolved && !t.IdleCompact {
 				blocked[t.Child] = true
 			}
 			if t.State != "queued" {
