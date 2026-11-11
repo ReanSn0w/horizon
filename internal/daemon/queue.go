@@ -35,23 +35,26 @@ func (s Settings) Validate() error {
 }
 
 type Task struct {
-	ID        string `json:"id"`
-	Child     string `json:"child_id"`
-	Owner     string `json:"owner"`
-	Parent    string `json:"parent_child,omitempty"`
-	Workspace string `json:"workspace"`
-	Session   string `json:"session_id"`
-	Turn      string `json:"turn_id,omitempty"`
-	Access    string `json:"access"`
-	Depth     int    `json:"depth"`
-	Message   string `json:"message,omitempty"`
-	State     string `json:"state"`
-	Result    string `json:"result,omitempty"`
-	Error     string `json:"error,omitempty"`
-	ExitCode  int    `json:"exit_code"`
-	Route     string `json:"route,omitempty"`
-	Delivered bool   `json:"delivered"`
-	Sequence  uint64 `json:"sequence"`
+	ID        string     `json:"id"`
+	Child     string     `json:"child_id"`
+	Owner     string     `json:"owner"`
+	Parent    string     `json:"parent_child,omitempty"`
+	Workspace string     `json:"workspace"`
+	Session   string     `json:"session_id"`
+	Turn      string     `json:"turn_id,omitempty"`
+	Access    string     `json:"access"`
+	Depth     int        `json:"depth"`
+	Message   string     `json:"message,omitempty"`
+	State     string     `json:"state"`
+	Result    string     `json:"result,omitempty"`
+	Error     string     `json:"error,omitempty"`
+	ExitCode  int        `json:"exit_code"`
+	Route     string     `json:"route,omitempty"`
+	Mode      string     `json:"mode,omitempty"`
+	SourceKey string     `json:"source_key,omitempty"`
+	Deadline  *time.Time `json:"deadline,omitempty"`
+	Delivered bool       `json:"delivered"`
+	Sequence  uint64     `json:"sequence"`
 }
 type Event struct {
 	Cursor uint64 `json:"cursor"`
@@ -80,22 +83,23 @@ type Outcome struct {
 }
 type Runner func(context.Context, Task, func(string) error, func(string, string)) Outcome
 type Queue struct {
-	mu       sync.Mutex
-	home     string
-	settings Settings
-	state    diskState
-	running  map[string]context.CancelFunc
-	runner   Runner
-	fatal    error
-	write    func(string, []byte) error
-	adapters map[string]string
+	mu          sync.Mutex
+	home        string
+	settings    Settings
+	state       diskState
+	running     map[string]context.CancelFunc
+	runner      Runner
+	fatal       error
+	write       func(string, []byte) error
+	adapters    map[string]string
+	timerAccess string
 }
 
 func OpenQueue(home string, settings Settings, runner Runner) (*Queue, error) {
 	if err := settings.Validate(); err != nil {
 		return nil, err
 	}
-	q := &Queue{home: home, settings: settings, runner: runner, running: map[string]context.CancelFunc{}, write: atomicState, adapters: map[string]string{}}
+	q := &Queue{home: home, settings: settings, runner: runner, running: map[string]context.CancelFunc{}, write: atomicState, adapters: map[string]string{}, timerAccess: "write"}
 	q.state = diskState{Version: 1, Tasks: map[string]*Task{}, Operations: map[string]Operation{}, Events: []Event{}}
 	b, err := os.ReadFile(filepath.Join(home, "daemon", "state.json"))
 	if err == nil {
@@ -222,6 +226,9 @@ func (q *Queue) caller(c Caller) (Caller, error) {
 		if c.Credential == "" || q.adapters[c.Source] != c.Credential {
 			return c, fail("access_denied", "unregistered adapter")
 		}
+		if c.Source == TimerSource {
+			c.Access = narrower(c.Access, q.timerAccess)
+		}
 	} else if c.Kind != "subagent" || c.Session == "" {
 		return c, fail("invalid_request", "parent session required")
 	}
@@ -292,6 +299,9 @@ func (q *Queue) Handle(ctx context.Context, r Request) (any, error) {
 	if r.Method != "submit" && r.Method != "send" && r.Method != "cancel" && r.Method != "ack" {
 		return nil, fail("unknown_method", "unsupported method")
 	}
+	if err := r.validateTimerFields(); err != nil {
+		return nil, err
+	}
 	key := owner(c) + ":" + r.OperationID
 	hashRequest := r
 	hashRequest.ID = ""
@@ -310,6 +320,9 @@ func (q *Queue) Handle(ctx context.Context, r Request) (any, error) {
 		target = q.state.Tasks[r.TaskID]
 		if target == nil || target.Owner != owner(c) {
 			return nil, fail("not_found", "task not found")
+		}
+		if target.isTimer() && r.Method == "send" {
+			return nil, fail("invalid_request", "timer runs always use a fresh session")
 		}
 	}
 	var result *Task
@@ -338,7 +351,11 @@ func (q *Queue) Handle(ctx context.Context, r Request) (any, error) {
 			}
 			id := newID()
 			t := &Task{ID: id, Child: id, Owner: owner(c), Workspace: c.Workspace, Access: access, Depth: 1, Message: r.Message, State: "queued", Route: r.Route}
-			if target != nil {
+			if r.Mode == FreshTask {
+				if err := q.initTimerTask(t, r); err != nil {
+					return err
+				}
+			} else if target != nil {
 				t.Child = target.Child
 				t.Session = target.Session
 				t.Parent = target.Parent
@@ -370,6 +387,14 @@ func (q *Queue) Handle(ctx context.Context, r Request) (any, error) {
 			q.event(t, "")
 			result = t
 		case "cancel":
+			if r.QueuedOnly {
+				if target.State == "queued" {
+					target.State = "cancelled"
+					q.event(target, "")
+				}
+				result = target
+				break
+			}
 			children := map[string]bool{target.Child: true}
 			if r.Tree {
 				for changed := true; changed; {
@@ -508,10 +533,14 @@ func (q *Queue) Run(ctx context.Context) error {
 		}
 		counts := map[int]int{}
 		busy := map[string]bool{}
+		busyTimerWorkspaces := map[string]bool{}
 		for id := range q.running {
 			t := q.state.Tasks[id]
 			counts[t.Depth]++
 			busy[t.Child] = true
+			if t.isTimer() {
+				busyTimerWorkspaces[t.Workspace] = true
+			}
 		}
 		tasks := []*Task{}
 		for _, t := range q.state.Tasks {
@@ -526,6 +555,15 @@ func (q *Queue) Run(ctx context.Context) error {
 			if t.State != "queued" {
 				continue
 			}
+			if q.skipExpiredTimer(t, time.Now()) {
+				if q.fatal != nil {
+					break
+				}
+				continue
+			}
+			if t.isTimer() && busyTimerWorkspaces[t.Workspace] {
+				continue
+			}
 			if busy[t.Child] || blocked[t.Child] || counts[t.Depth] >= q.settings.Parallel {
 				continue
 			}
@@ -536,6 +574,9 @@ func (q *Queue) Run(ctx context.Context) error {
 			}
 			jobCtx, cancel := context.WithCancel(ctx)
 			q.running[t.ID] = cancel
+			if t.isTimer() {
+				busyTimerWorkspaces[t.Workspace] = true
+			}
 			busy[t.Child] = true
 			counts[t.Depth]++
 			copyTask := *t
@@ -546,6 +587,15 @@ func (q *Queue) Run(ctx context.Context) error {
 	}
 }
 func (q *Queue) execute(ctx context.Context, t Task) {
+	if now := time.Now(); t.timerExpired(now) {
+		q.mu.Lock()
+		delete(q.running, t.ID)
+		if current := q.state.Tasks[t.ID]; current.State == "running" {
+			q.skipExpiredTimer(current, now)
+		}
+		q.mu.Unlock()
+		return
+	}
 	setSession := func(id string) error {
 		q.mu.Lock()
 		defer q.mu.Unlock()
@@ -609,6 +659,10 @@ func (s diskState) validate() error {
 			return bad
 		}
 		switch t.State {
+		case "skipped":
+			if !t.isTimer() || t.Deadline == nil || t.Session != "" {
+				return bad
+			}
 		case "queued", "running", "succeeded", "failed", "cancelled", "unknown":
 		default:
 			return bad
