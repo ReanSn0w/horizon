@@ -11,6 +11,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/ReanSn0w/horizon/internal/turninput"
 )
 
 type LockedSession struct {
@@ -212,7 +214,17 @@ func (locked *LockedSession) AppendAPIItems(turnID string, items []json.RawMessa
 	if err != nil {
 		return err
 	}
+	if len(items) == 0 {
+		return nil
+	}
+	if len(turn.APIBatchEnds) == 0 {
+		// A pre-existing journal did not record response boundaries.
+		for index := range turn.APIItems {
+			turn.APIBatchEnds = append(turn.APIBatchEnds, index+1)
+		}
+	}
 	turn.APIItems = append(turn.APIItems, cloneRawMessages(items)...)
+	turn.APIBatchEnds = append(turn.APIBatchEnds, len(turn.APIItems))
 	return locked.Save(value)
 }
 
@@ -226,6 +238,48 @@ func (locked *LockedSession) AppendMessage(turnID, role, text string) error {
 	}
 	turn.Messages = append(turn.Messages, Message{Role: role, Text: text})
 	return locked.Save(value)
+}
+
+// FindInbound checks the full journal, including previous failed turns. A
+// message persisted before an interrupted acknowledgment keeps its original turn.
+func (s *Session) FindInbound(in turninput.Message) (string, error) {
+	for _, turn := range s.Turns {
+		for _, message := range turn.Messages {
+			stored := message.Inbound
+			if stored == nil || stored.ID != in.ID {
+				continue
+			}
+			if stored.Sequence != in.Sequence || stored.Source != in.Source || stored.Route != in.Route ||
+				stored.Author != in.Author || message.Text != in.Text {
+				return "", errors.New("inbound message ID has different contents")
+			}
+			return turn.ID, nil
+		}
+	}
+	return "", nil
+}
+
+// RecordInbound writes the message under the existing session lock before its
+// receipt is acknowledged. On a retry it returns the already recorded turn.
+func (locked *LockedSession) RecordInbound(turnID string, in turninput.Message) (includedTurn string, added bool, err error) {
+	value, turn, err := locked.activeTurn(turnID)
+	if err != nil {
+		return "", false, err
+	}
+	prior, err := value.FindInbound(in)
+	if err != nil || prior != "" {
+		return prior, false, err
+	}
+	metadata := &InboundMessage{ID: in.ID, Sequence: in.Sequence, Source: in.Source, Route: in.Route, Author: in.Author,
+		AfterAPIItems: len(turn.APIItems), AfterToolCalls: len(turn.ToolCalls)}
+	if value.Title == "Новый диалог" && len(value.Turns) == 1 && len(turn.Messages) == 0 {
+		value.Title = InitialTitle(in.Text)
+	}
+	turn.Messages = append(turn.Messages, Message{Role: "user", Text: in.Text, Inbound: metadata})
+	if err := locked.Save(value); err != nil {
+		return "", false, err
+	}
+	return turnID, true, nil
 }
 
 func (locked *LockedSession) RecordCompaction(compact Compaction) error {
@@ -292,7 +346,9 @@ func (locked *LockedSession) CompleteTurnWithCompactionAndUsage(turnID string, s
 			copy := *compact
 			copy.BoundaryTurnID = turnID
 			copy.CreatedAt = completedAt
-			copy.Items = cloneRawMessages(compact.Items)
+			// The compacted window keeps growing during the turn. Save the final
+			// window so later inputs and outputs survive continuation and forks.
+			copy.Items = cloneRawMessages(contextItems)
 			value.Compactions = append(value.Compactions, copy)
 		}
 	} else if compact != nil {
