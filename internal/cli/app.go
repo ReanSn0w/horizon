@@ -114,7 +114,7 @@ func (a *App) Run(args []string) int {
 			return a.runAdapterAdmin(home, args[index+1:])
 		}
 		if parser.Find(name) == nil {
-			if name != "manager" {
+			if name != "manager" && !(name == "telegram" && index+1 < len(args) && args[index+1] == "migrate") {
 				release, err := maintenance.Acquire(home, false)
 				if err != nil {
 					fmt.Fprintln(a.errOut, err)

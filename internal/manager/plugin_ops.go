@@ -124,16 +124,16 @@ func disablePlugin(home, name string) error {
 	}
 	_, err := config.UpdateDocument(home, func(doc *yaml.Node) (bool, error) {
 		root := doc.Content[0]
+		changed := false
 		for i := 0; i+1 < len(root.Content); i += 2 {
-			if root.Content[i].Value != "agent_plugins" {
+			if root.Content[i].Value != "agent_plugins" && root.Content[i].Value != "agent_communication" {
 				continue
 			}
 			node := root.Content[i+1]
 			if node.Kind != yaml.SequenceNode {
-				return false, fmt.Errorf("agent_plugins must be a sequence")
+				return false, fmt.Errorf("%s must be a sequence", root.Content[i].Value)
 			}
 			kept := node.Content[:0]
-			changed := false
 			for _, item := range node.Content {
 				if item.Value == name {
 					changed = true
@@ -142,9 +142,8 @@ func disablePlugin(home, name string) error {
 				}
 			}
 			node.Content = kept
-			return changed, nil
 		}
-		return false, nil
+		return changed, nil
 	})
 	return err
 }

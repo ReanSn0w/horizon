@@ -21,18 +21,19 @@ const (
 )
 
 type Config struct {
-	Installation   *Installation
-	AgentPlugins   []string
-	Plugins        map[string]yaml.Node
-	DisabledSkills []string
-	SoulEnabled    bool
-	Mode           string
-	DefaultModel   string
-	Models         map[string]Model
-	Providers      map[string]Provider
-	DecisionModel  string
-	Memory         Memory
-	Limits         Limits
+	Installation       *Installation
+	AgentCommunication []string
+	AgentPlugins       []string
+	Plugins            map[string]yaml.Node
+	DisabledSkills     []string
+	SoulEnabled        bool
+	Mode               string
+	DefaultModel       string
+	Models             map[string]Model
+	Providers          map[string]Provider
+	DecisionModel      string
+	Memory             Memory
+	Limits             Limits
 }
 
 type Model struct {
@@ -69,18 +70,19 @@ type Limits struct {
 }
 
 type rawConfig struct {
-	Installation   *Installation        `yaml:"installation"`
-	AgentPlugins   []string             `yaml:"agent_plugins"`
-	Plugins        map[string]yaml.Node `yaml:"plugins"`
-	DisabledSkills disabledIDs          `yaml:"disabled_skills"`
-	SoulEnabled    bool                 `yaml:"soul_enabled"`
-	Mode           string               `yaml:"mode"`
-	DefaultModel   string               `yaml:"default_model"`
-	Models         map[string]rawModel  `yaml:"models"`
-	Providers      map[string]Provider  `yaml:"providers"`
-	DecisionModel  string               `yaml:"decision_model"`
-	Memory         rawMemoryNode        `yaml:"memory"`
-	Limits         rawLimits            `yaml:"limits"`
+	Installation       *Installation        `yaml:"installation"`
+	AgentCommunication []string             `yaml:"agent_communication"`
+	AgentPlugins       []string             `yaml:"agent_plugins"`
+	Plugins            map[string]yaml.Node `yaml:"plugins"`
+	DisabledSkills     disabledIDs          `yaml:"disabled_skills"`
+	SoulEnabled        bool                 `yaml:"soul_enabled"`
+	Mode               string               `yaml:"mode"`
+	DefaultModel       string               `yaml:"default_model"`
+	Models             map[string]rawModel  `yaml:"models"`
+	Providers          map[string]Provider  `yaml:"providers"`
+	DecisionModel      string               `yaml:"decision_model"`
+	Memory             rawMemoryNode        `yaml:"memory"`
+	Limits             rawLimits            `yaml:"limits"`
 }
 
 type rawMemory struct {
@@ -170,6 +172,13 @@ func validate(raw rawConfig) (Config, error) {
 		seen[name] = true
 		legacyMemoryEnabled = legacyMemoryEnabled || name == "memory"
 	}
+	granted := map[string]bool{}
+	for _, name := range raw.AgentCommunication {
+		if name == "memory" || !seen[name] || granted[name] {
+			return Config{}, errors.New("agent_communication requires unique names enabled in agent_plugins")
+		}
+		granted[name] = true
+	}
 	if raw.Mode != "unit" {
 		if raw.Mode == "server" {
 			return Config{}, errors.New("configuration mode server is not implemented")
@@ -250,18 +259,19 @@ func validate(raw rawConfig) (Config, error) {
 		return Config{}, err
 	}
 	return Config{
-		Installation:   raw.Installation,
-		Plugins:        raw.Plugins,
-		AgentPlugins:   agentPlugins,
-		DisabledSkills: append([]string(nil), raw.DisabledSkills...),
-		SoulEnabled:    raw.SoulEnabled,
-		Mode:           raw.Mode,
-		DefaultModel:   raw.DefaultModel,
-		Models:         models,
-		Providers:      raw.Providers,
-		DecisionModel:  raw.DecisionModel,
-		Memory:         memory,
-		Limits:         limits,
+		Installation:       raw.Installation,
+		Plugins:            raw.Plugins,
+		AgentPlugins:       agentPlugins,
+		AgentCommunication: raw.AgentCommunication,
+		DisabledSkills:     append([]string(nil), raw.DisabledSkills...),
+		SoulEnabled:        raw.SoulEnabled,
+		Mode:               raw.Mode,
+		DefaultModel:       raw.DefaultModel,
+		Models:             models,
+		Providers:          raw.Providers,
+		DecisionModel:      raw.DecisionModel,
+		Memory:             memory,
+		Limits:             limits,
 	}, nil
 }
 

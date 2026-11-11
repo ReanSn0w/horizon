@@ -70,6 +70,7 @@ type Task struct {
 	InputResolved   bool          `json:"input_resolved,omitempty"`
 	InputIDs        []string      `json:"input_ids,omitempty"`
 	DispatchOrder   uint64        `json:"dispatch_order,omitempty"`
+	IdleCompact     bool          `json:"idle_compact,omitempty"`
 	inputCredential string
 }
 type Event struct {
@@ -315,6 +316,8 @@ func (q *Queue) Handle(ctx context.Context, r Request) (any, error) {
 	switch r.Method {
 	case "list", "read", "lookup":
 		return q.read(r)
+	case "list_running":
+		return q.runningDialogs(r)
 	case "input_next", "input_close", "input_ack":
 		return q.handleTurnInput(r)
 	}
@@ -339,7 +342,7 @@ func (q *Queue) Handle(ctx context.Context, r Request) (any, error) {
 		return nil, fail("invalid_request", "active delivery requires adapter submit")
 	}
 	switch r.Method {
-	case "submit", "send", "cancel", "ack", "resolve_input":
+	case "submit", "send", "cancel", "ack", "resolve_input", "idle_compact", "idle_cancel":
 	default:
 		return nil, fail("unknown_method", "unsupported method")
 	}
@@ -362,6 +365,9 @@ func (q *Queue) Handle(ctx context.Context, r Request) (any, error) {
 	if r.Delivery == ActiveDelivery {
 		return q.acceptActiveInput(r, key, digest)
 	}
+	if r.Method == "idle_compact" {
+		return q.submitIdle(r, key, digest)
+	}
 	var target *Task
 	if r.Method != "submit" {
 		target = q.state.Tasks[r.TaskID]
@@ -371,6 +377,9 @@ func (q *Queue) Handle(ctx context.Context, r Request) (any, error) {
 		if target.isTimer() && r.Method == "send" {
 			return nil, fail("invalid_request", "timer runs always use a fresh session")
 		}
+	}
+	if r.Method == "idle_cancel" {
+		return q.cancelIdle(r, target, key, digest)
 	}
 	if r.Method == "resolve_input" {
 		return q.resolveActiveInput(target, key, digest)
@@ -580,7 +589,7 @@ func (q *Queue) Run(ctx context.Context) error {
 		lastDispatch := make(map[string]uint64)
 		var tasks []*Task
 		for _, t := range q.state.Tasks {
-			if t.State == "unknown" && !t.InputResolved {
+			if t.State == "unknown" && !t.InputResolved && !t.IdleCompact {
 				blockedChildren[t.Child] = true
 			}
 			if dialog := t.dialogKey(); dialog != "" && t.DispatchOrder > lastDispatch[dialog] {

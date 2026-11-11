@@ -38,7 +38,7 @@ func (t *Task) validTimerFields() bool {
 		return t.SourceKey == "" && t.Deadline == nil
 	}
 	return t.isTimer() && t.Child == t.ID && t.Parent == "" && t.Depth == 1 &&
-		timerSourceKey.MatchString(t.SourceKey) && t.Route == "" && !t.Channel && !t.ActiveInput &&
+		timerSourceKey.MatchString(t.SourceKey) && t.Route == "" && !t.Channel && !t.ActiveInput && !t.IdleCompact &&
 		(t.Deadline == nil || !t.Deadline.IsZero())
 }
 

@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/ReanSn0w/horizon/internal/plugins"
 	"io"
 	"os"
 	"os/exec"
@@ -181,7 +182,7 @@ func overrideShellEnvironment(base []string, values map[string]string) []string 
 	result := make([]string, 0, len(base)+len(values))
 	for _, item := range base {
 		name, _, ok := strings.Cut(item, "=")
-		if !ok || name == "HORIZON_INHERITED_ACCESS" {
+		if !ok || name == "HORIZON_INHERITED_ACCESS" || name == plugins.TurnChannelEnvironment {
 			continue
 		}
 		if _, replaced := values[name]; !replaced {

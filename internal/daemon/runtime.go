@@ -6,6 +6,7 @@ import (
 	"errors"
 	"github.com/ReanSn0w/horizon/internal/config"
 	"gopkg.in/yaml.v3"
+	"os"
 )
 
 func LoadSettings(home string) (Settings, error) {
@@ -34,6 +35,11 @@ func Start(ctx context.Context, home string) error {
 	}
 	var queueErr error
 	err = serve(ctx, home, nil, func(ctx context.Context) (Handler, func(), error) {
+		if _, e := os.Lstat(MigrationBarrier(home)); e == nil {
+			return nil, nil, errors.New("an offline adapter migration is unfinished; finish migration before starting daemon")
+		} else if !os.IsNotExist(e) {
+			return nil, nil, e
+		}
 		q, e := OpenQueue(home, settings, HorizonRunner(home))
 		if e != nil {
 			return nil, nil, e
