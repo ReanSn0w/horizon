@@ -111,7 +111,7 @@ func (a *App) Run(args []string) int {
 		}
 		name := args[index]
 		if parser.Find(name) == nil {
-			if name != "manager" {
+			if name != "manager" && !(name == "telegram" && index+1 < len(args) && args[index+1] == "migrate") {
 				release, err := maintenance.Acquire(home, false)
 				if err != nil {
 					fmt.Fprintln(a.errOut, err)

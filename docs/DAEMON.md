@@ -4,7 +4,6 @@
 `status` performs a handshake; `stop` requests shutdown. Installation does not
 start services. Stop the daemon before manager updates: the shared maintenance
 lock protects its running binary set, and exclusive maintenance fails promptly.
-The existing `horizon telegram` remains independent until its separate migration.
 
 The endpoint is `<home>/run/daemon.sock` (0600), protected by a persistent
 `daemon.lock` flock in the same private directory (0700). A stale socket may
@@ -166,3 +165,27 @@ Source remains `plugins/<directory>/plugin.json`. Install/remove use
 `plugins.agent-NAME`; enabling is explicit via `plugins.daemon.adapters: [NAME]`.
 Removal disables that adapter while preserving settings and data. Manager stages
 and validates both kinds before replacement; transaction rollback covers both.
+
+
+## Telegram adapter
+
+Install `telegram` and `agent:telegram` with manager. Enable `telegram` in
+`plugins.daemon.adapters`, `agent_plugins`, and `agent_communication`. The
+adapter submits active input with `channel: true` and a stable chat route.
+Daemon forwards that route only to the selected extension of the turn. The
+adapter advances Telegram offset once daemon confirms storage. Turn completion
+does not send text or require an `ack`. For delivery confirmation inspect the
+extension's operation journal.
+
+`list_running` exposes running dialog summaries to the registered adapter for
+its own source. `idle_compact` queues maintenance for an idle existing route
+and session under the same scheduler. It skips small or already compacted
+checkpoints. New durable input cancels maintenance before the next turn can
+start. `idle_cancel` cancels a single maintenance task and preserves ordinary
+queued turns. Restart records interrupted maintenance as unknown without
+blocking later dialog input.
+
+Offline migration imports existing dialog bindings and queued or unknown
+legacy jobs. While the import barrier exists daemon refuses startup. See the
+[Telegram migration instructions](../plugins/telegram/README.md#миграция-прежнего-telegram)
+for backup, restart and recovery.

@@ -25,7 +25,7 @@ func TestBuiltManagerDelegationWithoutModelConfiguration(t *testing.T) {
 		t.Fatal("help created config")
 	}
 	os.Mkdir(filepath.Join(home, ".manager"), 0700)
-	for _, name := range []string{"manager", "browser", "agent"} {
+	for _, name := range []string{"manager", "browser", "telegram", "agent-telegram"} {
 		dir := filepath.Join(home, "source/plugins", name)
 		os.MkdirAll(dir, 0700)
 		data, err := os.ReadFile("../../plugins/" + name + "/plugin.json")

@@ -140,7 +140,7 @@ func (command *resumeCommand) Execute(args []string) error {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), signals...)
 	defer stop()
-	snapshot, extensions, memoryService, err := command.app.buildPluginInstructions(ctx, home, workspace, cfg, access, true)
+	snapshot, extensions, memoryService, err := command.app.buildPluginInstructions(ctx, home, workspace, cfg, access, true, value.SessionID)
 	if err != nil {
 		return failure(err.Error(), err)
 	}
@@ -336,7 +336,7 @@ func (command *sessionsCompactCommand) Execute(args []string) error {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
-	snapshot, _, _, err := command.app.buildPluginInstructions(ctx, home, workspace, cfg, "read", false)
+	snapshot, _, _, err := command.app.buildPluginInstructions(ctx, home, workspace, cfg, "read", false, value.SessionID)
 	if err != nil {
 		return failure(err.Error(), err)
 	}
@@ -422,7 +422,7 @@ func buildInstructions(home, workspace string, cfg config.Config) (*instructions
 	return instructions.Build(home, workspace, agent.Introduction, instructions.Options{DisabledSkills: cfg.DisabledSkills, SoulEnabled: cfg.SoulEnabled})
 }
 
-func (a *App) buildPluginInstructions(ctx context.Context, home string, workspace session.Workspace, cfg config.Config, access string, maintain bool) (*instructions.Snapshot, []plugins.Extension, *memory.Service, error) {
+func (a *App) buildPluginInstructions(ctx context.Context, home string, workspace session.Workspace, cfg config.Config, access string, maintain bool, sessionID string) (*instructions.Snapshot, []plugins.Extension, *memory.Service, error) {
 	var memoryService *memory.Service
 	blocks := make([]instructions.Extension, 0, len(cfg.AgentPlugins)+1)
 	if cfg.Memory.Enabled {
@@ -446,7 +446,16 @@ func (a *App) buildPluginInstructions(ctx context.Context, home string, workspac
 		}
 		blocks = append(blocks, instructions.Extension{Name: "memory", Instructions: memory.Instructions, Data: converted})
 	}
-	extensions, err := plugins.Prepare(ctx, home, workspace, access, cfg.AgentPlugins, maintain, func(message string) { fmt.Fprintln(a.errOut, message) })
+	policy := plugins.TurnPolicy{SessionID: sessionID}
+	if maintain {
+		var err error
+		policy.Channel, err = plugins.ReadTurnChannel()
+		policy.Communication = cfg.AgentCommunication
+		if err != nil {
+			return nil, nil, nil, err
+		}
+	}
+	extensions, err := plugins.PrepareForTurn(ctx, home, workspace, access, cfg.AgentPlugins, maintain, func(message string) { fmt.Fprintln(a.errOut, message) }, policy)
 	if err != nil {
 		return nil, nil, nil, err
 	}

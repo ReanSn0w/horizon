@@ -27,11 +27,11 @@ func (e *Executor) SetExtensions(sessionID string, extensions []plugins.Extensio
 					return nil
 				},
 				handler: func(ctx context.Context, args json.RawMessage, env environment) outcome {
-					if !plugins.Allowed(env.access, tool.Effect) {
-						return outcome{Error: &ToolError{Code: "access_denied", Message: "plugin operation denied before launch in access " + env.access}}
-					}
 					request := extension.Request
 					request.Access = env.access
+					if !plugins.ToolAllowed(request, tool.Effect) {
+						return outcome{Error: &ToolError{Code: "access_denied", Message: "plugin operation denied before launch in access " + env.access}}
+					}
 					request.SessionID = sessionID
 					request.TurnID = e.turnID
 					request.CallID = env.callID
@@ -45,6 +45,9 @@ func (e *Executor) SetExtensions(sessionID string, extensions []plugins.Extensio
 							result.Error = &ToolError{Code: failure.Code, Message: failure.Message}
 						} else {
 							result.Error = &ToolError{Code: "plugin_outcome_unknown", Message: err.Error()}
+						}
+						if tool.Effect == plugins.CommunicationEffect {
+							result.Error.Details = map[string]any{"operation_id": request.OperationID}
 						}
 					} else {
 						result.Data = reply.Data

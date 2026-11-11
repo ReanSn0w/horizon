@@ -51,10 +51,16 @@ func (q *Queue) acceptActiveInput(r Request, key, digest string) (*Task, error) 
 	}
 	source := owner(r.Caller)
 	var root, queued, running *Task
-	var finished []*Task
+	var finished, idle []*Task
 	pending := 0
 	for _, task := range q.state.Tasks {
-		if !task.ActiveInput || task.Owner != source || task.Route != r.Route {
+		if task.Owner != source || task.Route != r.Route {
+			continue
+		}
+		if task.IdleCompact && (task.State == "queued" || task.State == "running") {
+			idle = append(idle, task)
+		}
+		if !task.ActiveInput {
 			continue
 		}
 		if task.Workspace != r.Caller.Workspace || task.Channel != r.Channel {
@@ -97,11 +103,14 @@ func (q *Queue) acceptActiveInput(r Request, key, digest string) (*Task, error) 
 	if target == nil {
 		target = running
 	}
-	if target == nil && q.queueFull() {
+	if target == nil && len(idle) == 0 && q.queueFull() {
 		return nil, fail("queue_full", "pending queue limit reached")
 	}
 	var operation Operation
 	err := q.transaction(func() error {
+		for _, task := range idle {
+			q.cancelIdleTask(task)
+		}
 		if target == nil {
 			target = q.newActiveTask(source, r.Caller.Workspace, access, r.Route, r.Channel, root)
 		}
@@ -119,6 +128,9 @@ func (q *Queue) acceptActiveInput(r Request, key, digest string) (*Task, error) 
 	})
 	if err != nil {
 		return nil, err
+	}
+	for _, task := range idle {
+		q.stopIdleProcess(task)
 	}
 	return q.operationResult(operation), nil
 }
