@@ -403,6 +403,16 @@ Unix-сокет одного home. Адаптеры `agent-*` обнаружив
 `horizon daemon start`. Перед обновлением остановите его через
 `horizon daemon stop`. Подробности и ограничения — [Daemon](docs/DAEMON.md).
 
+## Таймеры
+
+Установите `horizon manager plugins install agent:timer` и добавьте `timer` в
+`plugins.daemon.adapters`. Запустите daemon и поместите Markdown-расписания в
+`<home>/timers/`. Используйте `horizon agent timer validate [timer-id]` для
+проверки файлов и `horizon agent timer status [timer-id]` для проверки запусков.
+Поручения выполняются в новых сессиях, состояние между запусками можно хранить
+в workspace. Формат расписания, окна и восстановление описаны в
+[README Timer](plugins/agent-timer/README.md).
+
 ## Subagent
 
 Install with `horizon manager plugins install subagent`, start daemon explicitly,

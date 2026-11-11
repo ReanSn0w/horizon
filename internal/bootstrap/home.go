@@ -15,7 +15,7 @@ type Result struct {
 // Ensure creates missing initialization resources without replacing user files.
 func Ensure(home string) (Result, error) {
 	var result Result
-	for _, dir := range []string{home, filepath.Join(home, "dialogs"), filepath.Join(home, "bin"), filepath.Join(home, "memory", "workspaces"), filepath.Join(home, ".manager"), filepath.Join(home, "skills", "skill-creator"), filepath.Join(home, "skills", "filesystem")} {
+	for _, dir := range []string{home, filepath.Join(home, "dialogs"), filepath.Join(home, "bin"), filepath.Join(home, "memory", "workspaces"), filepath.Join(home, ".manager"), filepath.Join(home, "skills", "skill-creator"), filepath.Join(home, "skills", "filesystem"), filepath.Join(home, "skills", "timers")} {
 		if err := os.MkdirAll(dir, 0700); err != nil {
 			return result, fmt.Errorf("initialize directory %q: %w", dir, err)
 		}
@@ -31,7 +31,10 @@ func Ensure(home string) (Result, error) {
 	if _, err := install(filepath.Join(home, "skills", "skill-creator", "SKILL.md"), skillTemplate); err != nil {
 		return result, err
 	}
-	_, err = install(filepath.Join(home, "skills", "filesystem", "SKILL.md"), filesystemSkillTemplate)
+	if _, err := install(filepath.Join(home, "skills", "filesystem", "SKILL.md"), filesystemSkillTemplate); err != nil {
+		return result, err
+	}
+	_, err = install(filepath.Join(home, "skills", "timers", "SKILL.md"), timerSkillTemplate)
 	return result, err
 }
 

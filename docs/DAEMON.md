@@ -106,3 +106,22 @@ Source remains `plugins/<directory>/plugin.json`. Install/remove use
 `plugins.agent-NAME`; enabling is explicit via `plugins.daemon.adapters: [NAME]`.
 Removal disables that adapter while preserving settings and data. Manager stages
 and validates both kinds before replacement; transaction rollback covers both.
+
+## Timer adapter
+
+`agent-timer` uses `submit` with `mode: "fresh"`, `source_key` set to the timer
+ID and optional RFC 3339 `deadline`. The adapter supplies the normalized
+workspace as caller workspace, the chosen run access and the Markdown message.
+A fresh submission from the timer source has no parent session, prior child,
+dialog route or active-turn input. Its operation ID is derived from timer ID and
+scheduled instant. Queued and active tasks count against daemon capacity.
+Historical fresh children do not count against `max_children`. There is at most
+one queued or active task for each timer ID, and timer tasks in the same
+workspace run in sequence. Subagent execution remains available while a timer
+turn runs.
+
+A deadline is exclusive. An expired queued task becomes `skipped` without
+creating a session or contacting the model. `cancel` with `queued_only: true`
+can cancel one queued timer task. If dispatch acquires the queue lock first,
+cancellation leaves the running task and its message intact. Timer records
+and recovery are documented in [Timer](../plugins/agent-timer/README.md).

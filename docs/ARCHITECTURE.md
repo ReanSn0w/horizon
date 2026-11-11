@@ -92,6 +92,15 @@ Unix-сокет одного home. Адаптеры `agent-*` обнаружив
 `horizon daemon start`. Перед обновлением остановите его через
 `horizon daemon stop`. Подробности и ограничения — [Daemon](DAEMON.md).
 
+## Таймеры
+
+`plugins/agent-timer` запускается как адаптер daemon и как административная
+команда через `horizon agent timer`. `internal/timer` разбирает файлы, вычисляет
+слоты и хранит учёт отправок. Ядро CLI передаёт аргументы адаптеру. Daemon владеет
+очередью, ограничениями исполнения и созданием сессий. Каждый таймерный ход
+получает новую сессию и использует переданный workspace. Контракт файла и
+служебные команды описаны в [README Timer](../plugins/agent-timer/README.md).
+
 ## Subagent
 
 Install with `horizon manager plugins install subagent`, start daemon explicitly,

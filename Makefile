@@ -8,7 +8,7 @@ PLUGINS ?= manager
 PLUGIN_NAMES := $(filter-out agent,$(notdir $(patsubst %/main.go,%,$(wildcard plugins/*/main.go)))) telegram
 PLUGIN_TARGETS := $(addprefix install-plugin-,$(PLUGIN_NAMES))
 
-.PHONY: help install install-all install-plugins install-telegram install-browser install-daemon install-subagent $(PLUGIN_TARGETS)
+.PHONY: help install install-all install-plugins install-telegram install-browser install-daemon install-subagent install-agent-timer $(PLUGIN_TARGETS)
 
 help:
 	@printf '%s\n' \
@@ -16,6 +16,7 @@ help:
 	  'make install                 Install Horizon into HORIZON_HOME/bin' \
 	  'make install-plugins         Install selected plugins into HORIZON_HOME/bin' \
 	  'make install-telegram        Install the Telegram integration plugin' \
+	  'make install-agent-timer     Install the Markdown timer adapter' \
 	  'make install-daemon          Install the local supervisor' \
 	  'make install-browser         Install the Browser Use plugin' \
 	  'make install-all             Install Horizon and selected plugins' \
@@ -39,17 +40,19 @@ install-telegram: install-plugin-telegram
 install-browser: install-plugin-browser
 install-daemon: install-plugin-daemon
 install-subagent: install-plugin-subagent
+install-agent-timer: install-plugin-agent-timer
 # Build beside the destination and replace only after a successful build.
 $(PLUGIN_TARGETS): install-plugin-%:
 	@set -eu; \
 	  umask 077; \
 	  mkdir -p "$(HORIZON_HOME)/bin"; \
-	  temporary=$$(mktemp "$(HORIZON_HOME)/bin/.horizon-$*.XXXXXX"); \
+	  binary="$(if $(filter agent-%,$*),$*,horizon-$*)"; \
+	  temporary=$$(mktemp "$(HORIZON_HOME)/bin/.$$binary.XXXXXX"); \
 	  trap 'rm -f "$$temporary"' EXIT HUP INT TERM; \
 	  $(GO) build -o "$$temporary" "$(if $(filter telegram,$*),./plugins/agent,./plugins/$*)"; \
 	  chmod 700 "$$temporary"; \
-	  mv -f "$$temporary" "$(HORIZON_HOME)/bin/horizon-$*"; \
-	  printf 'Installed %s\n' "$(HORIZON_HOME)/bin/horizon-$*"
+	  mv -f "$$temporary" "$(HORIZON_HOME)/bin/$$binary"; \
+	  printf 'Installed %s\n' "$(HORIZON_HOME)/bin/$$binary"
 
 .PHONY: build-manager
 build-manager:
