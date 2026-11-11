@@ -113,6 +113,9 @@ func operate(ctx context.Context, op string, r plugins.Request) (any, error) {
 			if plugins.Decode(r.Arguments, &arg) != nil {
 				return nil, errors.New("send_message expects only text")
 			}
+			if err := telegram.MarkUse(r.Home); err != nil {
+				return nil, err
+			}
 			return store.Send(ctx, telegram.New(bot.Token).Send, chat, r.SessionID, r.OperationID, arg.Text)
 		case "read_send":
 			var arg struct {

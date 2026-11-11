@@ -11,8 +11,10 @@ import (
 
 // Workspace preserves the original per-chat path across supergroup migrations.
 func Workspace(base string, botID int64, chat Conversation) (string, error) {
-	if err := os.MkdirAll(base, 0700); err != nil {
-		return "", err
+	if chat.Workspace == "" {
+		if err := os.MkdirAll(base, 0700); err != nil {
+			return "", err
+		}
 	}
 	base, err := filepath.EvalSymlinks(base)
 	if err != nil {

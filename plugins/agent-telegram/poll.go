@@ -59,6 +59,9 @@ func start(ctx context.Context) error {
 		return errors.New("Telegram polling lock is busy; stop the previous Telegram service")
 	}
 	defer release()
+	if err := telegram.MarkUse(home); err != nil {
+		return err
+	}
 	client := telegram.New(bot.Token)
 	me, err := client.Identity(ctx)
 	if err != nil || me.ID != bot.BotID() {

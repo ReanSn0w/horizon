@@ -38,6 +38,27 @@ func run(ctx context.Context, args []string, in io.Reader, out, diag io.Writer) 
 		fmt.Fprintln(diag, "Telegram polling now runs under horizon daemon. Use horizon telegram migrate --check for an existing installation.")
 		return 2
 	}
+	if args[0] == "migrate" {
+		if len(args) != 2 {
+			fmt.Fprintln(diag, "Usage: horizon telegram migrate --check|--apply|--rollback")
+			return 2
+		}
+		home, err := config.ResolveHome("")
+		if err != nil {
+			fmt.Fprintln(diag, "telegram: invalid home")
+			return 2
+		}
+		report, err := telegram.Migrate(ctx, home, args[1])
+		if err != nil {
+			fmt.Fprintln(diag, "telegram:", err)
+			return 1
+		}
+		fmt.Fprintf(out, "Migration %s. Chats %d, queued %d, unknown %d, archived %d.\nBackup: %s\n", report.State, report.Chats, report.Queued, report.Unknown, report.Archived, report.Backup)
+		if report.LegacyService {
+			fmt.Fprintln(out, "Legacy service registration found. Disable its auto-start before running horizon daemon start.")
+		}
+		return 0
+	}
 	op, agent := strings.CutPrefix(args[0], "horizon-plugin-agent-")
 	if agent || args[0] == "list" || args[0] == "read" {
 		home, err := config.ResolveHome("")
