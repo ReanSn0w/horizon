@@ -3,17 +3,21 @@ package timer
 import (
 	"bytes"
 	"errors"
+	"time"
 
 	"github.com/ReanSn0w/horizon/internal/config"
 	"gopkg.in/yaml.v3"
 )
 
+const defaultReload = 30 * time.Second
+
 type Settings struct {
-	Access string
+	Access         string
+	ReloadInterval time.Duration
 }
 
 func ConfigTemplate() map[string]any {
-	return map[string]any{"access": "write"}
+	return map[string]any{"access": "write", "reload_interval": defaultReload.String()}
 }
 
 func LoadSettings(home string) (Settings, error) {
@@ -23,7 +27,8 @@ func LoadSettings(home string) (Settings, error) {
 	}
 	raw := struct {
 		Access string `yaml:"access"`
-	}{Access: "write"}
+		Reload string `yaml:"reload_interval"`
+	}{Access: "write", Reload: defaultReload.String()}
 	if node, ok := cfg.Plugins["agent-timer"]; ok {
 		b, err := yaml.Marshal(node)
 		if err != nil {
@@ -38,7 +43,11 @@ func LoadSettings(home string) (Settings, error) {
 	if accessLevel(raw.Access) == 0 {
 		return Settings{}, errors.New("plugins.agent-timer.access must be read, write or full")
 	}
-	return Settings{Access: raw.Access}, nil
+	reload, err := time.ParseDuration(raw.Reload)
+	if err != nil || reload < time.Second {
+		return Settings{}, errors.New("plugins.agent-timer.reload_interval must be a Go duration of at least 1s")
+	}
+	return Settings{Access: raw.Access, ReloadInterval: reload}, nil
 }
 
 func accessLevel(value string) int {

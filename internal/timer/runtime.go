@@ -7,11 +7,13 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"path/filepath"
 	"slices"
 	"strings"
 	"time"
 
 	"github.com/ReanSn0w/horizon/internal/daemon"
+	"github.com/ReanSn0w/horizon/internal/maintenance"
 )
 
 const (
@@ -26,15 +28,18 @@ type plannedTimer struct {
 }
 
 type runtime struct {
-	home     string
-	caller   daemon.Caller
-	settings Settings
-	now      func() time.Time
-	call     func(context.Context, string, daemon.Request) (daemon.Response, error)
-	store    stateStore
-	log      *log.Logger
-	timers   map[string]*plannedTimer
-	lastTick time.Time
+	home          string
+	caller        daemon.Caller
+	settings      Settings
+	now           func() time.Time
+	call          func(context.Context, string, daemon.Request) (daemon.Response, error)
+	store         stateStore
+	log           *log.Logger
+	timers        map[string]*plannedTimer
+	lastTick      time.Time
+	lastReload    time.Time
+	catalogReady  bool
+	catalogErrors map[string]string
 }
 
 func Run(ctx context.Context, home, credential, inherited string, settings Settings, out io.Writer) error {
@@ -55,11 +60,19 @@ func Run(ctx context.Context, home, credential, inherited string, settings Setti
 	if _, err := r.request(ctx, daemon.Request{Method: "list"}); err != nil {
 		return err
 	}
+	if err := r.store.ensureDirectory(); err != nil {
+		return err
+	}
+	release, err := maintenance.Lock(filepath.Join(r.store.directory(), "scheduler.lock"), true)
+	if err != nil {
+		return fmt.Errorf("timer scheduler lock: %w", err)
+	}
+	defer release()
 	if _, err := r.store.read(); err != nil {
 		return err
 	}
 	now := r.now().Round(0)
-	r.loadInitial(now)
+	r.reload(now)
 	r.lastTick = now
 	tick := time.NewTicker(tickInterval)
 	defer tick.Stop()
@@ -73,30 +86,53 @@ func Run(ctx context.Context, home, credential, inherited string, settings Setti
 	}
 }
 
-func (r *runtime) loadInitial(now time.Time) {
+func (r *runtime) reload(now time.Time) {
+	r.lastReload = now
+	problems := map[string]string{}
+	defer func() {
+		for _, id := range sortedIDs(problems) {
+			if r.catalogErrors[id] != problems[id] {
+				r.log.Printf("%s: %s", id, problems[id])
+			}
+		}
+		r.catalogErrors = problems
+	}()
 	files, err := LoadCatalog(r.home)
 	if err != nil {
-		r.log.Print(err)
+		r.catalogReady = false
+		problems["timer catalog"] = err.Error()
 		return
 	}
+	next := map[string]*plannedTimer{}
 	for _, file := range files {
+		def := file.Definition
 		if file.Err != nil {
-			r.log.Printf("%s: %v", file.ID, file.Err)
+			problems[file.ID] = file.Err.Error()
 			continue
 		}
-		if !file.Definition.Enabled {
+		if !def.Enabled {
 			continue
 		}
-		schedule, err := Compile(file.Definition.Schedule)
+		current := r.timers[file.ID]
+		if r.catalogReady && current != nil && current.definition.Revision == def.Revision &&
+			current.definition.Workspace == def.Workspace && !current.next.At.IsZero() {
+			next[file.ID] = current
+			continue
+		}
+		schedule, err := Compile(def.Schedule)
+		if err == nil {
+			var slot Slot
+			slot, err = schedule.Next(now)
+			if err == nil {
+				next[file.ID] = &plannedTimer{definition: def, schedule: schedule, next: slot}
+			}
+		}
 		if err != nil {
-			r.log.Printf("%s: %v", file.ID, err)
-			continue
-		}
-		planned := &plannedTimer{definition: file.Definition, schedule: schedule}
-		if r.advance(planned, now) {
-			r.timers[file.ID] = planned
+			problems[file.ID] = err.Error()
 		}
 	}
+	r.catalogReady = true
+	r.timers = next
 }
 
 func (r *runtime) advance(planned *plannedTimer, after time.Time) bool {
@@ -114,6 +150,9 @@ func (r *runtime) tick(ctx context.Context) {
 	now := r.now().Round(0)
 	jumped := now.Before(r.lastTick) || now.Sub(r.lastTick) > slotTolerance
 	r.lastTick = now
+	if r.lastReload.IsZero() || now.Before(r.lastReload) || now.Sub(r.lastReload) >= r.settings.ReloadInterval {
+		r.reload(now)
+	}
 	records, err := r.store.read()
 	if err != nil {
 		r.log.Print(err)
@@ -126,6 +165,9 @@ func (r *runtime) tick(ctx context.Context) {
 		if p := records[id].Pending; p != nil && p.TaskState != "unknown" {
 			r.reconcile(ctx, id, *p)
 		}
+	}
+	if !r.catalogReady {
+		return
 	}
 	for _, id := range sortedIDs(r.timers) {
 		if ctx.Err() != nil {
@@ -278,7 +320,31 @@ func (r *runtime) reconcile(ctx context.Context, id string, p Submission) {
 		r.block(id, p, "daemon returned an unexpected task")
 		return
 	}
+	if task.State == "queued" && r.stale(id, p) {
+		task = r.cancelQueued(ctx, id, p, task)
+	}
 	r.observe(id, p, task)
+}
+
+func (r *runtime) stale(id string, p Submission) bool {
+	if !r.catalogReady {
+		return false
+	}
+	current := r.timers[id]
+	return current == nil || current.definition.Revision != p.Revision || current.definition.Workspace != p.Workspace
+}
+
+func (r *runtime) cancelQueued(ctx context.Context, id string, p Submission, current daemon.Task) daemon.Task {
+	data, err := r.request(ctx, daemon.Request{
+		Method: "cancel", TaskID: current.ID, OperationID: p.OperationID(id) + ":reload-cancel", QueuedOnly: true,
+	})
+	if err == nil {
+		var cancelled daemon.Task
+		if json.Unmarshal(data, &cancelled) == nil && validTask(id, cancelled) && cancelled.ID == current.ID {
+			return cancelled
+		}
+	}
+	return current
 }
 
 func sameSubmission(record *Record, p Submission) bool {

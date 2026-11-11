@@ -94,11 +94,15 @@ func (s stateStore) checkDirectory() error {
 	return nil
 }
 
-func (s stateStore) update(id string, update func(*Record) bool) error {
+func (s stateStore) ensureDirectory() error {
 	if err := os.Mkdir(s.directory(), 0700); err != nil && !errors.Is(err, os.ErrExist) {
 		return err
 	}
-	if err := s.checkDirectory(); err != nil {
+	return s.checkDirectory()
+}
+
+func (s stateStore) update(id string, update func(*Record) bool) error {
+	if err := s.ensureDirectory(); err != nil {
 		return err
 	}
 	unlock, err := maintenance.Lock(filepath.Join(s.directory(), "state.lock"), true)
