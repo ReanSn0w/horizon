@@ -212,7 +212,7 @@ func Environment(base []string, home, executable string, access ...string) []str
 	for _, item := range base {
 		name, _, ok := strings.Cut(item, "=")
 		if ok {
-			if _, replace := values[name]; replace {
+			if _, replace := values[name]; replace || name == TurnChannelEnvironment {
 				continue
 			}
 		}

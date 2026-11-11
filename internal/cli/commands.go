@@ -429,7 +429,15 @@ func (a *App) buildPluginInstructions(ctx context.Context, home string, workspac
 		}
 		blocks = append(blocks, instructions.Extension{Name: "memory", Instructions: memory.Instructions, Data: converted})
 	}
-	extensions, err := plugins.Prepare(ctx, home, workspace, access, cfg.AgentPlugins, maintain, func(message string) { fmt.Fprintln(a.errOut, message) })
+	var channel *plugins.TurnChannel
+	if maintain {
+		var err error
+		channel, err = plugins.ReadTurnChannel()
+		if err != nil {
+			return nil, nil, nil, err
+		}
+	}
+	extensions, err := plugins.PrepareForTurn(ctx, home, workspace, access, cfg.AgentPlugins, maintain, func(message string) { fmt.Fprintln(a.errOut, message) }, channel)
 	if err != nil {
 		return nil, nil, nil, err
 	}

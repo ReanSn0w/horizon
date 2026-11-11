@@ -27,6 +27,7 @@ type Request struct {
 	CallID      string          `json:"call_id,omitempty"`
 	Tool        string          `json:"tool,omitempty"`
 	Arguments   json.RawMessage `json:"arguments,omitempty"`
+	Route       string          `json:"route,omitempty"`
 }
 type Failure struct {
 	Code    string `json:"code"`
@@ -82,6 +83,13 @@ func validEffect(effect string) bool { return Allowed("full", effect) }
 
 // Prepare inspects only explicitly enabled plugins. The returned value is a turn snapshot.
 func Prepare(ctx context.Context, home string, workspace session.Workspace, access string, names []string, maintain bool, warn func(string)) ([]Extension, error) {
+	return PrepareForTurn(ctx, home, workspace, access, names, maintain, warn, nil)
+}
+
+func PrepareForTurn(ctx context.Context, home string, workspace session.Workspace, access string, names []string, maintain bool, warn func(string), channel *TurnChannel) ([]Extension, error) {
+	if err := validateTurnChannel(channel, names); err != nil {
+		return nil, err
+	}
 	if len(names) == 0 {
 		return nil, nil
 	}
@@ -106,7 +114,8 @@ func Prepare(ctx context.Context, home string, workspace session.Workspace, acce
 		if entry.Err != nil {
 			return nil, fmt.Errorf("agent plugin %s: %w", name, entry.Err)
 		}
-		if entry.Metadata.AgentProtocolVersion != AgentProtocolVersion {
+		version := entry.Metadata.AgentProtocolVersion
+		if version != AgentProtocolVersion && version != ChannelProtocolVersion {
 			return nil, fmt.Errorf("agent plugin %s: unsupported agent protocol %d", name, entry.Metadata.AgentProtocolVersion)
 		}
 		id, err := session.NewID()
@@ -114,6 +123,12 @@ func Prepare(ctx context.Context, home string, workspace session.Workspace, acce
 			return nil, err
 		}
 		extension := Extension{Name: name, Path: entry.Path, Request: Request{Home: home, Workspace: workspace.Dir, WorkspaceID: workspace.ID, Access: access, OperationID: id}}
+		if channel != nil && channel.Extension == name {
+			if version != ChannelProtocolVersion {
+				return nil, fmt.Errorf("host channel %s requires agent protocol %d", name, ChannelProtocolVersion)
+			}
+			extension.Request.Route = channel.Route
+		}
 		reply, _, err := Call(ctx, entry.Path, "describe", extension.Request, MetadataTimeout)
 		if err != nil {
 			return nil, fmt.Errorf("agent plugin %s describe: %w", name, err)

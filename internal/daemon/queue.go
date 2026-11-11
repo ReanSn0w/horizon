@@ -50,6 +50,7 @@ type Task struct {
 	Error     string        `json:"error,omitempty"`
 	ExitCode  int           `json:"exit_code"`
 	Route     string        `json:"route,omitempty"`
+	Channel   bool          `json:"channel,omitempty"`
 	Delivered bool          `json:"delivered"`
 	Sequence  uint64        `json:"sequence"`
 	Input     *InputReceipt `json:"input,omitempty"`

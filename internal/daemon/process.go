@@ -106,7 +106,7 @@ func HorizonRunner(home string) Runner {
 			defer cancel()
 		}
 		binary := filepath.Join(home, "bin", "horizon")
-		env := childEnv(home, t.Access)
+		env := channelEnvironment(childEnv(home, t.Access), t)
 		if t.Session == "" {
 			out := &cappedWriter{limit: 4096}
 			code, err := Process(ctx, binary, []string{"--home", home, "sessions", "create"}, env, t.Workspace, "", out)
