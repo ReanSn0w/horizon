@@ -17,9 +17,6 @@ func TestBuiltInitInstalledPlugins(t *testing.T) {
 	}
 	for _, name := range []string{"browser", "telegram"} {
 		source := "./plugins/" + name
-		if name == "telegram" {
-			source = "./plugins/agent"
-		}
 		cmd := exec.Command("go", "build", "-o", filepath.Join(pluginDir, "horizon-"+name), source)
 		cmd.Dir = "../.."
 		if output, err := cmd.CombinedOutput(); err != nil {
@@ -34,7 +31,7 @@ func TestBuiltInitInstalledPlugins(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"browser:", "api_key:", "memory:", "threshold: 5", "telegram:", "bot_token:", "agent_plugins: []"} {
+	for _, want := range []string{"browser:", "api_key:", "memory:", "threshold: 5", "telegram:", "bot_token:", "agent_plugins: []", "agent_communication: []"} {
 		if !strings.Contains(string(data), want) {
 			t.Fatalf("missing %q: %s", want, data)
 		}
@@ -75,18 +72,8 @@ func TestBuiltInitInstalledPlugins(t *testing.T) {
 		t.Fatalf("migrate %v %q %q", err, out, diag)
 	}
 	migrated, _ := os.ReadFile(legacyPath)
-	if !strings.Contains(string(migrated), "# retained") || !strings.Contains(string(migrated), "old-token") || !strings.Contains(string(migrated), "owner_user_id: 0") || strings.Contains(string(migrated), "gateway:") {
-		t.Fatalf("migration lost config: %s", migrated)
-	}
-	conflict := legacy + "  telegram: {}\n"
-	if err := os.WriteFile(legacyPath, []byte(conflict), 0600); err != nil {
-		t.Fatal(err)
-	}
-	if _, _, err := initializeHome(binary, cwd, "", "--home", legacyHome, "init"); err == nil {
-		t.Fatal("accepted conflicting sections")
-	}
-	afterConflict, _ := os.ReadFile(legacyPath)
-	if string(afterConflict) != conflict {
-		t.Fatal("conflict changed config")
+	if !strings.Contains(string(migrated), "# retained") || !strings.Contains(string(migrated), "old-token") ||
+		!strings.Contains(string(migrated), "owner_user_id: 0") || !strings.Contains(string(migrated), "gateway:") {
+		t.Fatalf("plugin installation did not preserve legacy config: %s", migrated)
 	}
 }

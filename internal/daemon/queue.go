@@ -69,8 +69,8 @@ type Task struct {
 	InputClosed     bool          `json:"input_closed,omitempty"`
 	InputResolved   bool          `json:"input_resolved,omitempty"`
 	InputIDs        []string      `json:"input_ids,omitempty"`
-	DispatchOrder   uint64        `json:"dispatch_order,omitempty"`
 	IdleCompact     bool          `json:"idle_compact,omitempty"`
+	DispatchOrder   uint64        `json:"dispatch_order,omitempty"`
 	inputCredential string
 }
 type Event struct {

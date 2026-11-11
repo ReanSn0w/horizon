@@ -91,6 +91,12 @@ func readLegacyConfig(path, home string) (legacySettings, string, error) {
 	name := "telegram"
 	section := yamlKey(mapping, name)
 	if yamlKey(section, "telegram") == nil {
+		if yamlKey(mapping, "gateway") != nil && section != nil {
+			var existing BotSettings
+			if decodeSection(*section, &existing) != nil || existing != (BotSettings{}) {
+				return legacy, "", errors.New("new Telegram settings conflict with legacy plugins.gateway")
+			}
+		}
 		name = "gateway"
 		section = yamlKey(mapping, name)
 	} else if yamlKey(mapping, "gateway") != nil {

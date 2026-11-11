@@ -1,0 +1,1 @@
+{"kind":"adapter","name":"telegram","description":"Telegram long-polling input adapter","package":"./plugins/agent-telegram","binary":"agent-telegram"}

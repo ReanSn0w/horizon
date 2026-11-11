@@ -23,8 +23,6 @@ Horizon — самостоятельный консольный агент на 
 ## Карта кода
 
 Точка входа находится в корне репозитория; CLI и внутренние пакеты — в `internal/`.
-Agent развивается как плагин в `plugins/agent/`; текущая Telegram-интеграция
-сохраняет команду `horizon telegram` и запускает Horizon как внешний процесс.
 `internal/agent` содержит цикл хода ядра, а не внешний плагин.
 Memory и decision встроены в ядро; будущая поддержка MCP также относится к ядру.
 Browser остаётся опциональным плагином без
@@ -39,7 +37,8 @@ Browser остаётся опциональным плагином без
 | `internal/bootstrap` | Подготовка home без перезаписи пользовательских файлов; встроенные стартовые ресурсы в `assets/`. |
 | `internal/buildinfo` | Диагностические версия и commit сборки. |
 | `internal/plugins` | Обнаружение установленных файлов и проверка метаданных без форматирования CLI. |
-| `plugins/agent/` | Плагин agent: Telegram-интеграция, очереди и запуск Horizon. |
+| `plugins/agent-telegram/` | Вход Telegram, правила чатов и наблюдение за задачами daemon. |
+| `plugins/telegram/` | Отправка в Telegram, диагностика и офлайн-миграция. |
 | `plugins/` | Исходники подключаемых команд репозитория; каждый плагин в отдельном подкаталоге. |
 | `internal/config` | Строгая загрузка YAML, профили моделей, URL провайдера и лимиты. |
 | `internal/instructions` | Снимок инструкций и каталога навыков на начало хода. |
@@ -103,9 +102,9 @@ HORIZON_API_CHECK=1 go test ./internal/responses -run TestConfiguredEndpointComp
 
 ### CLI и подготовка home
 
-- Разрабатываемые здесь плагины размещаются в `plugins/<имя>/`; `plugins/agent`
-  пока собирается как `horizon-telegram` для сохранения текущих команд. Установленный
-  файл хранится в `<home>/bin/horizon-<имя>`. Дерево исходников репозитория
+- CLI-плагины размещаются в `plugins/<имя>/` и устанавливаются как
+  `<home>/bin/horizon-<имя>`. Адаптеры устанавливаются как
+  `<home>/bin/agent-<имя>`. Дерево исходников репозитория
   не является источником автоматического обнаружения. При изменении хоста или
   плагина сохраняй протокол из `docs/PLUGINS.md`.
 - Настройки плагинов находятся в `plugins.<имя>` в config.yaml и проверяются
@@ -288,7 +287,13 @@ HORIZON_API_CHECK=1 go test ./internal/responses -run TestConfiguredEndpointComp
 - Один foreground-демон на home; постоянный singleton lock и shared maintenance lock удерживаются весь срок работы. Перед manager update требуется остановка.
 - `agent-*` — отдельный протокол адаптеров, только явное включение. Manager использует `agent:NAME`, отдельно от CLI `NAME`.
 - Работающая задача после аварии становится unknown без автоматического повторения; daemon не пишет напрямую в JSON-сессии и не убивает восстановленные PID.
-- Telegram остаётся в `plugins/agent` со старым контрактом до отдельной миграции.
+- Telegram принимает вход через `agent-telegram` и отправляет только явные
+  вызовы `telegram__send_message`. Разрешение `agent_communication` действует
+  отдельно от файлового access. Маршрут задаёт daemon, обычный автономный ход
+  обращается к личке владельца. Секрет хранится в `plugins.telegram`.
+- Перед миграцией Telegram останавливаются прежний polling и daemon. Очередь
+  импортируется без записи в JSON сессий. Старые неизвестные отправки разбираются
+  по журналу и истории Telegram.
 
 - `plugins/subagent` is a short-lived daemon client enabled via `agent_plugins`; it never starts daemon or Horizon itself. See `docs/SUBAGENT.md`.
 - spawn/send/cancel use write_home; list/read/wait use read. Host context must not come from model arguments. Query by operation_id after outcome_unknown before retrying.
@@ -296,12 +301,12 @@ HORIZON_API_CHECK=1 go test ./internal/responses -run TestConfiguredEndpointComp
 ### Timer
 
 - `plugins/agent-timer` — один бинарник для supervised `agent-run` и
-  `horizon agent timer`; ядро CLI проверяет adapter metadata и передаёт argv.
+  `horizon agent timer`. Ядро CLI проверяет adapter metadata и передаёт argv.
 - `internal/timer` владеет файлами `<home>/timers/<id>.md`, расписанием и
   служебным учётом в `<home>/timer/`. Используй те же загрузчик и компилятор для
-  планировщика и `validate`; bootstrap сохраняет пользовательский навык `timers`.
+  планировщика и `validate`. Bootstrap сохраняет пользовательский навык `timers`.
 - Таймеры отправляют daemon `mode: fresh`, устойчивый operation ID и deadline
   окна. Daemon создаёт новую сессию, сериализует таймеры по нормализованному
   workspace и отменяет старую ревизию только до dispatch. После unknown нужен
-  явный `unblock`; он разрешает будущие слоты. Контракт в
+  явный `unblock` для разрешения будущих слотов. Контракт в
   [README Timer](plugins/agent-timer/README.md).

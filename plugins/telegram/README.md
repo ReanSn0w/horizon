@@ -1,11 +1,58 @@
-# Telegram delivery extension
+# Отправка сообщений в Telegram
 
-The delivery plugin owns the bot credential and owner ID in `plugins.telegram`.
-The input adapter shares these settings. Running the old foreground Telegram
-bridge with `horizon telegram start` or `service` is no longer supported by this
-binary. Stop the old service before switching to `horizon daemon start`.
+`horizon-telegram` подключает `telegram__send_message` и `telegram__read_send`
+к агенту. Хост выбирает чат входящего хода. Автономный ход, включая задачу
+таймера, может писать в личку владельца. Бот должен иметь доступ к выбранному
+чату. Для лички владелец сначала открывает диалог с ботом в Telegram.
 
-The local `list` and `read` commands are intended for chat and operation
-diagnostics. The old `send --message` queued an instruction for model-generated
-delivery. That invocation is retired because it cannot express explicit send
-semantics.
+Установите расширение командой `horizon manager plugins install telegram`.
+В `config.yaml` заполните `plugins.telegram.bot_token` и
+`plugins.telegram.owner_user_id`. Храните токен в приватном файле конфигурации.
+Добавьте `telegram` в оба списка `agent_plugins` и `agent_communication`.
+Разрешение коммуникации действует в `read`, `write` и `full`. Файловые
+ограничения хода сохраняются. Для входящих сообщений установите также
+[адаптер](../agent-telegram/README.md).
+
+`send_message` принимает `text` и разбивает длинный текст на части. Успешная
+доставка возвращает `state: confirmed`, ID чата и ID всех отправленных
+сообщений. `unknown` означает, что Telegram мог принять часть до потери
+ответа. Сверьте результат через `telegram__read_send` или
+`horizon telegram read --operation-id ID`. По частям видны подтверждённые
+ID и состояния `confirmed`, `rejected`, `pending`, `unknown`. Восстанавливайте
+неизвестный результат по истории Telegram. Новый вызов с тем же текстом
+может его продублировать.
+
+`horizon telegram list [--json]` показывает зарегистрированные чаты и их
+доступность. JSON использует `schema_version: 2`. Прежний
+`horizon telegram send --message` завершится с диагностикой перехода на
+инструмент. Команды `start` и `service` подсказывают запуск через daemon.
+
+## Миграция прежнего Telegram
+
+1. Остановите прежнюю службу и отключите её автозапуск штатным менеджером ОС.
+   Остановите `horizon daemon`, если он запущен. Обновите Horizon и установите
+   `daemon`, `telegram` и `agent:telegram` через manager. Установка добавляет
+   недостающие шаблоны, сохраняя старые поля.
+2. Запустите `horizon telegram migrate --check`. Команда проверяет установленные
+   бинарники, настройки, старые привязки и блокировки без запросов к Telegram или
+   провайдеру модели. Для старой службы проверяются локальная регистрация и
+   постоянная блокировка polling.
+3. Выполните `horizon telegram migrate --apply`. Копии конфигурации, состояния
+   gateway и существующей очереди daemon хранятся в
+   `<home>/gateway/telegram-migration-v2/`. Привязки существующих сессий
+   переносятся без редактирования их истории. Ожидающие входящие сообщения
+   получают устойчивые ID операций. Старые задания с неизвестным исходом
+   блокируют последующие ходы в том же диалоге до проверки оператором.
+   Прежние `generated`, `sending` и `unknown` можно разобрать в сохранённом
+   `legacy-state.yaml`; автоматической доставки этих результатов больше нет.
+   Повторный `--apply` завершает прерванный перенос. Старый лимит параллельных
+   чатов переносится в `max_active_adapter_dialogs`, если он ещё не задан.
+4. Запустите `horizon daemon start`. Для автозапуска заведите эту команду в
+   менеджере служб ОС. Миграция сама службы и shell-файлы не меняет.
+
+До первого запуска polling или явной отправки можно остановить daemon и
+выполнить `horizon telegram migrate --rollback`. Команда восстанавливает
+резервные копии, если файлы миграции совпадают с ожидаемым состоянием. Для
+прерванного отката повторите `--rollback`. После запуска новой обработки
+сверьте действия в Telegram, очередь daemon и резервные копии вручную.
+Восстановление старой очереди после внешней доставки может повторить отправку.

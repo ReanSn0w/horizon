@@ -153,7 +153,8 @@ workspace, JSON-сессии и артефакты инструментов; в 
 ## Плагины
 
 - [Manager — установка, обновление и управление плагинами](plugins/manager/README.md).
-- [Agent — Telegram-интеграция](plugins/agent/README.md).
+- [Telegram — явная отправка сообщений](plugins/telegram/README.md).
+- [Agent Telegram — входной адаптер daemon](plugins/agent-telegram/README.md).
 - [Browser — удалённый браузер](plugins/browser/README.md).
 
 ## Обновление Horizon
@@ -394,14 +395,22 @@ workspace. Память хранится локально отдельно от 
 ## Локальный daemon
 
 `horizon-daemon` управляет очередями и внешними процессами Horizon через
-Unix-сокет одного home. Адаптеры `agent-*` обнаруживаются только демоном
-и включаются явно. CLI-плагины сохраняют префикс `horizon-*`.
-Текущий `plugins/agent` / `horizon-telegram` продолжает работать отдельно;
-миграция Telegram и новый timer ещё не реализованы.
+Unix-сокет одного home. Адаптеры `agent-*` включаются явно. Команда
+`horizon agent <имя>` передаёт административные аргументы установленному
+адаптеру с capability `admin-cli`. CLI-плагины имеют префикс `horizon-*`.
 
 Установка: `horizon manager plugins install daemon`; foreground-запуск:
 `horizon daemon start`. Перед обновлением остановите его через
 `horizon daemon stop`. Подробности и ограничения — [Daemon](docs/DAEMON.md).
+
+## Telegram
+
+[Адаптер Telegram](plugins/agent-telegram/README.md) передаёт сообщения в
+daemon и добавляет уточнения в активные ходы. [Расширение Telegram](plugins/telegram/README.md)
+отправляет текст в выбранный хостом чат через `telegram__send_message`.
+Финальный ответ хода сохраняется в Horizon. Модель может промолчать даже при
+упоминании или отправить несколько сообщений. Существующая установка
+переносится через `horizon telegram migrate --check` и `--apply`.
 
 ## Таймеры
 

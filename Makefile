@@ -5,17 +5,18 @@ HORIZON_HOME ?= $(HOME)/.horizon
 BIN_DIR ?= $(HORIZON_HOME)/bin
 # Select repository plugins to install.
 PLUGINS ?= manager
-PLUGIN_NAMES := $(filter-out agent,$(notdir $(patsubst %/main.go,%,$(wildcard plugins/*/main.go)))) telegram
+PLUGIN_NAMES := $(notdir $(patsubst %/main.go,%,$(wildcard plugins/*/main.go)))
 PLUGIN_TARGETS := $(addprefix install-plugin-,$(PLUGIN_NAMES))
 
-.PHONY: help install install-all install-plugins install-telegram install-browser install-daemon install-subagent install-agent-timer $(PLUGIN_TARGETS)
+.PHONY: help install install-all install-plugins install-telegram install-agent-telegram install-browser install-daemon install-subagent install-agent-timer $(PLUGIN_TARGETS)
 
 help:
 	@printf '%s\n' \
 	  'make build-manager           Build the standalone manager in the repository root' \
 	  'make install                 Install Horizon into HORIZON_HOME/bin' \
 	  'make install-plugins         Install selected plugins into HORIZON_HOME/bin' \
-	  'make install-telegram        Install the Telegram integration plugin' \
+	  'make install-telegram        Install the Telegram delivery extension' \
+	  'make install-agent-telegram  Install the Telegram input adapter' \
 	  'make install-agent-timer     Install the Markdown timer adapter' \
 	  'make install-daemon          Install the local supervisor' \
 	  'make install-browser         Install the Browser Use plugin' \
@@ -37,6 +38,7 @@ install-all: install install-plugins
 install-plugins: $(addprefix install-plugin-,$(PLUGINS))
 
 install-telegram: install-plugin-telegram
+install-agent-telegram: install-plugin-agent-telegram
 install-browser: install-plugin-browser
 install-daemon: install-plugin-daemon
 install-subagent: install-plugin-subagent
@@ -49,7 +51,7 @@ $(PLUGIN_TARGETS): install-plugin-%:
 	  binary="$(if $(filter agent-%,$*),$*,horizon-$*)"; \
 	  temporary=$$(mktemp "$(HORIZON_HOME)/bin/.$$binary.XXXXXX"); \
 	  trap 'rm -f "$$temporary"' EXIT HUP INT TERM; \
-	  $(GO) build -o "$$temporary" "$(if $(filter telegram,$*),./plugins/agent,./plugins/$*)"; \
+	  $(GO) build -o "$$temporary" "./plugins/$*"; \
 	  chmod 700 "$$temporary"; \
 	  mv -f "$$temporary" "$(HORIZON_HOME)/bin/$$binary"; \
 	  printf 'Installed %s\n' "$(HORIZON_HOME)/bin/$$binary"

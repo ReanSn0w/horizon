@@ -7,13 +7,16 @@
 Memory и decision встроены в ядро.
 
 - [Manager](manager/README.md) — обязательный установщик и менеджер обновлений.
-- [Agent](agent/README.md) — необязательная Telegram-интеграция; команда `telegram`.
+- [Telegram](telegram/README.md) — расширение для явной отправки сообщений.
+- [Agent Telegram](agent-telegram/README.md) — входной адаптер Telegram для daemon.
 - [Timer](agent-timer/README.md) — Markdown-расписания для daemon.
 - [Browser](browser/README.md) — необязательный удалённый браузер.
 
 ```sh
 horizon manager plugins list
 horizon manager plugins install telegram
+horizon manager plugins install agent:telegram
+horizon manager plugins install agent:timer
 horizon manager plugins install browser
 horizon manager plugins remove browser
 ```

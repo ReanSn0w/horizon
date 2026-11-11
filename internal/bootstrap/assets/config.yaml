@@ -70,3 +70,7 @@ plugins:
 
 # Installed agent extensions, explicitly enabled in this order.
 agent_plugins: []
+
+# Installed agent extensions allowed to communicate with an external channel.
+# Each must also appear in agent_plugins. For Telegram, use [telegram].
+agent_communication: []
