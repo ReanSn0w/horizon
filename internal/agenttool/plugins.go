@@ -46,6 +46,9 @@ func (e *Executor) SetExtensions(sessionID string, extensions []plugins.Extensio
 						} else {
 							result.Error = &ToolError{Code: "plugin_outcome_unknown", Message: err.Error()}
 						}
+						if tool.Effect == plugins.CommunicationEffect {
+							result.Error.Details = map[string]any{"operation_id": request.OperationID}
+						}
 					} else {
 						result.Data = reply.Data
 					}

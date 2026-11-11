@@ -296,3 +296,13 @@ func TestMigrateRefusesConflictingAdapterOverride(t *testing.T) {
 		t.Fatal("conflicting config was modified")
 	}
 }
+
+func TestMigrationRequiresExistingGatewayBotIdentity(t *testing.T) {
+	home, _, _ := migrationFixture(t)
+	if err := WritePrivate(filepath.Join(home, "gateway", "identity"), []byte("123"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Migrate(context.Background(), home, "--check"); err == nil || !strings.Contains(err.Error(), "another Telegram bot") {
+		t.Fatalf("preflight accepted a different bot: %v", err)
+	}
+}

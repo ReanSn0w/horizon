@@ -19,7 +19,7 @@ import (
 func installFixture(t *testing.T) (*Engine, string) {
 	t.Helper()
 	e := fixtureEngine(t)
-	for _, name := range []string{"browser", "agent"} {
+	for _, name := range []string{"browser", "telegram", "agent-telegram"} {
 		path := filepath.Join(e.repository, "plugins", name)
 		os.MkdirAll(path, 0700)
 		data, err := os.ReadFile("../../plugins/" + name + "/plugin.json")

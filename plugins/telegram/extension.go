@@ -84,7 +84,11 @@ func operate(ctx context.Context, op string, r plugins.Request) (any, error) {
 	case "describe":
 		return description(r), nil
 	case "context":
-		history, err := store.Confirmed(chat, r.SessionID, 12)
+		recorded, err := recordedSends(r)
+		if err != nil {
+			return nil, err
+		}
+		history, err := store.Confirmed(chat, recorded, 12)
 		if err != nil {
 			return nil, err
 		}
@@ -128,4 +132,40 @@ func operate(ctx context.Context, op string, r plugins.Request) (any, error) {
 		}
 	}
 	return nil, errors.New("unsupported Telegram extension operation")
+}
+
+func recordedSends(r plugins.Request) (map[string]map[int64]bool, error) {
+	recorded := map[string]map[int64]bool{}
+	if r.SessionID == "" {
+		return recorded, nil
+	}
+	store := session.NewStore(r.Home)
+	workspace, err := store.ResolveWorkspace(r.Workspace)
+	if err != nil || workspace.ID != r.WorkspaceID {
+		return nil, errors.New("invalid Telegram workspace context")
+	}
+	value, err := store.ReadSnapshot(workspace, r.SessionID)
+	if err != nil {
+		return nil, errors.New("cannot read Telegram turn session")
+	}
+	for _, turn := range value.Turns {
+		for _, call := range turn.ToolCalls {
+			if call.Name != "telegram__send_message" || call.ResultState != session.ToolResultKnown {
+				continue
+			}
+			var result struct {
+				OK   bool                `json:"ok"`
+				Data telegram.SendResult `json:"data"`
+			}
+			if json.Unmarshal(call.Result, &result) != nil || !result.OK || result.Data.OperationID == "" {
+				continue
+			}
+			ids := map[int64]bool{}
+			for _, id := range result.Data.MessageIDs {
+				ids[id] = true
+			}
+			recorded[result.Data.OperationID] = ids
+		}
+	}
+	return recorded, nil
 }

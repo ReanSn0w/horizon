@@ -72,16 +72,29 @@ func PollLock(home string) (string, error) {
 }
 
 func BindIdentity(home string, botID int64) error {
+	found, err := checkIdentity(home, botID)
+	if err != nil || found {
+		return err
+	}
+	return WritePrivate(filepath.Join(home, "gateway", "identity"), []byte(fmt.Sprint(botID)), 0600)
+}
+
+func CheckIdentity(home string, botID int64) error {
+	_, err := checkIdentity(home, botID)
+	return err
+}
+
+func checkIdentity(home string, botID int64) (bool, error) {
 	path := filepath.Join(home, "gateway", "identity")
 	data, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
-		return WritePrivate(path, []byte(fmt.Sprint(botID)), 0600)
+		return false, nil
 	}
 	if err != nil {
-		return err
+		return false, err
 	}
 	if strings.TrimSpace(string(data)) != fmt.Sprint(botID) {
-		return errors.New("this Horizon home belongs to another Telegram bot")
+		return false, errors.New("this Horizon home belongs to another Telegram bot")
 	}
-	return nil
+	return true, nil
 }

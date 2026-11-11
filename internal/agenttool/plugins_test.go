@@ -79,3 +79,26 @@ func TestExtensionAccessAndJournal(t *testing.T) {
 		})
 	}
 }
+
+func TestCommunicationFailureExposesOperationIDForReadback(t *testing.T) {
+	workspace := t.TempDir()
+	plugin := filepath.Join(workspace, "plugin")
+	if err := os.WriteFile(plugin, []byte("#!/bin/sh\nprintf 'incomplete envelope'\n"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	executor := NewExecutor(workspace, t.TempDir(), nil, "turn")
+	extension := plugins.Extension{
+		Name: "channel", Path: plugin, Request: plugins.Request{Home: workspace, Workspace: workspace, Communication: true},
+		Description: plugins.Description{Tools: []plugins.Tool{
+			{Name: "send", Description: "Send a message", Effect: plugins.CommunicationEffect, Parameters: objectSchema(properties(field("text", "string")), "text")},
+		}},
+	}
+	if err := executor.SetExtensions("session", []plugins.Extension{extension}); err != nil {
+		t.Fatal(err)
+	}
+	tool := executor.tools["channel__send"]
+	got := tool.handler(context.Background(), json.RawMessage(`{"text":"message"}`), environment{access: "read", callID: "call"})
+	if got.Error == nil || got.Error.Code != "plugin_outcome_unknown" || got.Error.Details["operation_id"] != "session:turn:call" {
+		t.Fatalf("communication error = %#v", got.Error)
+	}
+}
