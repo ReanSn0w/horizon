@@ -423,49 +423,102 @@ func BuildInput(value *session.Session) ([]json.RawMessage, error) {
 
 	for index := boundaryIndex + 1; index < len(value.Turns); index++ {
 		turn := value.Turns[index]
-		for _, message := range turn.Messages {
-			if message.Role == "user" {
-				input = append(input, responses.UserMessage(message.Text))
-			}
-		}
-		calls := make(map[string]session.ToolCall, len(turn.ToolCalls))
-		hasUnknown := false
-		for _, call := range turn.ToolCalls {
-			calls[call.CallID] = call
-			hasUnknown = hasUnknown || call.ResultState == session.ToolResultUnknown || call.ResultState == session.ToolResultPending
-		}
-		for _, item := range turn.APIItems {
-			if hasUnknown {
-				continue
-			}
-			var header struct {
-				Type   string `json:"type"`
-				CallID string `json:"call_id"`
-			}
-			if err := json.Unmarshal(item, &header); err != nil {
-				return nil, fmt.Errorf("turn %s contains invalid API item: %w", turn.ID, err)
-			}
-			if header.Type == "compaction" {
-				continue
-			}
-			if header.Type != "function_call" {
-				input = append(input, append(json.RawMessage(nil), item...))
-				continue
-			}
-			call, ok := calls[header.CallID]
-			if !ok || call.ResultState != session.ToolResultKnown {
-				continue
-			}
-			input = append(input, append(json.RawMessage(nil), item...))
-			output, err := responses.FunctionOutput(call.CallID, call.Result)
-			if err != nil {
-				return nil, err
-			}
-			input = append(input, output)
+		var err error
+		input, err = rebuildTurn(input, turn)
+		if err != nil {
+			return nil, fmt.Errorf("reconstruct turn %s: %w", turn.ID, err)
 		}
 		input = append(input, responses.DeveloperMessage(failedTurnSummary(turn)))
 	}
 	return input, nil
+}
+
+func inboundUserMessage(author, text string) json.RawMessage {
+	return responses.UserMessage(fmt.Sprintf("Sender: %q\n\n%s", author, text))
+}
+
+func rebuildTurn(input []json.RawMessage, turn session.Turn) ([]json.RawMessage, error) {
+	var inbound []session.Message
+	for _, message := range turn.Messages {
+		if message.Role != "user" {
+			continue
+		}
+		if message.Inbound == nil {
+			input = append(input, responses.UserMessage(message.Text))
+			continue
+		}
+		inbound = append(inbound, message)
+	}
+	appendInboundAt := func(boundary int) {
+		for len(inbound) > 0 && inbound[0].Inbound.AfterAPIItems == boundary {
+			input = append(input, inboundUserMessage(inbound[0].Inbound.Author, inbound[0].Text))
+			inbound = inbound[1:]
+		}
+	}
+	appendInboundAt(0)
+	calls := make(map[string]session.ToolCall, len(turn.ToolCalls))
+	hasUnknown := false
+	for _, call := range turn.ToolCalls {
+		calls[call.CallID] = call
+		hasUnknown = hasUnknown || call.ResultState == session.ToolResultUnknown || call.ResultState == session.ToolResultPending
+	}
+	if len(turn.APIBatchEnds) == 0 {
+		if hasUnknown {
+			// Older sessions cannot identify which response held the unknown call.
+			return input, nil
+		}
+		for index := range turn.APIItems {
+			var err error
+			input, err = appendKnownBatch(input, turn.APIItems[index:index+1], calls)
+			if err != nil {
+				return nil, err
+			}
+		}
+		return input, nil
+	}
+
+	start := 0
+	for _, end := range turn.APIBatchEnds {
+		var err error
+		input, err = appendKnownBatch(input, turn.APIItems[start:end], calls)
+		if err != nil {
+			return nil, err
+		}
+		appendInboundAt(end)
+		start = end
+	}
+	return input, nil
+}
+
+func appendKnownBatch(input, batch []json.RawMessage, calls map[string]session.ToolCall) ([]json.RawMessage, error) {
+	var items, outputs []json.RawMessage
+	for _, item := range batch {
+		var header struct {
+			Type   string `json:"type"`
+			CallID string `json:"call_id"`
+		}
+		if err := json.Unmarshal(item, &header); err != nil {
+			return nil, fmt.Errorf("invalid API item: %w", err)
+		}
+		if header.Type == "compaction" {
+			continue
+		}
+		if header.Type == "function_call" {
+			call, ok := calls[header.CallID]
+			if !ok || call.ResultState != session.ToolResultKnown {
+				// A response containing an unresolved call is unsafe to replay.
+				// Its tool outcome is described in the recovery summary instead.
+				return input, nil
+			}
+			output, err := responses.FunctionOutput(call.CallID, call.Result)
+			if err != nil {
+				return nil, err
+			}
+			outputs = append(outputs, output)
+		}
+		items = append(items, append(json.RawMessage(nil), item...))
+	}
+	return append(append(input, items...), outputs...), nil
 }
 
 func failedTurnSummary(turn session.Turn) string {
