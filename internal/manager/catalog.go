@@ -34,7 +34,7 @@ func Catalog(source string) (map[string]Plugin, error) {
 			return nil, fmt.Errorf("invalid plugin description %s", filepath.Base(filepath.Dir(path)))
 		}
 		expected := "./plugins/" + filepath.Base(filepath.Dir(path))
-		if !namePattern.MatchString(p.Name) || reserved[p.Name] || p.Description == "" || p.Package != expected || (p.Kind != "" && p.Kind != "cli" && p.Kind != "adapter") || p.Binary != managedBinary(pluginID(p)) {
+		if !namePattern.MatchString(p.Name) || (reserved[p.Name] || p.Name == "agent" && p.Kind != "adapter") || p.Description == "" || p.Package != expected || (p.Kind != "" && p.Kind != "cli" && p.Kind != "adapter") || p.Binary != managedBinary(pluginID(p)) {
 			return nil, fmt.Errorf("invalid plugin description in %s", expected)
 		}
 		if _, ok := result[pluginID(p)]; ok {

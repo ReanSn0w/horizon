@@ -13,6 +13,8 @@ import (
 	"time"
 )
 
+const AdapterAdminCLI = "admin-cli"
+
 var adapterName = regexp.MustCompile(`^[a-z][a-z0-9-]*$`)
 
 type AdapterMetadata struct {
@@ -69,6 +71,14 @@ func (q *Queue) SuperviseAdapters(ctx context.Context) (func(), error) {
 			return nil, errors.New("duplicate adapter")
 		}
 		seen[name] = true
+		if name == TimerSource {
+			if access, ok := os.LookupEnv("HORIZON_INHERITED_ACCESS"); ok {
+				if level(access) == 0 {
+					return nil, errors.New("invalid inherited timer adapter access")
+				}
+				q.timerAccess = access
+			}
+		}
 		if _, e := AdapterInspect(ctx, q.home, name); e != nil {
 			return nil, e
 		}
@@ -81,13 +91,19 @@ func (q *Queue) SuperviseAdapters(ctx context.Context) (func(), error) {
 			defer wg.Done()
 			path, _ := AdapterPath(q.home, name)
 			delay := time.Second
+			access := "write"
+			var output io.Writer = io.Discard
+			if name == TimerSource {
+				access = q.timerAccess
+				output = os.Stderr
+			}
 			for ctx.Err() == nil {
 				credential := newID()
 				q.mu.Lock()
 				q.adapters[name] = credential
 				q.mu.Unlock()
-				env := append(childEnv(q.home, "write"), "HORIZON_DAEMON_SOCKET="+Socket(q.home), "HORIZON_ADAPTER_NAME="+name, "HORIZON_ADAPTER_CREDENTIAL="+credential)
-				_, _ = Process(ctx, path, []string{"agent-run"}, env, q.home, "", io.Discard)
+				env := append(childEnv(q.home, access), "HORIZON_DAEMON_SOCKET="+Socket(q.home), "HORIZON_ADAPTER_NAME="+name, "HORIZON_ADAPTER_CREDENTIAL="+credential)
+				_, _ = Process(ctx, path, []string{"agent-run"}, env, q.home, "", output)
 				q.mu.Lock()
 				delete(q.adapters, name)
 				q.mu.Unlock()

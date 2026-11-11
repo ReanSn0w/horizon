@@ -303,3 +303,14 @@ The `subagent__spawn/list/read/send/wait/cancel` tools manage separate child ses
 in the shared workspace. Messages queue for the next turn; read access only permits
 reading and waiting. An unavailable explicitly enabled daemon fails preparation.
 See [Subagent](SUBAGENT.md) for schemas and unknown-outcome recovery.
+
+## Adapter administrative commands
+
+Adapters with `admin-cli` in their `agent-plugin-metadata` capabilities can
+handle `horizon agent <name> [arguments...]`. Horizon verifies the installed
+`<home>/bin/agent-<name>` and invokes it as `agent-admin [arguments...]`.
+It forwards arguments directly, with the current directory, standard streams,
+selected `HORIZON_HOME` and inherited access. Administrative commands share
+the maintenance lock and receive no supervised adapter credential. Each adapter
+defines its own arguments and exit codes. The `agent` name is reserved for the
+built-in CLI route.

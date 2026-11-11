@@ -379,6 +379,7 @@ func (a *App) addCommands(parser *flags.Parser, global *globalOptions) error {
 		name, short, long string
 		data              any
 	}{
+		{"agent", "Run an installed adapter administrative command", adapterAdminUsage, &adapterAdminCommand{}},
 		{"decision", "Evaluate structured JSON", decisionLongDescription(), &decisionCommand{app: a, global: global}},
 		{"models", "List model profiles", "Print configured model profiles without contacting the provider.", &modelsCommand{app: a, global: global}},
 		{"resume", "Run one agent turn", "Read a message and execute one turn.", &resumeCommand{app: a, global: global}},

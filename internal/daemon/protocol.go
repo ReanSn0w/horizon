@@ -47,24 +47,28 @@ type Caller struct {
 	Credential string `json:"credential,omitempty"`
 }
 type Request struct {
-	Version     int    `json:"version"`
-	ID          string `json:"id"`
-	Method      string `json:"method"`
-	OperationID string `json:"operation_id,omitempty"`
-	Caller      Caller `json:"caller"`
-	TaskID      string `json:"task_id,omitempty"`
-	Message     string `json:"message,omitempty"`
-	Access      string `json:"access,omitempty"`
-	Cursor      uint64 `json:"cursor,omitempty"`
-	Offset      int    `json:"offset,omitempty"`
-	WaitMS      int    `json:"wait_ms,omitempty"`
-	Tree        bool   `json:"tree,omitempty"`
-	Route       string `json:"route,omitempty"`
-	Delivery    string `json:"delivery,omitempty"`
-	Author      string `json:"author,omitempty"`
-	Channel     bool   `json:"channel,omitempty"`
-	InputID     string `json:"input_id,omitempty"`
-	TurnID      string `json:"turn_id,omitempty"`
+	Version     int        `json:"version"`
+	ID          string     `json:"id"`
+	Method      string     `json:"method"`
+	OperationID string     `json:"operation_id,omitempty"`
+	Caller      Caller     `json:"caller"`
+	TaskID      string     `json:"task_id,omitempty"`
+	Message     string     `json:"message,omitempty"`
+	Access      string     `json:"access,omitempty"`
+	Cursor      uint64     `json:"cursor,omitempty"`
+	Offset      int        `json:"offset,omitempty"`
+	WaitMS      int        `json:"wait_ms,omitempty"`
+	Tree        bool       `json:"tree,omitempty"`
+	Route       string     `json:"route,omitempty"`
+	Delivery    string     `json:"delivery,omitempty"`
+	Author      string     `json:"author,omitempty"`
+	Channel     bool       `json:"channel,omitempty"`
+	InputID     string     `json:"input_id,omitempty"`
+	TurnID      string     `json:"turn_id,omitempty"`
+	Mode        string     `json:"mode,omitempty"`
+	SourceKey   string     `json:"source_key,omitempty"`
+	Deadline    *time.Time `json:"deadline,omitempty"`
+	QueuedOnly  bool       `json:"queued_only,omitempty"`
 }
 type Failure struct {
 	Code    string `json:"code"`

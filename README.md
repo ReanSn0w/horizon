@@ -395,8 +395,9 @@ workspace. Память хранится локально отдельно от 
 ## Локальный daemon
 
 `horizon-daemon` управляет очередями и внешними процессами Horizon через
-Unix-сокет одного home. Адаптеры `agent-*` обнаруживаются только демоном
-и включаются явно. CLI-плагины сохраняют префикс `horizon-*`.
+Unix-сокет одного home. Адаптеры `agent-*` включаются явно. Команда
+`horizon agent <имя>` передаёт административные аргументы установленному
+адаптеру с capability `admin-cli`. CLI-плагины имеют префикс `horizon-*`.
 
 Установка: `horizon manager plugins install daemon`; foreground-запуск:
 `horizon daemon start`. Перед обновлением остановите его через
@@ -418,6 +419,16 @@ daemon и добавляет уточнения в активные ходы. [�
 Финальный ответ хода сохраняется в Horizon. Модель может промолчать даже при
 упоминании или отправить несколько сообщений. Существующая установка
 переносится через `horizon telegram migrate --check` и `--apply`.
+
+## Таймеры
+
+Установите `horizon manager plugins install agent:timer` и добавьте `timer` в
+`plugins.daemon.adapters`. Запустите daemon и поместите Markdown-расписания в
+`<home>/timers/`. Используйте `horizon agent timer validate [timer-id]` для
+проверки файлов и `horizon agent timer status [timer-id]` для проверки запусков.
+Поручения выполняются в новых сессиях, состояние между запусками можно хранить
+в workspace. Формат расписания, окна и восстановление описаны в
+[README Timer](plugins/agent-timer/README.md).
 
 ## Subagent
 

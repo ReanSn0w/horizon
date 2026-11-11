@@ -297,3 +297,16 @@ HORIZON_API_CHECK=1 go test ./internal/responses -run TestConfiguredEndpointComp
 
 - `plugins/subagent` is a short-lived daemon client enabled via `agent_plugins`; it never starts daemon or Horizon itself. See `docs/SUBAGENT.md`.
 - spawn/send/cancel use write_home; list/read/wait use read. Host context must not come from model arguments. Query by operation_id after outcome_unknown before retrying.
+
+### Timer
+
+- `plugins/agent-timer` — один бинарник для supervised `agent-run` и
+  `horizon agent timer`. Ядро CLI проверяет adapter metadata и передаёт argv.
+- `internal/timer` владеет файлами `<home>/timers/<id>.md`, расписанием и
+  служебным учётом в `<home>/timer/`. Используй те же загрузчик и компилятор для
+  планировщика и `validate`. Bootstrap сохраняет пользовательский навык `timers`.
+- Таймеры отправляют daemon `mode: fresh`, устойчивый operation ID и deadline
+  окна. Daemon создаёт новую сессию, сериализует таймеры по нормализованному
+  workspace и отменяет старую ревизию только до dispatch. После unknown нужен
+  явный `unblock` для разрешения будущих слотов. Контракт в
+  [README Timer](plugins/agent-timer/README.md).

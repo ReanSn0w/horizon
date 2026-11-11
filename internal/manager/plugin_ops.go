@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/ReanSn0w/horizon/internal/bootstrap"
 	"github.com/ReanSn0w/horizon/internal/config"
 	"github.com/ReanSn0w/horizon/internal/maintenance"
 	"github.com/ReanSn0w/horizon/internal/plugins"
@@ -188,6 +189,11 @@ func (e *Engine) changePlugin(ctx context.Context, o Options, state State, stage
 		}
 		if err = prepareConfig(o.Home, stage, []string{o.Name}); err != nil {
 			return err
+		}
+		if o.Name == "agent:timer" {
+			if err = bootstrap.EnsureTimerSkill(o.Home); err != nil {
+				return err
+			}
 		}
 		if !slices.Contains(state.Plugins, o.Name) {
 			state.Plugins = append(state.Plugins, o.Name)

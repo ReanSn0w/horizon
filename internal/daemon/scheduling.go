@@ -9,6 +9,7 @@ func (t *Task) dialogKey() string {
 	if t.Route != "" {
 		return t.Owner + "\x00route\x00" + t.Route
 	}
+	// Fresh timer jobs use the same fair adapter limit and serialize by workspace.
 	return t.Owner + "\x00workspace\x00" + t.Workspace
 }
 
