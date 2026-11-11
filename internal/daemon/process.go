@@ -158,6 +158,13 @@ func HorizonRunner(home string) Runner {
 					result.Turn = *e.TurnID
 				}
 				switch e.Type {
+				case "turn_skipped":
+					if !t.ActiveInput || completed {
+						result.Err = errors.New("unexpected skipped turn")
+						cancel()
+						break
+					}
+					completed = true
 				case "turn_completed":
 					if completed {
 						result.Err = errors.New("duplicate completion")

@@ -3,6 +3,8 @@ package turninput
 
 import "context"
 
+const MaxPending = 32
+
 type Message struct {
 	ID       string `json:"id"`
 	Sequence uint64 `json:"sequence"`

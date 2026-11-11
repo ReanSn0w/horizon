@@ -12,6 +12,8 @@ import (
 	"net"
 	"path/filepath"
 	"time"
+
+	"github.com/ReanSn0w/horizon/internal/turninput"
 )
 
 const Version = 1
@@ -21,7 +23,7 @@ const (
 	ActiveInputCapability = "active-input"
 	ActiveDelivery        = "active"
 	MaxInputBytes         = 128 * 1024
-	MaxPendingInputs      = 32
+	MaxPendingInputs      = turninput.MaxPending
 )
 
 // InputReceipt reports persistence separately from inclusion in a Horizon turn.
