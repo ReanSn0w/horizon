@@ -68,12 +68,16 @@ func (q *Queue) skipExpiredTimer(t *Task, now time.Time) bool {
 		return false
 	}
 	if err := q.transaction(func() error {
-		t.State = "skipped"
-		t.Error = "timer window ended before execution"
-		q.event(t, "")
+		q.markTimerSkipped(t)
 		return nil
 	}); err != nil {
 		q.fatal = err
 	}
 	return true
+}
+
+func (q *Queue) markTimerSkipped(t *Task) {
+	t.State = "skipped"
+	t.Error = "timer window ended before execution"
+	q.event(t, "")
 }

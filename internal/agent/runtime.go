@@ -92,12 +92,20 @@ func (r *Runtime) Run(ctx context.Context, message string) (Result, error) {
 	if r.Inbound == nil {
 		turn.Messages = []session.Message{{Role: "user", Text: message}}
 	} else {
-		firstInbound, err = r.firstInbound(ctx, turnID)
-		if err != nil {
+		var inputErr *Error
+		firstInbound, inputErr = r.firstInbound(ctx, turnID)
+		if inputErr != nil {
+			eventType := "turn_failed"
 			if parentContext.Err() != nil {
-				return Result{}, &Error{Code: "turn_cancelled", Cause: parentContext.Err()}
+				eventType = "turn_cancelled"
+				inputErr = &Error{Code: "turn_cancelled", Cause: parentContext.Err()}
+			} else if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+				inputErr = &Error{Code: "turn_timeout", Cause: ctx.Err()}
 			}
-			return Result{}, err
+			if r.Publish != nil {
+				r.Publish(eventstream.New(eventType, r.Session.SessionID, nil, map[string]string{"code": inputErr.Code}))
+			}
+			return Result{}, inputErr
 		}
 		if firstInbound == nil {
 			if r.Publish != nil {

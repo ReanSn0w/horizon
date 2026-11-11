@@ -10,7 +10,7 @@ import (
 
 // firstInbound reconciles any messages written by an earlier process before
 // opening a new turn. A recovery containing only duplicate IDs needs no model.
-func (r *Runtime) firstInbound(ctx context.Context, turnID string) (*turninput.Message, error) {
+func (r *Runtime) firstInbound(ctx context.Context, turnID string) (*turninput.Message, *Error) {
 	for {
 		message, err := r.Inbound.Next(ctx, turnID, true)
 		if err != nil {
