@@ -207,14 +207,17 @@ func prepareLegacy(home string, old legacyGateway, bot BotSettings, settings Ada
 		}
 		dialog := daemon.ImportedDialog{Route: chat.Route(), Session: c.Session, Access: access, Channel: true}
 		queuedRecords := map[int64]bool{}
+		group := settings.Group(chat.ID, chat.Origin)
 		for _, job := range c.Jobs {
+			eligible := chat.ID > 0 && job.Input.Author == bot.Owner || chat.ID < 0 &&
+				(!group.OwnerOnly || job.Input.Author == bot.Owner) && (group.Mode == "conversation" || job.Input.Mention)
 			op := fmt.Sprintf("telegram:%d:legacy:%s", bot.BotID(), job.ID)
 			switch {
-			case (job.State == "queued" || job.State == "evaluating") && !job.Manual && (chat.ID < 0 || job.Input.Author == bot.Owner):
+			case (job.State == "queued" || job.State == "evaluating") && !job.Manual && eligible:
 				if job.Input.ID <= 0 || strings.TrimSpace(job.Input.Text) == "" || job.Input.Author <= 0 {
 					return data, errors.New("legacy pending input has invalid author, message ID or text")
 				}
-				payload, err := encodeLegacyInput(chat.ID, job.Input.Entry)
+				payload, err := encodeLegacyInput(chat.ID, job.Input.Entry, legacyContext(c, job.Input, bot.Owner, settings.History))
 				if err != nil {
 					return data, err
 				}
@@ -260,6 +263,20 @@ func prepareLegacy(home string, old legacyGateway, bot BotSettings, settings Ada
 	}
 	data.report.Chats = len(data.registry.Chats)
 	return data, nil
+}
+
+func legacyContext(chat *legacyChat, input legacyRecord, owner int64, limit int) []Entry {
+	recent := []Entry{}
+	for _, previous := range chat.History {
+		if input.Sequence > 0 && previous.Sequence >= input.Sequence || input.Sequence == 0 && previous.ID >= input.ID {
+			continue
+		}
+		if chat.ID > 0 && !previous.Bot && previous.Author != owner {
+			continue
+		}
+		recent = append(recent, previous.Entry)
+	}
+	return recent[max(0, len(recent)-limit):]
 }
 
 func adapterSection(value AdapterSettings, home string) (AdapterSettings, error) {

@@ -168,8 +168,15 @@ func (s Store) Send(ctx context.Context, send Sender, chat Conversation, session
 	return value.result(), nil
 }
 
+type ConfirmedMessage struct {
+	Entry
+	ChatID      int64  `json:"chat_id"`
+	OperationID string `json:"operation_id"`
+}
+
 // Confirmed sends are read from the same journal that records confirmation.
-func (s Store) Confirmed(chat Conversation, sessionID string, limit int) ([]Entry, error) {
+// Only messages with IDs already recorded by this session are omitted.
+func (s Store) Confirmed(chat Conversation, recorded map[string]map[int64]bool, limit int) ([]ConfirmedMessage, error) {
 	dir := filepath.Join(s.dir, "outbox")
 	entries, err := os.ReadDir(dir)
 	if errors.Is(err, os.ErrNotExist) {
@@ -178,7 +185,7 @@ func (s Store) Confirmed(chat Conversation, sessionID string, limit int) ([]Entr
 	if err != nil {
 		return nil, err
 	}
-	recent := []Entry{}
+	recent := []ConfirmedMessage{}
 	for _, entry := range entries {
 		if entry.IsDir() || filepath.Ext(entry.Name()) != ".json" || len(entry.Name()) != 69 {
 			continue
@@ -187,16 +194,17 @@ func (s Store) Confirmed(chat Conversation, sessionID string, limit int) ([]Entr
 		if err := loadJSON(filepath.Join(dir, entry.Name()), &value); err != nil {
 			return nil, err
 		}
-		if value.Origin != chat.Origin || sessionID != "" && sessionID == value.Session {
+		if value.Origin != chat.Origin {
 			continue
 		}
 		for _, part := range value.Parts {
-			if part.State == "confirmed" {
-				recent = append(recent, Entry{ID: part.MessageID, Name: "Telegram bot", Time: value.Created.Unix(), Text: part.Text, Bot: true})
+			if part.State == "confirmed" && !recorded[value.OperationID][part.MessageID] {
+				entry := Entry{ID: part.MessageID, Name: "Telegram bot", Time: value.Created.Unix(), Text: part.Text, Bot: true}
+				recent = append(recent, ConfirmedMessage{Entry: entry, ChatID: value.ChatID, OperationID: value.OperationID})
 			}
 		}
 	}
-	slices.SortFunc(recent, func(a, b Entry) int {
+	slices.SortFunc(recent, func(a, b ConfirmedMessage) int {
 		if a.Time < b.Time || a.Time == b.Time && a.ID < b.ID {
 			return -1
 		}

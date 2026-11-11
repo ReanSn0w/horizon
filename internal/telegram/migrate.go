@@ -149,6 +149,9 @@ func Migrate(ctx context.Context, home, action string) (MigrationReport, error) 
 		return MigrationReport{}, err
 	}
 	bot := legacy.Telegram.BotID()
+	if err := CheckIdentity(home, bot); err != nil {
+		return MigrationReport{}, err
+	}
 	paths := migrationPaths(home, configPath, bot)
 	statePath := paths["legacy-state.yaml"]
 	if known {
@@ -458,8 +461,14 @@ func convertLegacyConfig(ctx context.Context, home, path, oldHash, key string, b
 		if yamlKey(yamlKey(p, key), "telegram") == nil {
 			existing := yamlKey(p, "telegram")
 			var current BotSettings
-			if existing != nil && decodeSection(*existing, &current) == nil && current == bot {
-				return false, nil
+			adapter := yamlKey(p, "agent-telegram")
+			if existing != nil && adapter != nil && decodeSection(*existing, &current) == nil && current == bot {
+				var currentSettings AdapterSettings
+				if decodeSection(*adapter, &currentSettings) == nil && reflect.DeepEqual(currentSettings, settings) &&
+					hasYAML(root, "agent_plugins", "telegram") && hasYAML(root, "agent_communication", "telegram") &&
+					hasYAML(yamlKey(p, "daemon"), "adapters", "telegram") {
+					return false, nil
+				}
 			}
 			return false, errors.New("legacy Telegram settings changed during migration")
 		}
@@ -527,6 +536,12 @@ func setYAML(mapping *yaml.Node, key string, value *yaml.Node) {
 	mapping.Content = append(mapping.Content, &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: key}, value)
 }
 
+func hasYAML(mapping *yaml.Node, key, value string) bool {
+	sequence := yamlKey(mapping, key)
+	return sequence != nil && sequence.Kind == yaml.SequenceNode &&
+		slices.ContainsFunc(sequence.Content, func(item *yaml.Node) bool { return item.Value == value })
+}
+
 func appendYAML(mapping *yaml.Node, key, value string) error {
 	if mapping.Kind != yaml.MappingNode {
 		return errors.New("expected mapping in migration configuration")
@@ -548,10 +563,20 @@ func appendYAML(mapping *yaml.Node, key, value string) error {
 	return nil
 }
 
-func encodeLegacyInput(chatID int64, message Entry) (string, error) {
-	raw, err := json.Marshal(struct {
-		ChatID  int64 `json:"chat_id"`
-		Message Entry `json:"message"`
-	}{chatID, message})
-	return string(raw), err
+func encodeLegacyInput(chatID int64, message Entry, recent []Entry) (string, error) {
+	value := struct {
+		ChatID  int64   `json:"chat_id"`
+		Message Entry   `json:"message"`
+		Recent  []Entry `json:"recent,omitempty"`
+	}{chatID, message, recent}
+	for {
+		raw, err := json.Marshal(value)
+		if err != nil || len(raw) <= daemon.MaxInputBytes {
+			return string(raw), err
+		}
+		if len(value.Recent) == 0 {
+			return "", errors.New("legacy Telegram input exceeds daemon size limit")
+		}
+		value.Recent = value.Recent[1:]
+	}
 }

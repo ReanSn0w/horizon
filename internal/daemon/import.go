@@ -79,7 +79,8 @@ func (q *Queue) importDialog(source, owner string, dialog ImportedDialog) error 
 		root.InputClosed = true
 		q.event(root, "imported_dialog")
 	}
-	if root.Session != dialog.Session || root.Workspace != dialog.Workspace || root.Channel != dialog.Channel {
+	if root.DispatchOrder != 0 || root.State != "succeeded" || !root.InputClosed || len(root.InputIDs) != 0 ||
+		root.Session != dialog.Session || root.Workspace != dialog.Workspace || root.Channel != dialog.Channel {
 		return fmt.Errorf("cannot overwrite a different daemon route binding for %s", dialog.Route)
 	}
 	for _, job := range dialog.Jobs {
@@ -113,14 +114,25 @@ func (q *Queue) importJob(source string, root *Task, access string, job Imported
 		}
 		return nil
 	}
-	t := q.newActiveTask(root.Owner, root.Workspace, access, root.Route, root.Channel, root)
-	t.State = job.State
+	var t *Task
+	if job.State == "queued" {
+		for _, candidate := range q.state.Tasks {
+			if candidate.Child == root.Child && candidate.ActiveInput && candidate.State == "queued" &&
+				candidate.Access == access && (t == nil || candidate.Sequence < t.Sequence) {
+				t = candidate
+			}
+		}
+	}
+	if t == nil {
+		t = q.newActiveTask(root.Owner, root.Workspace, access, root.Route, root.Channel, root)
+		t.State = job.State
+	}
 	op := Operation{Hash: digest, TaskID: t.ID}
 	if job.State == "queued" {
 		q.state.InputSequence++
 		input := InputReceipt{ID: newID(), Sequence: q.state.InputSequence, Source: source, Route: root.Route, Status: "stored"}
 		q.state.Inputs[input.ID] = &storedInput{Receipt: input, TaskID: t.ID, Author: job.Author, Text: job.Message}
-		t.InputIDs = []string{input.ID}
+		t.InputIDs = append(t.InputIDs, input.ID)
 		op.InputID = input.ID
 	} else {
 		t.Error = "legacy execution or delivery outcome requires operator review"
