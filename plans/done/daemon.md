@@ -19,8 +19,8 @@ Horizon обнаруживает только `<home>/bin/horizon-*`; daemon о�
 `<home>/bin/agent-*`. Наличие бинарника не включает его автоматически.
 `horizon-subagent` — отдельный клиент демона и расширение инструментов модели,
 описанное в [subagent.md](subagent.md). Telegram и timer остаются отдельными
-задачами: [wip-agent-telegram.md](../wip-agent-telegram.md) и
-[wip-agent-timer.md](../wip-agent-timer.md). Их реализация не блокирует проверку
+задачами: [agent-telegram.md](../agent-telegram.md) и
+[agent-timer.md](../agent-timer.md). Их реализация не блокирует проверку
 демона с тестовым адаптером.
 
 ## Для чего мы делаем?
