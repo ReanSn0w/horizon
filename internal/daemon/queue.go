@@ -35,23 +35,24 @@ func (s Settings) Validate() error {
 }
 
 type Task struct {
-	ID        string `json:"id"`
-	Child     string `json:"child_id"`
-	Owner     string `json:"owner"`
-	Parent    string `json:"parent_child,omitempty"`
-	Workspace string `json:"workspace"`
-	Session   string `json:"session_id"`
-	Turn      string `json:"turn_id,omitempty"`
-	Access    string `json:"access"`
-	Depth     int    `json:"depth"`
-	Message   string `json:"message,omitempty"`
-	State     string `json:"state"`
-	Result    string `json:"result,omitempty"`
-	Error     string `json:"error,omitempty"`
-	ExitCode  int    `json:"exit_code"`
-	Route     string `json:"route,omitempty"`
-	Delivered bool   `json:"delivered"`
-	Sequence  uint64 `json:"sequence"`
+	ID        string        `json:"id"`
+	Child     string        `json:"child_id"`
+	Owner     string        `json:"owner"`
+	Parent    string        `json:"parent_child,omitempty"`
+	Workspace string        `json:"workspace"`
+	Session   string        `json:"session_id"`
+	Turn      string        `json:"turn_id,omitempty"`
+	Access    string        `json:"access"`
+	Depth     int           `json:"depth"`
+	Message   string        `json:"message,omitempty"`
+	State     string        `json:"state"`
+	Result    string        `json:"result,omitempty"`
+	Error     string        `json:"error,omitempty"`
+	ExitCode  int           `json:"exit_code"`
+	Route     string        `json:"route,omitempty"`
+	Delivered bool          `json:"delivered"`
+	Sequence  uint64        `json:"sequence"`
+	Input     *InputReceipt `json:"input,omitempty"`
 }
 type Event struct {
 	Cursor uint64 `json:"cursor"`
