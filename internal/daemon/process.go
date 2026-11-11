@@ -117,6 +117,9 @@ func HorizonRunner(home string) Runner {
 		env := channelEnvironment(childEnv(home, t.Access), t)
 		if t.Session == "" {
 			out := &cappedWriter{limit: 4096}
+			if t.timerExpired(time.Now()) {
+				return Outcome{Err: errTimerWindowElapsed}
+			}
 			code, err := Process(ctx, binary, []string{"--home", home, "sessions", "create"}, env, t.Workspace, "", out)
 			if err != nil {
 				return Outcome{ExitCode: code, Err: err}

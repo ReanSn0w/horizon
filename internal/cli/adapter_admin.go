@@ -31,7 +31,7 @@ func (a *App) runAdapterAdmin(home string, args []string) int {
 		fmt.Fprintf(a.errOut, "horizon: %v\n", err)
 		return ExitUsage
 	}
-	release, err := maintenance.Acquire(home, false)
+	release, err := maintenance.AcquireReadOnly(home)
 	if err != nil {
 		fmt.Fprintf(a.errOut, "horizon: %v\n", err)
 		return ExitFailure

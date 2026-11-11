@@ -702,7 +702,7 @@ func (q *Queue) execute(ctx context.Context, t Task) {
 			q.moveInputToQueuedSuccessor(current)
 			return nil
 		}
-		if expired {
+		if expired || errors.Is(out.Err, errTimerWindowElapsed) {
 			q.markTimerSkipped(current)
 			return nil
 		}

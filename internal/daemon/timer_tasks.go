@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"errors"
 	"regexp"
 	"time"
 )
@@ -9,6 +10,8 @@ const (
 	TimerSource = "timer"
 	FreshTask   = "fresh"
 )
+
+var errTimerWindowElapsed = errors.New("timer window ended before execution")
 
 var timerSourceKey = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,63}$`)
 
@@ -78,6 +81,6 @@ func (q *Queue) skipExpiredTimer(t *Task, now time.Time) bool {
 
 func (q *Queue) markTimerSkipped(t *Task) {
 	t.State = "skipped"
-	t.Error = "timer window ended before execution"
+	t.Error = errTimerWindowElapsed.Error()
 	q.event(t, "")
 }

@@ -46,6 +46,9 @@ func Run(ctx context.Context, home, credential, inherited string, settings Setti
 	if credential == "" || accessLevel(inherited) == 0 {
 		return errors.New("agent-timer must run under the Horizon daemon supervisor")
 	}
+	if accessLevel(settings.Access) == 0 || settings.ReloadInterval < time.Second {
+		return errors.New("invalid agent-timer settings")
+	}
 	if inherited == "read" {
 		return errors.New("read inherited access cannot submit scheduled tasks")
 	}
@@ -54,7 +57,7 @@ func Run(ctx context.Context, home, credential, inherited string, settings Setti
 	}
 	r := &runtime{
 		home: home, settings: settings, now: time.Now, call: daemon.Call, store: newStateStore(home),
-		log: log.New(out, "agent-timer: ", 0), timers: map[string]*plannedTimer{},
+		log:    log.New(out, "agent-timer: ", 0),
 		caller: daemon.Caller{Kind: "adapter", Source: daemon.TimerSource, Workspace: home, Access: inherited, Credential: credential},
 	}
 	if _, err := r.request(ctx, daemon.Request{Method: "list"}); err != nil {
@@ -135,20 +138,20 @@ func (r *runtime) reload(now time.Time) {
 	r.timers = next
 }
 
-func (r *runtime) advance(planned *plannedTimer, after time.Time) bool {
+func (r *runtime) advance(planned *plannedTimer, after time.Time) {
 	slot, err := planned.schedule.Next(after)
 	if err != nil {
 		planned.next = Slot{}
 		r.log.Printf("%s: %v", planned.definition.ID, err)
-		return false
+		return
 	}
 	planned.next = slot
-	return true
 }
 
 func (r *runtime) tick(ctx context.Context) {
 	now := r.now().Round(0)
-	jumped := now.Before(r.lastTick) || now.Sub(r.lastTick) > slotTolerance
+	forwardJump := now.Sub(r.lastTick) > slotTolerance
+	jumped := now.Before(r.lastTick) || forwardJump
 	r.lastTick = now
 	if r.lastReload.IsZero() || now.Before(r.lastReload) || now.Sub(r.lastReload) >= r.settings.ReloadInterval {
 		r.reload(now)
@@ -175,6 +178,9 @@ func (r *runtime) tick(ctx context.Context) {
 		}
 		planned := r.timers[id]
 		if jumped {
+			if forwardJump && !planned.next.At.IsZero() && !now.Before(planned.next.At) {
+				r.skip(id, now, "clock advanced past a scheduled slot")
+			}
 			after := now
 			if through := records[id].Through; through.After(after) {
 				after = through
@@ -223,15 +229,18 @@ func (r *runtime) requestAt(ctx context.Context, workspace string, request daemo
 }
 
 func (r *runtime) skip(id string, at time.Time, reason string) {
-	r.change(id, func(record *Record) bool {
+	changed := false
+	if r.change(id, func(record *Record) bool {
 		if !at.After(record.Through) {
 			return false
 		}
 		record.Through = at
-		record.LastEvent = reason
+		record.LastEvent = "skipped: " + reason
+		changed = true
 		return true
-	})
-	r.log.Printf("%s: skipped %s (%s)", id, at.Format(time.RFC3339Nano), reason)
+	}) && changed {
+		r.log.Printf("%s: skipped through %s (%s)", id, at.Format(time.RFC3339Nano), reason)
+	}
 }
 
 func (r *runtime) change(id string, update func(*Record) bool) bool {
@@ -259,6 +268,17 @@ func (r *runtime) submit(ctx context.Context, def Definition, slot Slot) {
 		begin = true
 		return true
 	}) || !begin {
+		return
+	}
+	// Persistence may have taken longer than the slot tolerance, including
+	// a machine suspend while the state file was being flushed.
+	now := r.now().Round(0)
+	if now.Before(slot.At) || now.Sub(slot.At) > slotTolerance {
+		r.finishRejected(def.ID, intent, "slot_elapsed")
+		return
+	}
+	if slot.Deadline != nil && !now.Before(*slot.Deadline) {
+		r.finishRejected(def.ID, intent, "window_ended")
 		return
 	}
 	data, err := r.requestAt(ctx, def.Workspace, daemon.Request{

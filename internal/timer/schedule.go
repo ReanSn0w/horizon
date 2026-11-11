@@ -23,7 +23,12 @@ type Schedule struct {
 	every   time.Duration
 	cron    [5]cronField
 	zone    *time.Location
-	windows *[minutesPerDay]bool
+	windows *windowSchedule
+}
+
+type windowSchedule struct {
+	open       [minutesPerDay]bool
+	nextChange [minutesPerDay]uint16
 }
 
 type Slot struct {
@@ -57,7 +62,7 @@ func Compile(cfg ScheduleConfig) (Schedule, error) {
 	if len(cfg.Windows) == 0 {
 		return s, nil
 	}
-	var windows [minutesPerDay]bool
+	var windows windowSchedule
 	for i, window := range cfg.Windows {
 		start, err := parseClock(window.Start)
 		if err != nil {
@@ -71,13 +76,39 @@ func Compile(cfg ScheduleConfig) (Schedule, error) {
 			return Schedule{}, fmt.Errorf("schedule.windows[%d]: start and end must differ", i)
 		}
 		for m := start; m != end; m = (m + 1) % minutesPerDay {
-			windows[m] = true
+			windows.open[m] = true
 		}
 	}
-	for _, open := range windows {
+	for _, open := range windows.open {
 		if !open {
 			s.windows = &windows
 			break
+		}
+	}
+	if s.windows == nil {
+		return s, nil
+	}
+	distance := 1
+	for i := 2*minutesPerDay - 2; i >= 0; i-- {
+		if windows.open[i%minutesPerDay] == windows.open[(i+1)%minutesPerDay] {
+			distance++
+		} else {
+			distance = 1
+		}
+		if i < minutesPerDay {
+			windows.nextChange[i] = uint16(distance)
+		}
+	}
+	if s.every == 0 {
+		matches := false
+		for minute, open := range windows.open {
+			if open && s.cron[0].includes(minute%60) && s.cron[1].includes(minute/60) {
+				matches = true
+				break
+			}
+		}
+		if !matches {
+			return Schedule{}, errors.New("schedule.cron has no minutes within schedule.windows")
 		}
 	}
 	return s, nil
@@ -194,7 +225,7 @@ func (s Schedule) matchesDay(local time.Time) bool {
 func minuteOfDay(t time.Time) int { return t.Hour()*60 + t.Minute() }
 
 func (s Schedule) open(t time.Time) bool {
-	return s.windows == nil || s.windows[minuteOfDay(t)]
+	return s.windows == nil || s.windows.open[minuteOfDay(t)]
 }
 
 // Next returns the first matching slot strictly after the supplied wall clock.
@@ -208,7 +239,7 @@ func (s Schedule) Next(after time.Time) (Slot, error) {
 			if s.open(at) {
 				return s.slot(at), nil
 			}
-			at = at.Add(s.every)
+			at = firstInterval(s.nextWindowChange(at).Add(-time.Nanosecond), s.every)
 		}
 	} else {
 		limit := after.AddDate(searchYears, 0, 0)
@@ -277,16 +308,29 @@ func repeatedMinute(at time.Time) bool {
 	return previous > current && at.Before(start.Add(time.Duration(previous-current)*time.Second))
 }
 
+// nextWindowChange follows wall-time window boundaries, checking the offset
+// transition separately when DST moves the clock across one of those bounds.
+func (s Schedule) nextWindowChange(at time.Time) time.Time {
+	open := s.open(at)
+	for {
+		distance := time.Duration(s.windows.nextChange[minuteOfDay(at)]) * time.Minute
+		next := at.Add(distance - time.Duration(at.Second())*time.Second - time.Duration(at.Nanosecond()))
+		_, zoneEnd := at.ZoneBounds()
+		if !zoneEnd.IsZero() && zoneEnd.Before(next) {
+			next = zoneEnd
+		}
+		if s.open(next) != open {
+			return next
+		}
+		at = next
+	}
+}
+
 func (s Schedule) slot(at time.Time) Slot {
 	slot := Slot{At: at.UTC()}
-	if s.windows == nil {
-		return slot
+	if s.windows != nil {
+		deadline := s.nextWindowChange(at).UTC()
+		slot.Deadline = &deadline
 	}
-	for end := nextWallMinute(at); ; end = nextWallMinute(end) {
-		if !s.open(end) {
-			deadline := end.UTC()
-			slot.Deadline = &deadline
-			return slot
-		}
-	}
+	return slot
 }

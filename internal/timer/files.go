@@ -192,8 +192,8 @@ func parseFile(id string, data []byte) (Definition, error) {
 	if fields.Schedule == nil {
 		return Definition{}, errors.New("schedule is required")
 	}
-	message := strings.TrimSpace(string(tail[index+len("\n---\n"):]))
-	if message == "" {
+	message := strings.Trim(string(tail[index+len("\n---\n"):]), "\n")
+	if strings.TrimSpace(message) == "" {
 		return Definition{}, errors.New("Markdown task is required")
 	}
 	return Definition{
@@ -217,8 +217,15 @@ func checkYAML(node *yaml.Node, path string) error {
 			if path != "" {
 				field = path + "." + field
 			}
-			if field == "enabled" && value.Tag != "!!bool" {
-				return fmt.Errorf("line %d: enabled must be a boolean", value.Line)
+			switch field {
+			case "enabled":
+				if value.Tag != "!!bool" {
+					return fmt.Errorf("line %d: enabled must be a boolean", value.Line)
+				}
+			case "schedule.every", "schedule.cron":
+				if value.Tag != "!!str" || strings.TrimSpace(value.Value) == "" {
+					return fmt.Errorf("line %d: %s must be a nonempty string", value.Line, field)
+				}
 			}
 			if err := checkYAML(value, field); err != nil {
 				return err
