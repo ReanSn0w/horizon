@@ -55,10 +55,19 @@ func ReadBot(cfg config.Config) (BotSettings, error) {
 	if err := decodeSection(section, &value); err != nil {
 		return value, errors.New("invalid plugins.telegram fields")
 	}
-	if value.Owner <= 0 || strings.TrimSpace(value.Token) == "" || strings.ContainsAny(value.Token, " /?#\\\r\n\t") {
+	if value.Owner <= 0 || value.BotID() <= 0 || strings.ContainsAny(value.Token, " /?#\\\r\n\t") {
 		return value, errors.New("set plugins.telegram.bot_token and a positive owner_user_id")
 	}
 	return value, nil
+}
+
+func (b BotSettings) BotID() int64 {
+	prefix, token, ok := strings.Cut(b.Token, ":")
+	id, err := strconv.ParseInt(prefix, 10, 64)
+	if !ok || token == "" || err != nil || strconv.FormatInt(id, 10) != prefix {
+		return 0
+	}
+	return id
 }
 
 func ReadAdapter(cfg config.Config, home string) (AdapterSettings, error) {
