@@ -17,7 +17,9 @@ func (r Request) validateTimerFields() error {
 	if r.Mode != "" || r.SourceKey != "" || r.Deadline != nil || timer && r.Method == "submit" {
 		if !timer || r.Method != "submit" || r.Mode != FreshTask ||
 			!timerSourceKey.MatchString(r.SourceKey) || r.Caller.Session != "" ||
-			r.Route != "" || r.Deadline != nil && r.Deadline.IsZero() {
+			r.Route != "" || r.Delivery != "" || r.Channel || r.Author != "" ||
+			r.TaskID != "" || r.InputID != "" || r.TurnID != "" || r.Tree ||
+			r.Deadline != nil && r.Deadline.IsZero() {
 			return fail("invalid_request", "fresh timer submission requires timer source, source_key and workspace")
 		}
 	}
@@ -29,6 +31,15 @@ func (r Request) validateTimerFields() error {
 
 func (t *Task) isTimer() bool {
 	return t.Mode == FreshTask && t.Owner == "adapter:"+TimerSource
+}
+
+func (t *Task) validTimerFields() bool {
+	if t.Mode == "" {
+		return t.SourceKey == "" && t.Deadline == nil
+	}
+	return t.isTimer() && t.Child == t.ID && t.Parent == "" && t.Depth == 1 &&
+		timerSourceKey.MatchString(t.SourceKey) && t.Route == "" && !t.Channel && !t.ActiveInput &&
+		(t.Deadline == nil || !t.Deadline.IsZero())
 }
 
 func (q *Queue) initTimerTask(t *Task, r Request) error {

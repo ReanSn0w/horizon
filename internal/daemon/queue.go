@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
@@ -19,42 +20,57 @@ import (
 )
 
 type Settings struct {
-	Parallel int      `yaml:"parallel_per_depth"`
-	Depth    int      `yaml:"max_depth"`
-	Children int      `yaml:"max_children"`
-	Queue    int      `yaml:"max_queue"`
-	Adapters []string `yaml:"adapters"`
+	Parallel      int      `yaml:"parallel_per_depth"`
+	ActiveDialogs int      `yaml:"max_active_adapter_dialogs"`
+	Depth         int      `yaml:"max_depth"`
+	Children      int      `yaml:"max_children"`
+	Queue         int      `yaml:"max_queue"`
+	Adapters      []string `yaml:"adapters"`
 }
 
-func Defaults() Settings { return Settings{Parallel: 2, Depth: 4, Children: 16, Queue: 128} }
+func Defaults() Settings {
+	return Settings{Parallel: 2, ActiveDialogs: 2, Depth: 4, Children: 16, Queue: 128}
+}
 func (s Settings) Validate() error {
-	if s.Parallel < 1 || s.Parallel > 16 || s.Depth < 1 || s.Depth > 8 || s.Children < 1 || s.Children > 128 || s.Queue < 1 || s.Queue > 4096 || len(s.Adapters) > 16 {
+	if s.ActiveDialogs < 1 || s.ActiveDialogs > 128 {
+		return errors.New("max_active_adapter_dialogs must be 1..128")
+	}
+	if s.Parallel < 1 || s.Parallel > 16 || s.Depth < 1 || s.Depth > 8 || s.Children < 1 || s.Children > 128 ||
+		s.Queue < 1 || s.Queue > 4096 || len(s.Adapters) > 16 {
 		return errors.New("invalid daemon limits")
 	}
 	return nil
 }
 
 type Task struct {
-	ID        string     `json:"id"`
-	Child     string     `json:"child_id"`
-	Owner     string     `json:"owner"`
-	Parent    string     `json:"parent_child,omitempty"`
-	Workspace string     `json:"workspace"`
-	Session   string     `json:"session_id"`
-	Turn      string     `json:"turn_id,omitempty"`
-	Access    string     `json:"access"`
-	Depth     int        `json:"depth"`
-	Message   string     `json:"message,omitempty"`
-	State     string     `json:"state"`
-	Result    string     `json:"result,omitempty"`
-	Error     string     `json:"error,omitempty"`
-	ExitCode  int        `json:"exit_code"`
-	Route     string     `json:"route,omitempty"`
-	Mode      string     `json:"mode,omitempty"`
-	SourceKey string     `json:"source_key,omitempty"`
-	Deadline  *time.Time `json:"deadline,omitempty"`
-	Delivered bool       `json:"delivered"`
-	Sequence  uint64     `json:"sequence"`
+	ID              string        `json:"id"`
+	Child           string        `json:"child_id"`
+	Owner           string        `json:"owner"`
+	Parent          string        `json:"parent_child,omitempty"`
+	Workspace       string        `json:"workspace"`
+	Session         string        `json:"session_id"`
+	Turn            string        `json:"turn_id,omitempty"`
+	Access          string        `json:"access"`
+	Depth           int           `json:"depth"`
+	Message         string        `json:"message,omitempty"`
+	State           string        `json:"state"`
+	Result          string        `json:"result,omitempty"`
+	Error           string        `json:"error,omitempty"`
+	ExitCode        int           `json:"exit_code"`
+	Route           string        `json:"route,omitempty"`
+	Mode            string        `json:"mode,omitempty"`
+	SourceKey       string        `json:"source_key,omitempty"`
+	Deadline        *time.Time    `json:"deadline,omitempty"`
+	Delivered       bool          `json:"delivered"`
+	Sequence        uint64        `json:"sequence"`
+	Input           *InputReceipt `json:"input,omitempty"`
+	Channel         bool          `json:"channel,omitempty"`
+	ActiveInput     bool          `json:"active_input,omitempty"`
+	InputClosed     bool          `json:"input_closed,omitempty"`
+	InputResolved   bool          `json:"input_resolved,omitempty"`
+	InputIDs        []string      `json:"input_ids,omitempty"`
+	DispatchOrder   uint64        `json:"dispatch_order,omitempty"`
+	inputCredential string
 }
 type Event struct {
 	Cursor uint64 `json:"cursor"`
@@ -64,16 +80,19 @@ type Event struct {
 	Stage  string `json:"stage,omitempty"`
 }
 type Operation struct {
-	Hash   string `json:"hash"`
-	TaskID string `json:"task_id"`
+	Hash    string `json:"hash"`
+	TaskID  string `json:"task_id"`
+	InputID string `json:"input_id,omitempty"`
 }
 type diskState struct {
-	Version    int                  `json:"version"`
-	Tasks      map[string]*Task     `json:"tasks"`
-	Operations map[string]Operation `json:"operations"`
-	Events     []Event              `json:"events"`
-	Cursor     uint64               `json:"cursor"`
-	Sequence   uint64               `json:"sequence"`
+	Version       int                     `json:"version"`
+	Tasks         map[string]*Task        `json:"tasks"`
+	Operations    map[string]Operation    `json:"operations"`
+	Events        []Event                 `json:"events"`
+	Cursor        uint64                  `json:"cursor"`
+	Sequence      uint64                  `json:"sequence"`
+	InputSequence uint64                  `json:"input_sequence,omitempty"`
+	Inputs        map[string]*storedInput `json:"inputs"`
 }
 type Outcome struct {
 	Text     string
@@ -83,29 +102,40 @@ type Outcome struct {
 }
 type Runner func(context.Context, Task, func(string) error, func(string, string)) Outcome
 type Queue struct {
-	mu          sync.Mutex
-	home        string
-	settings    Settings
-	state       diskState
-	running     map[string]context.CancelFunc
-	runner      Runner
-	fatal       error
-	write       func(string, []byte) error
-	adapters    map[string]string
-	timerAccess string
+	mu               sync.Mutex
+	home             string
+	settings         Settings
+	state            diskState
+	running          map[string]context.CancelFunc
+	runner           Runner
+	fatal            error
+	write            func(string, []byte) error
+	adapters         map[string]string
+	inputCredentials map[string]string
+	timerAccess      string
 }
 
 func OpenQueue(home string, settings Settings, runner Runner) (*Queue, error) {
 	if err := settings.Validate(); err != nil {
 		return nil, err
 	}
-	q := &Queue{home: home, settings: settings, runner: runner, running: map[string]context.CancelFunc{}, write: atomicState, adapters: map[string]string{}, timerAccess: "write"}
-	q.state = diskState{Version: 1, Tasks: map[string]*Task{}, Operations: map[string]Operation{}, Events: []Event{}}
+	q := &Queue{home: home, settings: settings, runner: runner, running: map[string]context.CancelFunc{}, write: atomicState, adapters: map[string]string{}, inputCredentials: map[string]string{}, timerAccess: "write"}
+	q.state = diskState{Version: 2, Tasks: map[string]*Task{}, Operations: map[string]Operation{}, Events: []Event{}, Inputs: map[string]*storedInput{}}
 	b, err := os.ReadFile(filepath.Join(home, "daemon", "state.json"))
 	if err == nil {
-		if json.Unmarshal(b, &q.state) != nil || q.state.Version != 1 || q.state.Tasks == nil || q.state.Operations == nil {
+		var state diskState
+		if err := json.Unmarshal(b, &state); err != nil {
 			return nil, errors.New("invalid daemon state")
 		}
+		switch state.Version {
+		case 1:
+			state.Version = 2
+			state.Inputs = map[string]*storedInput{}
+		case 2:
+		default:
+			return nil, fmt.Errorf("unsupported daemon state version %d", state.Version)
+		}
+		q.state = state
 	} else if !os.IsNotExist(err) {
 		return nil, err
 	}
@@ -245,6 +275,13 @@ func summary(t *Task) *Task {
 	v.Workspace = ""
 	v.Message = ""
 	v.Result = ""
+	if v.Deadline != nil {
+		deadline := *v.Deadline
+		v.Deadline = &deadline
+	}
+	v.InputIDs = nil
+	v.DispatchOrder = 0
+	v.inputCredential = ""
 	return &v
 }
 func (q *Queue) Handle(ctx context.Context, r Request) (any, error) {
@@ -278,6 +315,8 @@ func (q *Queue) Handle(ctx context.Context, r Request) (any, error) {
 	switch r.Method {
 	case "list", "read", "lookup":
 		return q.read(r)
+	case "input_next", "input_close", "input_ack":
+		return q.handleTurnInput(r)
 	}
 	c, err := q.caller(r.Caller)
 	if err != nil {
@@ -296,7 +335,12 @@ func (q *Queue) Handle(ctx context.Context, r Request) (any, error) {
 	if q.fatal != nil {
 		return nil, fail("storage_error", "scheduler stopped after a persistence failure")
 	}
-	if r.Method != "submit" && r.Method != "send" && r.Method != "cancel" && r.Method != "ack" {
+	if r.Delivery != "" && (r.Delivery != ActiveDelivery || r.Method != "submit" || c.Kind != "adapter") {
+		return nil, fail("invalid_request", "active delivery requires adapter submit")
+	}
+	switch r.Method {
+	case "submit", "send", "cancel", "ack", "resolve_input":
+	default:
 		return nil, fail("unknown_method", "unsupported method")
 	}
 	if err := r.validateTimerFields(); err != nil {
@@ -313,7 +357,10 @@ func (q *Queue) Handle(ctx context.Context, r Request) (any, error) {
 		if op.Hash != digest {
 			return nil, fail("operation_conflict", "operation ID reused with different contents")
 		}
-		return summary(q.state.Tasks[op.TaskID]), nil
+		return q.operationResult(op), nil
+	}
+	if r.Delivery == ActiveDelivery {
+		return q.acceptActiveInput(r, key, digest)
 	}
 	var target *Task
 	if r.Method != "submit" {
@@ -325,6 +372,9 @@ func (q *Queue) Handle(ctx context.Context, r Request) (any, error) {
 			return nil, fail("invalid_request", "timer runs always use a fresh session")
 		}
 	}
+	if r.Method == "resolve_input" {
+		return q.resolveActiveInput(target, key, digest)
+	}
 	var result *Task
 	var cancels []string
 	err = q.transaction(func() error {
@@ -333,13 +383,7 @@ func (q *Queue) Handle(ctx context.Context, r Request) (any, error) {
 			if strings.TrimSpace(r.Message) == "" || len(r.Message) > 128*1024 {
 				return fail("invalid_request", "message must be 1..131072 bytes")
 			}
-			pending := 0
-			for _, t := range q.state.Tasks {
-				if t.State == "queued" || t.State == "running" {
-					pending++
-				}
-			}
-			if pending >= q.settings.Queue {
+			if q.queueFull() {
 				return fail("queue_full", "pending queue limit reached")
 			}
 			access := r.Access
@@ -425,7 +469,7 @@ func (q *Queue) Handle(ctx context.Context, r Request) (any, error) {
 			target.Delivered = true
 			result = target
 		}
-		q.state.Operations[key] = Operation{digest, result.ID}
+		q.state.Operations[key] = Operation{Hash: digest, TaskID: result.ID}
 		return nil
 	})
 	if err != nil {
@@ -449,7 +493,7 @@ func (q *Queue) read(r Request) (any, error) {
 		if !ok {
 			return nil, fail("not_found", "operation not found")
 		}
-		return summary(q.state.Tasks[op.TaskID]), nil
+		return q.operationResult(op), nil
 	}
 	if r.Method == "read" {
 		t := q.state.Tasks[r.TaskID]
@@ -531,55 +575,59 @@ func (q *Queue) Run(ctx context.Context) error {
 			q.mu.Unlock()
 			return e
 		}
-		counts := map[int]int{}
-		busy := map[string]bool{}
-		busyTimerWorkspaces := map[string]bool{}
-		for id := range q.running {
-			t := q.state.Tasks[id]
-			counts[t.Depth]++
-			busy[t.Child] = true
-			if t.isTimer() {
-				busyTimerWorkspaces[t.Workspace] = true
-			}
-		}
-		tasks := []*Task{}
+		slots := q.occupiedSlots()
+		blockedChildren := make(map[string]bool)
+		lastDispatch := make(map[string]uint64)
+		var tasks []*Task
 		for _, t := range q.state.Tasks {
-			tasks = append(tasks, t)
+			if t.State == "unknown" && !t.InputResolved {
+				blockedChildren[t.Child] = true
+			}
+			if dialog := t.dialogKey(); dialog != "" && t.DispatchOrder > lastDispatch[dialog] {
+				lastDispatch[dialog] = t.DispatchOrder
+			}
+			if t.State == "queued" {
+				tasks = append(tasks, t)
+			}
 		}
-		sort.Slice(tasks, func(i, j int) bool { return tasks[i].Sequence < tasks[j].Sequence })
-		blocked := map[string]bool{}
+		sort.Slice(tasks, func(i, j int) bool {
+			left, right := tasks[i].dialogKey(), tasks[j].dialogKey()
+			if (left == "") != (right == "") {
+				return left == ""
+			}
+			if lastDispatch[left] != lastDispatch[right] {
+				return lastDispatch[left] < lastDispatch[right]
+			}
+			return tasks[i].Sequence < tasks[j].Sequence
+		})
 		for _, t := range tasks {
-			if t.State == "unknown" {
-				blocked[t.Child] = true
-			}
-			if t.State != "queued" {
-				continue
-			}
 			if q.skipExpiredTimer(t, time.Now()) {
 				if q.fatal != nil {
 					break
 				}
 				continue
 			}
-			if t.isTimer() && busyTimerWorkspaces[t.Workspace] {
+			if blockedChildren[t.Child] || !slots.available(q.settings, t) {
 				continue
 			}
-			if busy[t.Child] || blocked[t.Child] || counts[t.Depth] >= q.settings.Parallel {
-				continue
-			}
-			err := q.transaction(func() error { t.State = "running"; q.event(t, ""); return nil })
+			err := q.transaction(func() error {
+				t.State = "running"
+				q.event(t, "")
+				t.DispatchOrder = q.state.Cursor
+				return nil
+			})
 			if err != nil {
 				q.fatal = err
 				break
 			}
 			jobCtx, cancel := context.WithCancel(ctx)
 			q.running[t.ID] = cancel
-			if t.isTimer() {
-				busyTimerWorkspaces[t.Workspace] = true
-			}
-			busy[t.Child] = true
-			counts[t.Depth]++
+			slots.reserve(t)
 			copyTask := *t
+			if t.ActiveInput {
+				copyTask.inputCredential = newID()
+				q.inputCredentials[t.ID] = copyTask.inputCredential
+			}
 			wg.Add(1)
 			go func() { defer wg.Done(); defer cancel(); q.execute(jobCtx, copyTask) }()
 		}
@@ -625,9 +673,11 @@ func (q *Queue) execute(ctx context.Context, t Task) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	delete(q.running, t.ID)
+	delete(q.inputCredentials, t.ID)
 	if err := q.transaction(func() error {
 		current := q.state.Tasks[t.ID]
 		if current.State == "cancelled" {
+			q.moveInputToQueuedSuccessor(current)
 			return nil
 		}
 		current.Result = out.Text
@@ -642,6 +692,7 @@ func (q *Queue) execute(ctx context.Context, t Task) {
 			current.State = "cancelled"
 		}
 		q.event(current, "")
+		q.moveInputToQueuedSuccessor(current)
 		return nil
 	}); err != nil {
 		q.fatal = err
@@ -650,12 +701,15 @@ func (q *Queue) execute(ctx context.Context, t Task) {
 
 func (s diskState) validate() error {
 	bad := errors.New("invalid daemon state; inspect offline before restart")
+	if s.Tasks == nil || s.Operations == nil || s.Inputs == nil {
+		return bad
+	}
 	for id, t := range s.Tasks {
-		if t == nil || t.ID != id || t.Owner == "" || !filepath.IsAbs(t.Workspace) || level(t.Access) == 0 || t.Depth < 1 || t.Depth > 8 || t.Sequence == 0 || t.Sequence > s.Sequence {
+		if t == nil || t.ID != id || t.Owner == "" || !filepath.IsAbs(t.Workspace) || level(t.Access) == 0 || t.Depth < 1 || t.Depth > 8 || t.Sequence == 0 || t.Sequence > s.Sequence || t.DispatchOrder > s.Cursor {
 			return bad
 		}
 		root := s.Tasks[t.Child]
-		if root == nil || root.Child != root.ID {
+		if root == nil || root.Child != root.ID || !t.validTimerFields() {
 			return bad
 		}
 		switch t.State {
@@ -669,7 +723,7 @@ func (s diskState) validate() error {
 		}
 	}
 	for _, op := range s.Operations {
-		if s.Tasks[op.TaskID] == nil || len(op.Hash) != 64 {
+		if s.Tasks[op.TaskID] == nil || len(op.Hash) != 64 || op.InputID != "" && s.Inputs[op.InputID] == nil {
 			return bad
 		}
 	}
@@ -679,6 +733,9 @@ func (s diskState) validate() error {
 			return bad
 		}
 		cursor = e.Cursor
+	}
+	if !s.validInputs() {
+		return bad
 	}
 	return nil
 }

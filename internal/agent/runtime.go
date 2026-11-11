@@ -17,6 +17,7 @@ import (
 	"github.com/ReanSn0w/horizon/internal/plugins"
 	"github.com/ReanSn0w/horizon/internal/responses"
 	"github.com/ReanSn0w/horizon/internal/session"
+	"github.com/ReanSn0w/horizon/internal/turninput"
 )
 
 const Introduction = "You are an autonomous coding agent operating through Horizon. Work carefully in the current workspace, use tools when needed, and continue until the user's task is complete."
@@ -43,6 +44,7 @@ type Runtime struct {
 	MaxDuration    time.Duration
 	Publish        eventstream.Publish
 	Now            func() time.Time
+	Inbound        turninput.Channel
 }
 
 type Result struct {
@@ -85,9 +87,24 @@ func (r *Runtime) Run(ctx context.Context, message string) (Result, error) {
 		return Result{}, err
 	}
 	started := now().UTC()
-	turn := session.Turn{
-		ID: turnID, Status: session.StatusActive, StartedAt: started, Model: r.Profile,
-		Messages: []session.Message{{Role: "user", Text: message}},
+	turn := session.Turn{ID: turnID, Status: session.StatusActive, StartedAt: started, Model: r.Profile}
+	var firstInbound *turninput.Message
+	if r.Inbound == nil {
+		turn.Messages = []session.Message{{Role: "user", Text: message}}
+	} else {
+		firstInbound, err = r.firstInbound(ctx, turnID)
+		if err != nil {
+			if parentContext.Err() != nil {
+				return Result{}, &Error{Code: "turn_cancelled", Cause: parentContext.Err()}
+			}
+			return Result{}, err
+		}
+		if firstInbound == nil {
+			if r.Publish != nil {
+				r.Publish(eventstream.New("turn_skipped", r.Session.SessionID, nil, map[string]string{"reason": "no_new_input"}))
+			}
+			return Result{SessionID: r.Session.SessionID}, nil
+		}
 	}
 	if err := r.Locked.StartTurn(turn); err != nil {
 		return Result{}, fmt.Errorf("start turn: %w", err)
@@ -104,7 +121,14 @@ func (r *Runtime) Run(ctx context.Context, message string) (Result, error) {
 	if err != nil {
 		return Result{}, r.fail(turnID, "context_reconstruction_failed", err, now)
 	}
-	input = append(input, responses.UserMessage(message))
+	if firstInbound == nil {
+		input = append(input, responses.UserMessage(message))
+	} else {
+		input, _, err = r.recordInbound(ctx, turnID, input, *firstInbound)
+		if err != nil {
+			return Result{}, r.stop(turnID, err, ctx, parentContext, now)
+		}
+	}
 	needsCompact := previousWindowOverThreshold(r.Session, r.Profile.CompactThreshold)
 	executor := agenttool.NewExecutor(r.Workspace.Dir, r.Store.ArtifactsDir(r.Workspace, r.Session.SessionID), r.Locked, turnID)
 	defer executor.Close()
@@ -136,9 +160,27 @@ func (r *Runtime) Run(ctx context.Context, message string) (Result, error) {
 		return nil
 	}
 
+	continuationLimit := func() error {
+		if r.MaxInputTokens > 0 && totalInputTokens >= r.MaxInputTokens {
+			return errInputTokenLimit
+		}
+		if r.MaxRequests > 0 && requests >= r.MaxRequests {
+			return errRequestLimit
+		}
+		return nil
+	}
 	for {
 		if r.MaxInputTokens > 0 && totalInputTokens >= r.MaxInputTokens {
 			return Result{}, r.stop(turnID, errInputTokenLimit, ctx, parentContext, now)
+		}
+		if r.Inbound != nil {
+			if err := continuationLimit(); err != nil {
+				return Result{}, r.stop(turnID, err, ctx, parentContext, now)
+			}
+			input, _, err = r.drainInbound(ctx, turnID, input, false, nil)
+			if err != nil {
+				return Result{}, r.stop(turnID, err, ctx, parentContext, now)
+			}
 		}
 		if needsCompact {
 			if executor.HasUnreportedProcesses() {
@@ -180,6 +222,15 @@ func (r *Runtime) Run(ctx context.Context, message string) (Result, error) {
 			needsCompact = false
 			lastInputTokens = nil
 			r.publish("compaction_completed", turnID, map[string]any{"compaction_id": compact.ID, "automatic": false})
+			if r.Inbound != nil {
+				if err := continuationLimit(); err != nil {
+					return Result{}, r.stop(turnID, err, ctx, parentContext, now)
+				}
+				input, _, err = r.drainInbound(ctx, turnID, input, false, nil)
+				if err != nil {
+					return Result{}, r.stop(turnID, err, ctx, parentContext, now)
+				}
+			}
 		}
 		request := responses.Request{
 			Model: r.Profile.Model, Instructions: r.Instructions.Prompt, Input: clone(input),
@@ -274,11 +325,25 @@ func (r *Runtime) Run(ctx context.Context, message string) (Result, error) {
 			}
 			encodedResults, _ := json.Marshal(results)
 			status := fmt.Sprintf("Horizon waited for managed shell processes before completing this turn. Final process results: %s. Use these actual results in your final answer.", encodedResults)
-			input = append(input, responses.DeveloperMessage(status))
+			summaryItem := responses.DeveloperMessage(status)
+			if err := r.Locked.AppendAPIItems(turnID, []json.RawMessage{summaryItem}); err != nil {
+				return Result{}, r.fail(turnID, "session_write_failed", err, now)
+			}
+			input = append(input, summaryItem)
 			r.publish("processes_completed", turnID, map[string]any{"results": results})
 			continue
 		}
 
+		if r.Inbound != nil {
+			var added int
+			input, added, err = r.drainInbound(ctx, turnID, input, true, continuationLimit())
+			if err != nil {
+				return Result{}, r.stop(turnID, err, ctx, parentContext, now)
+			}
+			if added > 0 {
+				continue
+			}
+		}
 		text, err := responses.OutputText(response.Output)
 		if err != nil {
 			return Result{}, r.fail(turnID, "invalid_response", err, now)
@@ -354,6 +419,10 @@ var errInputTokenLimit = errors.New("input token limit exceeded; another request
 func (r *Runtime) stop(turnID string, cause error, turnContext, parentContext context.Context, now func() time.Time) error {
 	status := session.StatusFailed
 	code := responseErrorCode(cause)
+	var inputError *Error
+	if errors.As(cause, &inputError) {
+		code = inputError.Code
+	}
 	if errors.Is(cause, errRequestLimit) {
 		code = "request_limit_exceeded"
 	} else if errors.Is(cause, errInputTokenLimit) {
@@ -418,49 +487,102 @@ func BuildInput(value *session.Session) ([]json.RawMessage, error) {
 
 	for index := boundaryIndex + 1; index < len(value.Turns); index++ {
 		turn := value.Turns[index]
-		for _, message := range turn.Messages {
-			if message.Role == "user" {
-				input = append(input, responses.UserMessage(message.Text))
-			}
-		}
-		calls := make(map[string]session.ToolCall, len(turn.ToolCalls))
-		hasUnknown := false
-		for _, call := range turn.ToolCalls {
-			calls[call.CallID] = call
-			hasUnknown = hasUnknown || call.ResultState == session.ToolResultUnknown || call.ResultState == session.ToolResultPending
-		}
-		for _, item := range turn.APIItems {
-			if hasUnknown {
-				continue
-			}
-			var header struct {
-				Type   string `json:"type"`
-				CallID string `json:"call_id"`
-			}
-			if err := json.Unmarshal(item, &header); err != nil {
-				return nil, fmt.Errorf("turn %s contains invalid API item: %w", turn.ID, err)
-			}
-			if header.Type == "compaction" {
-				continue
-			}
-			if header.Type != "function_call" {
-				input = append(input, append(json.RawMessage(nil), item...))
-				continue
-			}
-			call, ok := calls[header.CallID]
-			if !ok || call.ResultState != session.ToolResultKnown {
-				continue
-			}
-			input = append(input, append(json.RawMessage(nil), item...))
-			output, err := responses.FunctionOutput(call.CallID, call.Result)
-			if err != nil {
-				return nil, err
-			}
-			input = append(input, output)
+		var err error
+		input, err = rebuildTurn(input, turn)
+		if err != nil {
+			return nil, fmt.Errorf("reconstruct turn %s: %w", turn.ID, err)
 		}
 		input = append(input, responses.DeveloperMessage(failedTurnSummary(turn)))
 	}
 	return input, nil
+}
+
+func inboundUserMessage(author, text string) json.RawMessage {
+	return responses.UserMessage(fmt.Sprintf("Sender: %q\n\n%s", author, text))
+}
+
+func rebuildTurn(input []json.RawMessage, turn session.Turn) ([]json.RawMessage, error) {
+	var inbound []session.Message
+	for _, message := range turn.Messages {
+		if message.Role != "user" {
+			continue
+		}
+		if message.Inbound == nil {
+			input = append(input, responses.UserMessage(message.Text))
+			continue
+		}
+		inbound = append(inbound, message)
+	}
+	appendInboundAt := func(boundary int) {
+		for len(inbound) > 0 && inbound[0].Inbound.AfterAPIItems == boundary {
+			input = append(input, inboundUserMessage(inbound[0].Inbound.Author, inbound[0].Text))
+			inbound = inbound[1:]
+		}
+	}
+	appendInboundAt(0)
+	calls := make(map[string]session.ToolCall, len(turn.ToolCalls))
+	hasUnknown := false
+	for _, call := range turn.ToolCalls {
+		calls[call.CallID] = call
+		hasUnknown = hasUnknown || call.ResultState == session.ToolResultUnknown || call.ResultState == session.ToolResultPending
+	}
+	if len(turn.APIBatchEnds) == 0 {
+		if hasUnknown {
+			// Older sessions cannot identify which response held the unknown call.
+			return input, nil
+		}
+		for index := range turn.APIItems {
+			var err error
+			input, err = appendKnownBatch(input, turn.APIItems[index:index+1], calls)
+			if err != nil {
+				return nil, err
+			}
+		}
+		return input, nil
+	}
+
+	start := 0
+	for _, end := range turn.APIBatchEnds {
+		var err error
+		input, err = appendKnownBatch(input, turn.APIItems[start:end], calls)
+		if err != nil {
+			return nil, err
+		}
+		appendInboundAt(end)
+		start = end
+	}
+	return input, nil
+}
+
+func appendKnownBatch(input, batch []json.RawMessage, calls map[string]session.ToolCall) ([]json.RawMessage, error) {
+	var items, outputs []json.RawMessage
+	for _, item := range batch {
+		var header struct {
+			Type   string `json:"type"`
+			CallID string `json:"call_id"`
+		}
+		if err := json.Unmarshal(item, &header); err != nil {
+			return nil, fmt.Errorf("invalid API item: %w", err)
+		}
+		if header.Type == "compaction" {
+			continue
+		}
+		if header.Type == "function_call" {
+			call, ok := calls[header.CallID]
+			if !ok || call.ResultState != session.ToolResultKnown {
+				// A response containing an unresolved call is unsafe to replay.
+				// Its tool outcome is described in the recovery summary instead.
+				return input, nil
+			}
+			output, err := responses.FunctionOutput(call.CallID, call.Result)
+			if err != nil {
+				return nil, err
+			}
+			outputs = append(outputs, output)
+		}
+		items = append(items, append(json.RawMessage(nil), item...))
+	}
+	return append(append(input, items...), outputs...), nil
 }
 
 func failedTurnSummary(turn session.Turn) string {
