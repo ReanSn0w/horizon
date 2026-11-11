@@ -120,7 +120,7 @@ func serve(ctx context.Context, home string, handle Handler, setup func(context.
 			} else {
 				switch r.Method {
 				case "hello":
-					data = map[string]any{"version": Version, "capabilities": []string{"tasks", "events", "adapters"}}
+					data = map[string]any{"version": Version, "capabilities": []string{"tasks", "events", "adapters", ActiveInputCapability}}
 				case "stop":
 					data = map[string]bool{"stopping": true}
 				default:
