@@ -149,3 +149,29 @@ func sameJournalItem(a, b json.RawMessage) bool {
 	var compactA, compactB bytes.Buffer
 	return json.Compact(&compactA, a) == nil && json.Compact(&compactB, b) == nil && bytes.Equal(compactA.Bytes(), compactB.Bytes())
 }
+
+func TestFailedCompactionTurnRetainsInboundAfterOpaqueOutput(t *testing.T) {
+	runtime, cleanup := testRuntime(t, &fakeClient{})
+	defer cleanup()
+	id := newJournalTurn(t, runtime)
+	saveJournalInput(t, runtime, id, journalInput("before", 1, "sender", "first message"))
+	compact := json.RawMessage(`{"type":"compaction","id":"failed-compact","encrypted_content":"opaque"}`)
+	opaque := json.RawMessage(`{"type":"future-response-item","opaque":{"keep":"entire object"}}`)
+	if err := runtime.Locked.AppendAPIItems(id, []json.RawMessage{compact, opaque}); err != nil {
+		t.Fatal(err)
+	}
+	saveJournalInput(t, runtime, id, journalInput("after", 2, "sender", "later message"))
+	if err := runtime.Locked.CompleteTurn(id, session.StatusFailed, &session.TurnError{Code: "test", Message: "stopped"}, nil, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	stored, err := runtime.Locked.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	input, err := BuildInput(stored)
+	if err != nil || len(input) != 4 || !bytes.Contains(input[0], []byte("first message")) ||
+		!sameJournalItem(input[1], opaque) || !bytes.Contains(input[2], []byte("later message")) ||
+		!bytes.Contains(input[3], []byte("did not complete successfully")) {
+		t.Fatalf("failed compacted turn lost chronology: %s %v", input, err)
+	}
+}

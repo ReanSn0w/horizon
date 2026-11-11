@@ -22,8 +22,8 @@ func main() {
 	os.Exit(run(ctx, os.Args[1:], os.Stdout, os.Stderr))
 }
 func run(ctx context.Context, args []string, out, diag io.Writer) int {
-	if len(args) != 1 {
-		fmt.Fprintln(diag, "usage: horizon daemon start|status|stop")
+	if len(args) != 1 && !(len(args) == 2 && args[0] == "resolve-input") {
+		fmt.Fprintln(diag, "usage: horizon daemon start|status|stop|resolve-input TASK_ID")
 		return 2
 	}
 	switch args[0] {
@@ -38,7 +38,7 @@ func run(ctx context.Context, args []string, out, diag io.Writer) int {
 		}})
 		return 0
 	case "--help", "-h":
-		fmt.Fprintln(out, "horizon daemon start|status|stop\nStart runs in foreground. Stop before manager updates. Configure plugins.daemon.")
+		fmt.Fprintln(out, "horizon daemon start|status|stop|resolve-input TASK_ID\nStart runs in foreground. Stop before manager updates. Configure plugins.daemon.")
 		return 0
 	}
 	home, err := config.ResolveHome("")
@@ -49,6 +49,24 @@ func run(ctx context.Context, args []string, out, diag io.Writer) int {
 		switch args[0] {
 		case "start":
 			err = start(ctx, home)
+		case "resolve-input":
+			if len(args) != 2 || args[1] == "" {
+				fmt.Fprintln(diag, "usage: horizon daemon resolve-input TASK_ID")
+				return 2
+			}
+			switch os.Getenv("HORIZON_INHERITED_ACCESS") {
+			case "", "write", "full":
+			default:
+				fmt.Fprintln(diag, "daemon: resolving input requires write access")
+				return 1
+			}
+			taskID := args[1]
+			var response daemon.Response
+			response, err = daemon.Call(ctx, home, daemon.Request{ID: "resolve-input", Method: "resolve_input",
+				OperationID: "resolve-input:" + taskID, TaskID: taskID, Caller: daemon.Caller{Kind: "operator"}})
+			if err == nil {
+				_, err = fmt.Fprintln(out, string(response.Data))
+			}
 		case "status", "stop":
 			method := "hello"
 			if args[0] == "stop" {

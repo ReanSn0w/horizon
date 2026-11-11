@@ -158,6 +158,18 @@ func HorizonRunner(home string) Runner {
 					result.Turn = *e.TurnID
 				}
 				switch e.Type {
+				case "turn_failed", "turn_cancelled":
+					data, _ := json.Marshal(e.Data)
+					var payload struct {
+						Code string `json:"code"`
+					}
+					if json.Unmarshal(data, &payload) == nil {
+						switch payload.Code {
+						case "input_channel_failed", "session_input_conflict", "session_write_failed", "request_limit_exceeded",
+							"input_token_limit_exceeded", "turn_timeout", "turn_cancelled":
+							result.ErrorCode = payload.Code
+						}
+					}
 				case "turn_skipped":
 					if !t.ActiveInput || completed {
 						result.Err = errors.New("unexpected skipped turn")
