@@ -49,9 +49,14 @@ States: queued → running → succeeded/failed/cancelled/unknown; queued may be
 cancelled before starting. Restart converts running to unknown, never retries it.
 Queued turns behind an unknown turn stay blocked pending explicit cancellation of
 those queued turns or operator investigation. No persisted PID is blindly killed.
-Sessions serialize; independent sessions run concurrently. Capacity is bounded
-per delegation depth, so waiting ancestors do not occupy descendants' slots.
-Depth, children per parent and pending queue are bounded. Reaching depth limit
+Sessions serialize; independent sessions run concurrently. Top-level adapter
+work has its own `plugins.daemon.max_active_adapter_dialogs` capacity (default
+2, range 1–128). It runs one task per source and route at a time, using the
+workspace for older adapter requests without a route. The scheduler prefers the
+dialog least recently dispatched and keeps queued order within each dialog.
+Subagent work has separate capacity per delegation depth, so waiting ancestors
+do not occupy descendants' slots. Active adapter input uses the same slot as
+its running turn. Depth, children per parent and pending queue are bounded. Reaching depth limit
 fails immediately. There is no guarantee of progress for cyclic peer dependencies.
 
 Ordinary `submit` and `send` put messages in a new turn. Session creation and

@@ -20,16 +20,23 @@ import (
 )
 
 type Settings struct {
-	Parallel int      `yaml:"parallel_per_depth"`
-	Depth    int      `yaml:"max_depth"`
-	Children int      `yaml:"max_children"`
-	Queue    int      `yaml:"max_queue"`
-	Adapters []string `yaml:"adapters"`
+	Parallel      int      `yaml:"parallel_per_depth"`
+	ActiveDialogs int      `yaml:"max_active_adapter_dialogs"`
+	Depth         int      `yaml:"max_depth"`
+	Children      int      `yaml:"max_children"`
+	Queue         int      `yaml:"max_queue"`
+	Adapters      []string `yaml:"adapters"`
 }
 
-func Defaults() Settings { return Settings{Parallel: 2, Depth: 4, Children: 16, Queue: 128} }
+func Defaults() Settings {
+	return Settings{Parallel: 2, ActiveDialogs: 2, Depth: 4, Children: 16, Queue: 128}
+}
 func (s Settings) Validate() error {
-	if s.Parallel < 1 || s.Parallel > 16 || s.Depth < 1 || s.Depth > 8 || s.Children < 1 || s.Children > 128 || s.Queue < 1 || s.Queue > 4096 || len(s.Adapters) > 16 {
+	if s.ActiveDialogs < 1 || s.ActiveDialogs > 128 {
+		return errors.New("max_active_adapter_dialogs must be 1..128")
+	}
+	if s.Parallel < 1 || s.Parallel > 16 || s.Depth < 1 || s.Depth > 8 || s.Children < 1 || s.Children > 128 ||
+		s.Queue < 1 || s.Queue > 4096 || len(s.Adapters) > 16 {
 		return errors.New("invalid daemon limits")
 	}
 	return nil
@@ -59,6 +66,7 @@ type Task struct {
 	InputClosed     bool          `json:"input_closed,omitempty"`
 	InputResolved   bool          `json:"input_resolved,omitempty"`
 	InputIDs        []string      `json:"input_ids,omitempty"`
+	DispatchOrder   uint64        `json:"dispatch_order,omitempty"`
 	inputCredential string
 }
 type Event struct {
@@ -261,6 +269,7 @@ func summary(t *Task) *Task {
 	v.Message = ""
 	v.Result = ""
 	v.InputIDs = nil
+	v.DispatchOrder = 0
 	v.inputCredential = ""
 	return &v
 }
@@ -537,38 +546,48 @@ func (q *Queue) Run(ctx context.Context) error {
 			q.mu.Unlock()
 			return e
 		}
-		counts := map[int]int{}
-		busy := map[string]bool{}
-		for id := range q.running {
-			t := q.state.Tasks[id]
-			counts[t.Depth]++
-			busy[t.Child] = true
-		}
-		tasks := []*Task{}
+		slots := q.occupiedSlots()
+		blockedChildren := make(map[string]bool)
+		lastDispatch := make(map[string]uint64)
+		var tasks []*Task
 		for _, t := range q.state.Tasks {
-			tasks = append(tasks, t)
-		}
-		sort.Slice(tasks, func(i, j int) bool { return tasks[i].Sequence < tasks[j].Sequence })
-		blocked := map[string]bool{}
-		for _, t := range tasks {
 			if t.State == "unknown" && !t.InputResolved {
-				blocked[t.Child] = true
+				blockedChildren[t.Child] = true
 			}
-			if t.State != "queued" {
+			if dialog := t.dialogKey(); dialog != "" && t.DispatchOrder > lastDispatch[dialog] {
+				lastDispatch[dialog] = t.DispatchOrder
+			}
+			if t.State == "queued" {
+				tasks = append(tasks, t)
+			}
+		}
+		sort.Slice(tasks, func(i, j int) bool {
+			left, right := tasks[i].dialogKey(), tasks[j].dialogKey()
+			if (left == "") != (right == "") {
+				return left == ""
+			}
+			if lastDispatch[left] != lastDispatch[right] {
+				return lastDispatch[left] < lastDispatch[right]
+			}
+			return tasks[i].Sequence < tasks[j].Sequence
+		})
+		for _, t := range tasks {
+			if blockedChildren[t.Child] || !slots.available(q.settings, t) {
 				continue
 			}
-			if busy[t.Child] || blocked[t.Child] || counts[t.Depth] >= q.settings.Parallel {
-				continue
-			}
-			err := q.transaction(func() error { t.State = "running"; q.event(t, ""); return nil })
+			err := q.transaction(func() error {
+				t.State = "running"
+				q.event(t, "")
+				t.DispatchOrder = q.state.Cursor
+				return nil
+			})
 			if err != nil {
 				q.fatal = err
 				break
 			}
 			jobCtx, cancel := context.WithCancel(ctx)
 			q.running[t.ID] = cancel
-			busy[t.Child] = true
-			counts[t.Depth]++
+			slots.reserve(t)
 			copyTask := *t
 			if t.ActiveInput {
 				copyTask.inputCredential = newID()
@@ -642,7 +661,7 @@ func (s diskState) validate() error {
 		return bad
 	}
 	for id, t := range s.Tasks {
-		if t == nil || t.ID != id || t.Owner == "" || !filepath.IsAbs(t.Workspace) || level(t.Access) == 0 || t.Depth < 1 || t.Depth > 8 || t.Sequence == 0 || t.Sequence > s.Sequence {
+		if t == nil || t.ID != id || t.Owner == "" || !filepath.IsAbs(t.Workspace) || level(t.Access) == 0 || t.Depth < 1 || t.Depth > 8 || t.Sequence == 0 || t.Sequence > s.Sequence || t.DispatchOrder > s.Cursor {
 			return bad
 		}
 		root := s.Tasks[t.Child]
