@@ -292,8 +292,9 @@ describe. Отмена завершает группу процессов SIGTER
 Unix-сокет одного home. Адаптеры `agent-*` обнаруживаются только демоном
 и включаются явно. CLI-плагины сохраняют префикс `horizon-*`.
 
-Установка: `horizon manager plugins install agent`; foreground-запуск:
-`horizon agent start`. Перед обновлением остановите его через
+Установка: `horizon manager plugins install agent` и `horizon agent service install`;
+запуск службы: `horizon agent start`, foreground: `horizon agent start --debug`.
+Перед обновлением остановите его через
 `horizon agent stop`. Подробности и ограничения — [Daemon](DAEMON.md).
 
 ## Subagent

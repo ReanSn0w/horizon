@@ -77,7 +77,7 @@ func ReadAdapter(cfg config.Config, home string) (AdapterSettings, error) {
 		return value, errors.New("configure plugins.agent-telegram or install agent:telegram with manager")
 	}
 	if err := decodeSection(section, &value); err != nil {
-		return value, errors.New("invalid plugins.agent-telegram fields")
+		return value, fmt.Errorf("invalid plugins.agent-telegram fields: %w", err)
 	}
 	if strings.TrimSpace(value.Workspace) == "" || !validAccess(value.PrivateAccess) || !validAccess(value.GroupAccess) || value.History < 1 || value.History > 100 {
 		return value, errors.New("invalid Telegram adapter workspace, access or history limit")

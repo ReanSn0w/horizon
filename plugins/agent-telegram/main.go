@@ -25,7 +25,7 @@ func run(ctx context.Context, args []string) int {
 	if len(args) == 1 {
 		switch args[0] {
 		case "agent-plugin-metadata":
-			if json.NewEncoder(os.Stdout).Encode(daemon.AdapterMetadata{ProtocolVersion: 1, Version: buildinfo.Version, Description: "Telegram input adapter", Capabilities: []string{daemon.ActiveInputCapability}, ConfigProtocolVersion: 1}) == nil {
+			if json.NewEncoder(os.Stdout).Encode(daemon.AdapterMetadata{ProtocolVersion: 1, Version: buildinfo.Version, Description: "Telegram input adapter", Capabilities: []string{daemon.ActiveInputCapability, daemon.AdapterValidate}, ConfigProtocolVersion: 1}) == nil {
 				return 0
 			}
 			return 1
@@ -35,6 +35,16 @@ func run(ctx context.Context, args []string) int {
 				if home, e := config.ResolveHome(""); e == nil {
 					_ = telegram.WritePrivate(filepath.Join(home, "gateway", "telegram-adapter.error"), []byte(err.Error()+"\n"), 0600)
 				}
+				return 1
+			}
+			return 0
+		case "agent-plugin-validate":
+			home, err := config.ResolveHome("")
+			if err == nil {
+				_, _, err = validateSettings(home)
+			}
+			if err != nil {
+				fmt.Fprintln(os.Stderr, err)
 				return 1
 			}
 			return 0

@@ -43,17 +43,30 @@ func run(ctx context.Context, args []string, out, diag io.Writer) int {
 			ID string `positional-arg-name:"TASK_ID" required:"yes"`
 		} `positional-args:"yes"`
 	}
-	var printOptions, installOptions serviceOptions
+	var installOptions serviceOptions
+	var debugStart struct {
+		Debug bool `long:"debug" description:"Run in the current terminal"`
+	}
+	var logsOptions struct {
+		Lines  int  `short:"n" long:"lines" default:"100" description:"Number of recent lines"`
+		Follow bool `short:"f" long:"follow" description:"Follow new lines"`
+	}
 	parser := flags.NewParser(&struct{}{}, flags.HelpFlag|flags.PassDoubleDash)
 	parser.Name = "horizon agent"
-	parser.LongDescription = "Run the Horizon supervisor in foreground. Configure plugins.agent. Adapter commands remain horizon agent <adapter> (for example timer). Stop the service before manager updates."
-	for _, command := range []struct{ name, description string }{{"start", "Run the supervisor in foreground"}, {"status", "Show supervisor status"}, {"stop", "Stop the supervisor"}} {
-		parser.AddCommand(command.name, command.description, command.description, &struct{}{})
-	}
-	parser.AddCommand("resolve-input", "Resolve unknown input", "Explicitly resolve an input task with unknown outcome.", &resolve)
-	serviceCommand, _ := parser.AddCommand("service", "Manage service files", "Generate or install a user service without starting it.", &struct{}{})
-	serviceCommand.AddCommand("print", "Print service definition", "Print a systemd unit or launchd plist.", &printOptions)
-	serviceCommand.AddCommand("install", "Install service definition", "Create a new service file and print activation commands. Existing files are never overwritten.", &installOptions)
+	parser.LongDescription = "Manage the Horizon supervisor. Use start --debug to run in the current terminal."
+	parser.AddCommand("start", "Start the service", "Start the installed service, or run in the current terminal with --debug.", &debugStart)
+	parser.AddCommand("stop", "Stop the service", "Stop the installed service.", &struct{}{})
+	parser.AddCommand("status", "Show supervisor status", "Show supervisor status.", &struct{}{})
+	parser.AddCommand("validate", "Validate inputs", "Check supervisor and enabled adapter settings offline.", &struct{}{})
+	parser.AddCommand("logs", "Show supervisor logs", "Print recent service logs.", &logsOptions)
+	parser.AddCommand("recover-input", "Recover unknown input", "Unblock an input after investigating its unknown outcome.", &resolve)
+	serviceStart, _ := parser.AddCommand("service-start", "Internal service start", "Internal CLI command.", &struct{}{})
+	serviceStart.Hidden = true
+	serviceStop, _ := parser.AddCommand("service-stop", "Internal service stop", "Internal CLI command.", &struct{}{})
+	serviceStop.Hidden = true
+	serviceCommand, _ := parser.AddCommand("service", "Manage service files", "Install or remove a user service file.", &struct{}{})
+	serviceCommand.AddCommand("install", "Install service definition", "Create a new service file without starting it. Existing files are never overwritten.", &installOptions)
+	serviceCommand.AddCommand("remove", "Remove service definition", "Remove a stopped service file.", &struct{}{})
 	if len(args) == 0 {
 		args = []string{"--help"}
 	}
@@ -79,15 +92,20 @@ func run(ctx context.Context, args []string, out, diag io.Writer) int {
 	if err == nil {
 		switch command {
 		case "service":
-			action := parser.Active.Active.Name
-			options := printOptions
-			if action == "install" {
-				options = installOptions
-			}
-			err = service(home, action, options, out)
+			err = service(home, parser.Active.Active.Name, installOptions, out)
 		case "start":
 			err = start(ctx, home)
-		case "resolve-input":
+		case "service-start", "service-stop":
+			action := "start"
+			if command == "service-stop" {
+				action = "stop"
+			}
+			err = controlService(ctx, home, action, out)
+		case "validate":
+			err = validate(ctx, home, out)
+		case "logs":
+			err = logs(ctx, home, logsOptions.Lines, logsOptions.Follow, out)
+		case "recover-input":
 			switch os.Getenv("HORIZON_INHERITED_ACCESS") {
 			case "", "write", "full":
 			default:

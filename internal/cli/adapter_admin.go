@@ -19,9 +19,14 @@ type adapterAdminCommand struct{}
 func (*adapterAdminCommand) Execute([]string) error { return usage(adapterAdminUsage, nil) }
 
 func (a *App) runAdapterAdmin(home string, args []string) int {
-	if len(args) == 0 || slices.Contains([]string{"start", "status", "stop", "resolve-input", "service", "--help", "-h"}, args[0]) {
+	if len(args) == 0 || slices.Contains([]string{"start", "status", "stop", "validate", "logs", "recover-input", "service", "--help", "-h"}, args[0]) {
 		entry := plugins.Inspect(home, "agent", nil)
 		if entry.Err == nil {
+			if len(args) == 1 && args[0] == "start" {
+				args = []string{"service-start"}
+			} else if len(args) == 1 && args[0] == "stop" {
+				args = []string{"service-stop"}
+			}
 			return a.runPlugin(entry, args, home)
 		}
 		if len(args) > 0 && args[0] != "--help" && args[0] != "-h" {

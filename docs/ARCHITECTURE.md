@@ -104,8 +104,9 @@ Unix-сокет одного home. Адаптеры `agent-*` включаютс
 `horizon agent <имя>` передаёт административные аргументы установленному
 адаптеру с capability `admin-cli`. CLI-плагины имеют префикс `horizon-*`.
 
-Установка: `horizon manager plugins install agent`; foreground-запуск:
-`horizon agent start`. Перед обновлением остановите его через
+Установка: `horizon manager plugins install agent` и `horizon agent service install`;
+запуск службы: `horizon agent start`, foreground: `horizon agent start --debug`.
+Перед обновлением остановите его через
 `horizon agent stop`. Подробности и ограничения — [Daemon](DAEMON.md).
 
 Daemon владеет долговечным буфером диалога и арбитражем между задачами.

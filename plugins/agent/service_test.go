@@ -44,6 +44,9 @@ func TestServiceEscapesPaths(t *testing.T) {
 	if !strings.Contains(strings.Join(stringsFound, "\n"), binary) {
 		t.Fatal(stringsFound)
 	}
+	if !strings.Contains(strings.Join(stringsFound, "\n"), filepath.Join(home, "run", "agent.stderr.log")) {
+		t.Fatal("service stderr log path missing", stringsFound)
+	}
 	if _, _, err = serviceDefinition("linux", "/tmp/bad\nInjected=yes", binary); err == nil {
 		t.Fatal("accepted line break")
 	}
@@ -76,13 +79,13 @@ func TestServiceInstallPreservesExistingFile(t *testing.T) {
 func TestAgentHelpAndArgumentsDoNotCreateHome(t *testing.T) {
 	home := filepath.Join(t.TempDir(), "absent")
 	t.Setenv("HORIZON_HOME", home)
-	for _, args := range [][]string{{"--help"}, {"service", "install", "--help"}, {"resolve-input", "--help"}} {
+	for _, args := range [][]string{{"--help"}, {"service", "install", "--help"}, {"recover-input", "--help"}, {"logs", "--help"}, {"validate", "--help"}} {
 		var out bytes.Buffer
 		if code := run(context.Background(), args, &out, &out); code != 0 {
 			t.Fatal(args, code, out.String())
 		}
 	}
-	for _, args := range [][]string{{"start", "extra"}, {"service"}, {"resolve-input"}} {
+	for _, args := range [][]string{{"start", "extra"}, {"service"}, {"recover-input"}} {
 		var out bytes.Buffer
 		if code := run(context.Background(), args, &out, &out); code != 2 {
 			t.Fatal(args, code, out.String())

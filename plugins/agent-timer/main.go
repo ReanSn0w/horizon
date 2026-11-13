@@ -34,7 +34,7 @@ func run(ctx context.Context, args []string, out, diag io.Writer, now func() tim
 					ConfigProtocolVersion: 1,
 					Version:               buildinfo.Version,
 					Description:           "Markdown timer schedules",
-					Capabilities:          []string{daemon.AdapterAdminCLI},
+					Capabilities:          []string{daemon.AdapterAdminCLI, daemon.AdapterValidate},
 				})
 				if err != nil {
 					fmt.Fprintln(diag, err)
@@ -49,6 +49,18 @@ func run(ctx context.Context, args []string, out, diag io.Writer, now func() tim
 					return 1
 				}
 				return 0
+			}
+		case "agent-plugin-validate":
+			if len(args) == 1 {
+				home, err := config.ResolveHome("")
+				if err == nil {
+					_, err = timer.LoadSettings(home)
+				}
+				if err != nil {
+					fmt.Fprintln(diag, err)
+					return 1
+				}
+				return admin([]string{"validate"}, io.Discard, diag, now)
 			}
 		case "agent-run":
 			if len(args) == 1 {

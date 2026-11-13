@@ -1,8 +1,9 @@
 # Daemon protocol v1
 
-`horizon agent start` runs a foreground supervisor for one normalized home.
-`status` performs a handshake; `stop` requests shutdown. Installation does not
-start services. Stop the daemon before manager updates: the shared maintenance
+`horizon agent start` starts the installed user service. `start --debug` runs a
+foreground supervisor for one normalized home. `status` performs a handshake;
+`stop` stops the installed service. Installation does not start services.
+Stop the daemon before manager updates: the shared maintenance
 lock protects its running binary set, and exclusive maintenance fails promptly.
 
 The endpoint is `<home>/run/daemon.sock` (0600), protected by a persistent
@@ -106,7 +107,7 @@ Responses stream or a tool.
 
 After restart, an interrupted task is unknown and its dialog stays blocked.
 A cancellation recorded before the worker exited is also unknown on restart.
-After investigating the outcome, run `horizon agent resolve-input TASK_ID`
+After investigating the outcome, run `horizon agent recover-input TASK_ID`
 to unblock the dialog. The adapter protocol exposes the same operation as
 `resolve_input` with a fresh operation ID. The task retains its terminal status.
 Horizon checks the journal before passing retained messages to the model.
@@ -115,7 +116,7 @@ records the original turn and Horizon skips the model request.
 
 On a known failure or cancellation, any input still stored in the daemon
 stays available to a successor in the same dialog. A later submission can
-carry it forward, or an operator can use `resolve-input` once the worker has
+carry it forward, or an operator can use `recover-input` once the worker has
 exited. Input already acknowledged in the history stays with its original
 turn. A model request, token or time limit applies to the whole turn even
 when new messages arrive.
@@ -135,6 +136,11 @@ only names explicitly enabled in `plugins.agent.adapters` are started.
 capabilities. `agent-plugin-config-template` optionally follows the existing
 config-template envelope, using an independently named `plugins.agent-<name>`
 section. Neither operation may read credentials or contact external services.
+Adapters may advertise capability `validate` and implement
+`agent-plugin-validate`. The command checks local settings without contacting
+external services. `horizon agent validate` and supervisor startup run it before
+starting any adapter. Older adapters without the capability receive only the
+metadata check.
 
 `agent-run` is a supervised process. It receives HORIZON_HOME,
 HORIZON_DAEMON_SOCKET, HORIZON_ADAPTER_NAME and a per-start credential in its
@@ -151,9 +157,11 @@ Restart is delayed with bounded backoff; stopping daemon stops all adapters.
 
 ```sh
 horizon manager plugins install agent
+horizon agent service install
+horizon agent validate
 horizon agent start
-# In another terminal:
 horizon agent status
+horizon agent logs
 horizon agent stop
 ```
 
@@ -212,7 +220,8 @@ and recovery are documented in [Timer](../plugins/agent-timer/README.md).
 ## Command naming and service installation
 
 The public supervisor name is `agent`: binary `horizon-agent`, CLI
-`horizon agent start|status|stop|resolve-input`, configuration `plugins.agent`.
+`horizon agent start|stop|status|validate|logs|recover-input`, configuration
+`plugins.agent`.
 Adapter administration remains `horizon agent timer ...`. The supervisor command
 names are reserved in this shared namespace. See [Agent](../plugins/agent/README.md)
 for systemd/launchd installation and migration.

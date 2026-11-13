@@ -26,29 +26,9 @@ func start(ctx context.Context) error {
 	if os.Getenv("HORIZON_ADAPTER_NAME") != "telegram" || os.Getenv("HORIZON_DAEMON_SOCKET") != daemon.Socket(home) || credential == "" {
 		return errors.New("agent-telegram must be started by horizon agent")
 	}
-	cfg, err := config.Load(home)
-	if err != nil {
-		return errors.New("cannot load Horizon configuration")
-	}
-	bot, err := telegram.ReadBot(cfg)
+	bot, settings, err := validateSettings(home)
 	if err != nil {
 		return err
-	}
-	settings, err := telegram.ReadAdapter(cfg, home)
-	if err != nil {
-		return err
-	}
-	if !slices.Contains(cfg.AgentPlugins, "telegram") || !slices.Contains(cfg.AgentCommunication, "telegram") {
-		return errors.New("Telegram input requires telegram in agent_plugins and agent_communication")
-	}
-	extension := plugins.Inspect(home, "telegram", nil)
-	if extension.Err != nil || extension.Metadata.AgentProtocolVersion != plugins.ChannelProtocolVersion {
-		return errors.New("Telegram input requires the installed horizon-telegram v2 extension")
-	}
-	if settings.PrivateAccess != "full" || settings.GroupAccess != "full" {
-		if err := cfg.RequireDecision(); err != nil {
-			return err
-		}
 	}
 	path, err := telegram.PollLock(home)
 	if err != nil {
@@ -90,6 +70,34 @@ func start(ctx context.Context) error {
 	stop()
 	<-observerDone
 	return err
+}
+
+func validateSettings(home string) (telegram.BotSettings, telegram.AdapterSettings, error) {
+	cfg, err := config.Load(home)
+	if err != nil {
+		return telegram.BotSettings{}, telegram.AdapterSettings{}, fmt.Errorf("load Horizon configuration: %w", err)
+	}
+	bot, err := telegram.ReadBot(cfg)
+	if err != nil {
+		return bot, telegram.AdapterSettings{}, err
+	}
+	settings, err := telegram.ReadAdapter(cfg, home)
+	if err != nil {
+		return bot, settings, err
+	}
+	if !slices.Contains(cfg.AgentPlugins, "telegram") || !slices.Contains(cfg.AgentCommunication, "telegram") {
+		return bot, settings, errors.New("Telegram input requires telegram in agent_plugins and agent_communication")
+	}
+	extension := plugins.Inspect(home, "telegram", nil)
+	if extension.Err != nil || extension.Metadata.AgentProtocolVersion != plugins.ChannelProtocolVersion {
+		return bot, settings, errors.New("Telegram input requires the installed horizon-telegram v2 extension")
+	}
+	if settings.PrivateAccess != "full" || settings.GroupAccess != "full" {
+		if err := cfg.RequireDecision(); err != nil {
+			return bot, settings, err
+		}
+	}
+	return bot, settings, nil
 }
 
 func (a *adapter) hello(ctx context.Context) error {

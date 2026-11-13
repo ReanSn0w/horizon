@@ -40,6 +40,36 @@ func TestPluginRoutingAndStreams(t *testing.T) {
 	}
 }
 
+func TestAgentServiceCommandsKeepLegacyForegroundEntrypoint(t *testing.T) {
+	home := t.TempDir()
+	if err := os.WriteFile(filepath.Join(home, "config.yaml"), []byte("not parsed"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(home, "bin"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	script := `#!/bin/sh
+if [ "$1" = horizon-plugin-metadata ]; then
+ printf '%s' '{"protocol_version":1,"version":"test","description":"agent"}'
+ exit
+fi
+printf '%s\n' "$@"
+`
+	if err := os.WriteFile(filepath.Join(home, "bin", "horizon-agent"), []byte(script), 0700); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		args []string
+		want string
+	}{{[]string{"start"}, "service-start\n"}, {[]string{"stop"}, "service-stop\n"}, {[]string{"start", "--debug"}, "start\n--debug\n"}} {
+		args := append([]string{"--home", home, "agent"}, tc.args...)
+		code, out, diagnostic := runApp(t, "", args...)
+		if code != 0 || out != tc.want || diagnostic != "" {
+			t.Fatalf("%v: code=%d out=%q err=%q", args, code, out, diagnostic)
+		}
+	}
+}
+
 func TestPluginHelpAndMissingHome(t *testing.T) {
 	home := t.TempDir()
 	pluginScript(t, home, "sample", "echo plugin-help\n")

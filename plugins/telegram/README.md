@@ -65,8 +65,8 @@ horizon telegram read --operation-id ID
    `legacy-state.yaml`; автоматической доставки этих результатов больше нет.
    Повторный `--apply` завершает прерванный перенос. Старый лимит параллельных
    чатов переносится в `max_active_adapter_dialogs`, если он ещё не задан.
-4. Запустите `horizon agent start`. Для автозапуска заведите эту команду в
-   менеджере служб ОС. Миграция сама службы и shell-файлы не меняет.
+4. Установите файл службы через `horizon agent service install` и запустите
+   `horizon agent start`. Миграция сама службы и shell-файлы не меняет.
 
 До первого запуска polling или явной отправки можно остановить daemon и
 выполнить `horizon telegram migrate --rollback`. Команда восстанавливает

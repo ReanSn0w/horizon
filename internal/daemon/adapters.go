@@ -5,10 +5,13 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
+	"strings"
 	"sync"
 	"time"
 )
@@ -56,21 +59,49 @@ func AdapterInspect(ctx context.Context, home, name string) (AdapterMetadata, er
 	return m, nil
 }
 func AdapterCommand(ctx context.Context, path, home, command string) ([]byte, error) {
-	ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	return adapterCommandWithTimeout(ctx, path, home, command, 2*time.Second)
+}
+
+func adapterCommandWithTimeout(ctx context.Context, path, home, command string, timeout time.Duration) ([]byte, error) {
+	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	out := &cappedWriter{limit: 64 * 1024}
-	_, e := Process(ctx, path, []string{command}, childEnv(home, "read"), home, "", out)
+	diag := &cappedWriter{limit: 4 * 1024}
+	_, e := processWithStderr(ctx, path, []string{command}, childEnv(home, "read"), home, "", out, diag, nil)
+	if e != nil && diag.Len() > 0 {
+		return out.Bytes(), fmt.Errorf("%w: %s", e, strings.TrimSpace(diag.String()))
+	}
 	return out.Bytes(), e
+}
+
+const AdapterValidate = "validate"
+
+func ValidateAdapters(ctx context.Context, home string, settings Settings) error {
+	seen := map[string]bool{}
+	for _, name := range settings.Adapters {
+		if seen[name] {
+			return fmt.Errorf("duplicate adapter %q", name)
+		}
+		seen[name] = true
+		metadata, err := AdapterInspect(ctx, home, name)
+		if err != nil {
+			return fmt.Errorf("adapter %s: %w", name, err)
+		}
+		if slices.Contains(metadata.Capabilities, AdapterValidate) {
+			if _, err := adapterCommandWithTimeout(ctx, filepath.Join(home, "bin", "agent-"+name), home, "agent-plugin-validate", 30*time.Second); err != nil {
+				return fmt.Errorf("adapter %s: %w", name, err)
+			}
+		}
+	}
+	return nil
 }
 
 // SuperviseAdapters validates every configured adapter before starting any.
 func (q *Queue) SuperviseAdapters(ctx context.Context) (func(), error) {
-	seen := map[string]bool{}
+	if err := ValidateAdapters(ctx, q.home, q.settings); err != nil {
+		return nil, err
+	}
 	for _, name := range q.settings.Adapters {
-		if seen[name] {
-			return nil, errors.New("duplicate adapter")
-		}
-		seen[name] = true
 		if name == TimerSource {
 			if access, ok := os.LookupEnv("HORIZON_INHERITED_ACCESS"); ok {
 				if level(access) == 0 {
@@ -78,9 +109,6 @@ func (q *Queue) SuperviseAdapters(ctx context.Context) (func(), error) {
 				}
 				q.timerAccess = access
 			}
-		}
-		if _, e := AdapterInspect(ctx, q.home, name); e != nil {
-			return nil, e
 		}
 	}
 	ctx, cancel := context.WithCancel(ctx)
@@ -103,7 +131,7 @@ func (q *Queue) SuperviseAdapters(ctx context.Context) (func(), error) {
 				q.adapters[name] = credential
 				q.mu.Unlock()
 				env := append(childEnv(q.home, access), "HORIZON_DAEMON_SOCKET="+Socket(q.home), "HORIZON_ADAPTER_NAME="+name, "HORIZON_ADAPTER_CREDENTIAL="+credential)
-				_, _ = Process(ctx, path, []string{"agent-run"}, env, q.home, "", output)
+				_, _ = processWithStderr(ctx, path, []string{"agent-run"}, env, q.home, "", output, os.Stderr, nil)
 				q.mu.Lock()
 				delete(q.adapters, name)
 				q.mu.Unlock()

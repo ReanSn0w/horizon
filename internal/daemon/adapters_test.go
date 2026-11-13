@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -70,4 +71,31 @@ func TestDisabledAdapterNotStarted(t *testing.T) {
 		t.Fatal(e)
 	}
 	stop()
+}
+
+func TestValidateAdaptersReportsConfigurationFailure(t *testing.T) {
+	h := shortHome(t)
+	if err := os.MkdirAll(filepath.Join(h, "bin"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	script := `#!/bin/sh
+if [ "$1" = agent-plugin-metadata ]; then
+ echo '{"protocol_version":1,"version":"test","description":"fixture","capabilities":["validate"]}'
+ exit
+fi
+if [ "$1" = agent-plugin-validate ]; then
+ echo 'invalid adapter field' >&2
+ exit 1
+fi
+exit 2
+`
+	if err := os.WriteFile(filepath.Join(h, "bin", "agent-test"), []byte(script), 0700); err != nil {
+		t.Fatal(err)
+	}
+	s := Defaults()
+	s.Adapters = []string{"test"}
+	err := ValidateAdapters(context.Background(), h, s)
+	if err == nil || !strings.Contains(err.Error(), "adapter test") || !strings.Contains(err.Error(), "invalid adapter field") {
+		t.Fatal(err)
+	}
 }

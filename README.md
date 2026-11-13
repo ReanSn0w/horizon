@@ -420,8 +420,10 @@ Unix-сокет одного home. Адаптеры `agent-*` включаютс
 `horizon agent <имя>` передаёт административные аргументы установленному
 адаптеру с capability `admin-cli`. CLI-плагины имеют префикс `horizon-*`.
 
-Установка: `horizon manager plugins install agent`; foreground-запуск:
-`horizon agent start`. Перед обновлением остановите его через
+Установка: `horizon manager plugins install agent` и
+`horizon agent service install`; запуск службы: `horizon agent start`.
+Для запуска в текущем терминале: `horizon agent start --debug`.
+Перед обновлением остановите его через
 `horizon agent stop`. Подробности и ограничения — [Daemon](docs/DAEMON.md).
 
 Адаптеры могут добавлять уточнения в активный диалог. Horizon сохраняет каждое
@@ -432,9 +434,9 @@ Unix-сокет одного home. Адаптеры `agent-*` включаютс
 выполняемых диалогов адаптеров (по умолчанию 2). Слоты subagent выделяются
 отдельно по глубине.
 
-Для службы ОС используйте `horizon agent service print` для просмотра и
-`horizon agent service install` для установки файла. Команда печатает отдельные
-команды запуска и автозапуска. [Установка службы и переход с daemon](plugins/agent/README.md).
+`horizon agent validate` проверяет настройки включённых адаптеров без сетевых
+запросов; `horizon agent logs` выводит журнал службы. `horizon agent service`
+устанавливает или удаляет файл службы. [Установка службы и переход с daemon](plugins/agent/README.md).
 
 ## Telegram
 

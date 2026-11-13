@@ -315,8 +315,11 @@ HORIZON_API_CHECK=1 go test ./internal/responses -run TestConfiguredEndpointComp
   и управляемый бинарник транзакционно при переходе на новую ревизию.
 - Старое `mode: unit` принимается для совместимости и удаляется manager при
   обновлении до новой ревизии. Для старых ревизий manager сохраняет это поле.
-- `horizon agent service print|install` создаёт файлы systemd/LaunchAgent.
+- `horizon agent service install|remove` управляет файлом systemd/LaunchAgent.
   Установка не запускает службу и не перезаписывает существующий файл.
+  `horizon agent start|stop` управляет службой ОС; `start --debug` запускает
+  foreground-процесс. `validate` проверяет настройки включённых адаптеров,
+  `logs` читает журнал службы.
 - `horizon telegram check` проверяет API без отправки; `send TEXT` явно отправляет
   владельцу без модели и повторов. При вызове из хода отправка требует full.
 

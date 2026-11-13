@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"os/exec"
@@ -40,6 +41,10 @@ func Process(ctx context.Context, binary string, args, env []string, dir, input 
 }
 
 func process(ctx context.Context, binary string, args, env []string, dir, input string, out io.Writer, extraFiles []*os.File) (int, error) {
+	return processWithStderr(ctx, binary, args, env, dir, input, out, io.Discard, extraFiles)
+}
+
+func processWithStderr(ctx context.Context, binary string, args, env []string, dir, input string, out, diag io.Writer, extraFiles []*os.File) (int, error) {
 	if err := ctx.Err(); err != nil {
 		return -1, err
 	}
@@ -49,7 +54,7 @@ func process(ctx context.Context, binary string, args, env []string, dir, input 
 	cmd.ExtraFiles = extraFiles
 	cmd.Stdin = strings.NewReader(input)
 	cmd.Stdout = out
-	cmd.Stderr = io.Discard
+	cmd.Stderr = diag
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	cmd.WaitDelay = 2 * time.Second
 	if err := cmd.Start(); err != nil {
@@ -120,8 +125,9 @@ func HorizonRunner(home string) Runner {
 			if t.timerExpired(time.Now()) {
 				return Outcome{Err: errTimerWindowElapsed}
 			}
-			code, err := Process(ctx, binary, []string{"--home", home, "sessions", "create"}, env, t.Workspace, "", out)
+			code, err := processWithStderr(ctx, binary, []string{"--home", home, "sessions", "create"}, env, t.Workspace, "", out, os.Stderr, nil)
 			if err != nil {
+				fmt.Fprintf(os.Stderr, "agent task %s: session creation failed (exit %d): %v\n", t.ID, code, err)
 				return Outcome{ExitCode: code, Err: err}
 			}
 			t.Session = strings.TrimSpace(out.String())
@@ -212,12 +218,15 @@ func HorizonRunner(home string) Runner {
 			}
 			outcome <- result
 		}()
-		code, runErr := process(ctx, binary, []string{"--home", home, "resume", "--session", t.Session, "--mode", "jsonl", "--access", t.Access}, env, t.Workspace, t.Message, writer, inheritedFiles)
+		code, runErr := processWithStderr(ctx, binary, []string{"--home", home, "resume", "--session", t.Session, "--mode", "jsonl", "--access", t.Access}, env, t.Workspace, t.Message, writer, os.Stderr, inheritedFiles)
 		writer.Close()
 		result := <-outcome
 		result.ExitCode = code
 		if runErr != nil {
 			result.Err = runErr
+		}
+		if result.Err != nil || code != 0 {
+			fmt.Fprintf(os.Stderr, "agent task %s: Horizon turn failed (exit %d, code %s, error %v)\n", t.ID, code, result.ErrorCode, result.Err)
 		}
 		return result
 	}

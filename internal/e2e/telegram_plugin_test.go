@@ -375,7 +375,7 @@ func telegramEventually(t *testing.T, what string, done func() bool) {
 func startTelegramDaemon(t *testing.T, binary, home, cwd string) func() {
 	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
-	cmd := exec.CommandContext(ctx, binary, "--home", home, "agent", "start")
+	cmd := exec.CommandContext(ctx, binary, "--home", home, "agent", "start", "--debug")
 	cmd.Dir = cwd
 	var diag bytes.Buffer
 	cmd.Stderr = &diag
@@ -599,7 +599,7 @@ aliases: {"-2": "-22"}
 	if pendingSeen.Load() || compactions.Load() != 1 {
 		t.Fatal("unknown legacy task did not block its dialog or idle compaction repeated")
 	}
-	if out, diag, err := run(binary, workspace.Dir, "", "--home", home, "agent", "resolve-input", unknown); err != nil {
+	if out, diag, err := run(binary, workspace.Dir, "", "--home", home, "agent", "recover-input", unknown); err != nil {
 		t.Fatalf("resolve legacy unknown: %v %q %q", err, out, diag)
 	}
 	telegramEventually(t, "migrated input on original session", func() bool {
