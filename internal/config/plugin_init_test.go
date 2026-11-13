@@ -47,6 +47,47 @@ func TestMergePluginTemplatesPreservesValuesAndIsIdempotent(t *testing.T) {
 	}
 }
 
+func TestMergePluginTemplatesFormatsNestedTelegramSettings(t *testing.T) {
+	home := t.TempDir()
+	path := filepath.Join(home, "config.yaml")
+	initial := "# personal settings\nmode: unit\nplugins:\n  agent:\n    adapters: []\n"
+	if err := os.WriteFile(path, []byte(initial), 0600); err != nil {
+		t.Fatal(err)
+	}
+	template := pluginTemplate(t, "agent-telegram", `{"workspace_dir":"workspaces/telegram","private_access":"write","group_access":"read","group_defaults":{"owner_only":true,"response_mode":"mention"},"groups":{},"history_messages":20,"idle_compact_after":"12h"}`)
+	if _, err := MergePluginTemplates(home, []PluginTemplate{template}); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	formatted := strings.ReplaceAll(string(data), "  \n", "\n")
+	for _, want := range []string{
+		"# personal settings\nmode: unit\n\nplugins:",
+		"  agent:\n    adapters: []\n\n  agent-telegram:",
+		"    group_defaults:\n      owner_only: true\n      response_mode: mention\n    groups: {}\n    history_messages: 20\n    idle_compact_after: 12h",
+	} {
+		if !strings.Contains(formatted, want) {
+			t.Fatalf("missing formatted block %q in:\n%s", want, data)
+		}
+	}
+	var parsed struct {
+		Plugins struct {
+			Telegram struct {
+				Defaults struct {
+					OwnerOnly bool `yaml:"owner_only"`
+				} `yaml:"group_defaults"`
+				Groups  map[string]any `yaml:"groups"`
+				History int            `yaml:"history_messages"`
+			} `yaml:"agent-telegram"`
+		} `yaml:"plugins"`
+	}
+	if err := yaml.Unmarshal(data, &parsed); err != nil || !parsed.Plugins.Telegram.Defaults.OwnerOnly || parsed.Plugins.Telegram.Groups == nil || parsed.Plugins.Telegram.History != 20 {
+		t.Fatalf("Telegram settings changed: %+v, %v", parsed.Plugins.Telegram, err)
+	}
+}
+
 func TestMergePluginTemplatesConflictDoesNotWrite(t *testing.T) {
 	home := t.TempDir()
 	path := filepath.Join(home, "config.yaml")

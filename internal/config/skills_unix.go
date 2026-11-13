@@ -128,7 +128,7 @@ func UpdateDocumentContext(ctx context.Context, home string, edit func(*yaml.Nod
 	if _, err = decodeDocument(document); err != nil {
 		return false, err
 	}
-	data, err := yaml.Marshal(document)
+	data, err := formatDocument(document)
 	if err != nil {
 		return false, err
 	}
@@ -140,6 +140,36 @@ func UpdateDocumentContext(ctx context.Context, home string, edit func(*yaml.Nod
 		return false, err
 	}
 	return true, nil
+}
+
+// formatDocument keeps the configuration readable after manager and CLI edits.
+// Blank lines are attached to mapping keys so comments stay with their section.
+func formatDocument(document *yaml.Node) ([]byte, error) {
+	root := document.Content[0]
+	separateSections(root)
+	separateSections(mappingValue(root, "plugins"))
+	var output bytes.Buffer
+	encoder := yaml.NewEncoder(&output)
+	encoder.SetIndent(2)
+	if err := encoder.Encode(document); err != nil {
+		return nil, err
+	}
+	if err := encoder.Close(); err != nil {
+		return nil, err
+	}
+	return output.Bytes(), nil
+}
+
+func separateSections(mapping *yaml.Node) {
+	if mapping == nil || mapping.Kind != yaml.MappingNode {
+		return
+	}
+	for i := 2; i < len(mapping.Content); i += 2 {
+		key := mapping.Content[i]
+		if !bytes.HasPrefix([]byte(key.HeadComment), []byte("\n")) {
+			key.HeadComment = "\n" + key.HeadComment
+		}
+	}
 }
 
 func decodeDocument(document *yaml.Node) (rawConfig, error) {
