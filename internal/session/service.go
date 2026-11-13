@@ -330,6 +330,48 @@ type ListItem struct {
 	Active  bool
 }
 
+// ReadByID resolves a unique session within this store's home, without
+// requiring the original workspace directory to still exist.
+func (s *Store) ReadByID(id string) (*Session, error) {
+	workspace, err := s.findSessionWorkspace(id)
+	if err != nil {
+		return nil, err
+	}
+	return s.ReadSnapshot(workspace, id)
+}
+
+// ListAll reads every registered workspace in this store's home. A zero cutoff
+// includes all sessions; otherwise the last access must be at or after it.
+func (s *Store) ListAll(activeOnly bool, cutoff time.Time) ([]ListItem, error) {
+	workspaces, err := s.loadOrRecoverRegistry()
+	if err != nil {
+		return nil, err
+	}
+	items := []ListItem{}
+	for _, workspace := range workspaces {
+		listed, err := s.List(workspace, activeOnly)
+		if err != nil {
+			return nil, err
+		}
+		for _, item := range listed {
+			if cutoff.IsZero() || !item.Session.LastAccessedAt.Before(cutoff) {
+				items = append(items, item)
+			}
+		}
+	}
+	sort.Slice(items, func(i, j int) bool {
+		left, right := items[i].Session, items[j].Session
+		if !left.LastAccessedAt.Equal(right.LastAccessedAt) {
+			return left.LastAccessedAt.After(right.LastAccessedAt)
+		}
+		if left.SessionID != right.SessionID {
+			return left.SessionID > right.SessionID
+		}
+		return left.Workspace > right.Workspace
+	})
+	return items, nil
+}
+
 func (s *Store) List(workspace Workspace, activeOnly bool) ([]ListItem, error) {
 	ids, err := s.listSessionIDs(workspace)
 	if err != nil {
