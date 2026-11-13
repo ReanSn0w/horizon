@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -322,18 +323,34 @@ func (q *Queue) Handle(ctx context.Context, r Request) (any, error) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	switch r.Method {
-	case "list", "read", "lookup":
+	case "list", "read", "lookup", "timer_lookup":
 		return q.read(r)
 	case "list_running":
 		return q.runningDialogs(r)
 	case "input_next", "input_close", "input_ack":
 		return q.handleTurnInput(r)
 	}
-	operator := r.Method == "resolve_input" && r.Caller.Kind == "operator"
+	manualTimer := r.Method == "timer_run" && r.Caller.Kind == "operator"
+	operator := (r.Method == "resolve_input" || manualTimer) && r.Caller.Kind == "operator"
 	var c Caller
 	var err error
 	if operator {
-		c = Caller{Kind: "operator", Access: "write"}
+		if manualTimer {
+			if !strings.HasPrefix(r.OperationID, "timer:manual:") || r.Caller.Source != "" || r.Caller.Session != "" || r.Caller.Credential != "" || r.Mode != "" || r.Deadline != nil {
+				return nil, fail("invalid_request", "invalid manual timer request")
+			}
+			if !slices.Contains(q.settings.Adapters, TimerSource) {
+				return nil, fail("invalid_request", "timer adapter is not enabled")
+			}
+			workspace, workspaceErr := session.NormalizeWorkspace(r.Caller.Workspace)
+			if workspaceErr != nil {
+				return nil, fail("invalid_request", "invalid timer workspace")
+			}
+			c = Caller{Kind: "adapter", Source: TimerSource, Workspace: workspace, Access: q.timerAccess}
+			r.Method, r.Mode = "submit", FreshTask
+		} else {
+			c = Caller{Kind: "operator", Access: "write"}
+		}
 	} else {
 		c, err = q.caller(r.Caller)
 		if err != nil {
@@ -507,6 +524,16 @@ func (q *Queue) Handle(ctx context.Context, r Request) (any, error) {
 	return summary(result), nil
 }
 func (q *Queue) read(r Request) (any, error) {
+	if r.Method == "timer_lookup" {
+		if r.Caller.Kind != "operator" || !strings.HasPrefix(r.OperationID, "timer:manual:") {
+			return nil, fail("invalid_request", "operator timer operation required")
+		}
+		op, ok := q.state.Operations["adapter:"+TimerSource+":"+r.OperationID]
+		if !ok {
+			return nil, fail("not_found", "operation not found")
+		}
+		return q.operationResult(op), nil
+	}
 	c, err := q.caller(r.Caller)
 	if err != nil {
 		return nil, err

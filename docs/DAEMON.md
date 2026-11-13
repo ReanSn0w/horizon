@@ -226,6 +226,11 @@ Adapter administration remains `horizon agent timer ...`. The supervisor command
 names are reserved in this shared namespace. See [Agent](../plugins/agent/README.md)
 for systemd/launchd installation and migration.
 
+The local operator's `timer_run` method queues a validated, enabled timer as a
+fresh `adapter:timer` task with the usual per-ID busy guard. `timer_lookup`
+resolves a prior manual operation after an uncertain response. Both use the
+durable operation map, and manual runs do not advance scheduled slot state.
+
 The package `internal/daemon`, persistent `daemon` state directory, socket and
 lock names, and `HORIZON_DAEMON_*` protocol environment variables remain unchanged
 for compatibility. Never rename or remove lock files to migrate an installation.

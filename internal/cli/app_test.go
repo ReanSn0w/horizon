@@ -156,6 +156,62 @@ func TestSessionCommands(t *testing.T) {
 	}
 }
 
+func TestGlobalSessionCommands(t *testing.T) {
+	home := t.TempDir()
+	first := t.TempDir()
+	second := t.TempDir()
+	if code, _, stderr := runInitialize(t, "", "--home", home, "init"); code != ExitOK || stderr != "" {
+		t.Fatalf("init code=%d stderr=%q", code, stderr)
+	}
+	code, firstID, stderr := runAppAt(t, first, "", "--home", home, "sessions", "create")
+	if code != ExitOK || stderr != "" {
+		t.Fatalf("create first: %d %q", code, stderr)
+	}
+	code, secondID, stderr := runAppAt(t, second, "", "--home", home, "sessions", "create")
+	if code != ExitOK || stderr != "" {
+		t.Fatalf("create second: %d %q", code, stderr)
+	}
+	firstID, secondID = strings.TrimSpace(firstID), strings.TrimSpace(secondID)
+	code, output, stderr := runAppAt(t, first, "", "--home", home, "sessions", "list", "--all", "--since", "24h", "--json")
+	if code != ExitOK || stderr != "" {
+		t.Fatalf("global list: %d %q", code, stderr)
+	}
+	var rows []struct {
+		SessionID string `json:"session_id"`
+		Workspace string `json:"workspace"`
+		Active    bool   `json:"active"`
+	}
+	if err := json.Unmarshal([]byte(output), &rows); err != nil || len(rows) != 2 {
+		t.Fatalf("global JSON: %v %q", err, output)
+	}
+	seen := map[string]bool{}
+	for _, row := range rows {
+		seen[row.SessionID] = true
+	}
+	if !seen[firstID] || !seen[secondID] {
+		t.Fatalf("missing sessions: %+v", rows)
+	}
+	code, output, stderr = runAppAt(t, first, "", "--home", home, "sessions", "list", "--json")
+	if code != ExitOK || stderr != "" || strings.Contains(output, secondID) {
+		t.Fatalf("local list: %d %q %q", code, output, stderr)
+	}
+	code, output, stderr = runAppAt(t, first, "", "--home", home, "sessions", "read", "--all", "--id", secondID)
+	if code != ExitOK || stderr != "" || !strings.Contains(output, secondID) {
+		t.Fatalf("global read: %d %q %q", code, output, stderr)
+	}
+	code, _, _ = runAppAt(t, first, "", "--home", home, "sessions", "read", "--id", secondID)
+	if code == ExitOK {
+		t.Fatal("local read crossed workspace boundary")
+	}
+	for _, args := range [][]string{{"list", "--all", "--workspace", first}, {"list", "--since", "bad"}, {"list", "--since", "-1h"}} {
+		call := append([]string{"--home", home, "sessions"}, args...)
+		code, _, _ = runAppAt(t, first, "", call...)
+		if code != ExitUsage {
+			t.Fatalf("expected usage error for %v, got %d", args, code)
+		}
+	}
+}
+
 func TestResumeCreatesNamesAndFailsSessionWhenProviderIsUnavailable(t *testing.T) {
 	home := testHome(t, `
 mode: unit

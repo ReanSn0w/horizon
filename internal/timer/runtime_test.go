@@ -199,7 +199,7 @@ func TestSchedulerReloadCancelsOnlyQueuedRevision(t *testing.T) {
 func TestSchedulerReloadDeletionDisableAndUnchanged(t *testing.T) {
 	for _, action := range []string{"delete", "disable", "invalidate", "unchanged"} {
 		t.Run(action, func(t *testing.T) {
-			r, stub, now, workspace := testRuntime(t)
+			r, stub, now, _ := testRuntime(t)
 			reachSlot(r, now, now.Add(time.Minute))
 			next := r.timers["reports"].next.At
 			switch action {
@@ -208,7 +208,9 @@ func TestSchedulerReloadDeletionDisableAndUnchanged(t *testing.T) {
 					t.Fatal(err)
 				}
 			case "disable":
-				putFile(t, r.home, "reports", "---\nenabled: false\n"+markdown(workspace, minutely, "Original task.")[4:])
+				if changed, err := SetEnabled(r.home, "reports", false); err != nil || !changed {
+					t.Fatalf("disable: %t %v", changed, err)
+				}
 			case "invalidate":
 				putFile(t, r.home, "reports", "broken")
 			}

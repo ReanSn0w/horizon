@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"text/tabwriter"
 	"time"
 
 	"github.com/ReanSn0w/horizon/internal/buildinfo"
@@ -90,11 +91,18 @@ func admin(args []string, out, diag io.Writer, now func() time.Time) int {
 			ID string `positional-arg-name:"TIMER_ID" required:"yes"`
 		} `positional-args:"yes"`
 	}
+	var listOptions struct {
+		JSON bool `long:"json" description:"print a JSON array"`
+	}
 	parser := flags.NewParser(&struct{}{}, flags.HelpFlag|flags.PassDoubleDash)
 	parser.Name = "horizon agent timer"
 	parser.AddCommand("validate", "Validate schedules", "Check one timer or all timer files.", &validateOptions)
+	parser.AddCommand("list", "List timer definitions", "Show every timer file, including invalid definitions.", &listOptions)
 	parser.AddCommand("status", "Show timer status", "Show one timer or all timers.", &statusOptions)
 	parser.AddCommand("unblock", "Unblock a timer", "Allow future slots after an unknown outcome.", &unblockOptions)
+	parser.AddCommand("enable", "Enable a timer", "Enable a validated timer definition.", &unblockOptions)
+	parser.AddCommand("disable", "Disable a timer", "Disable future firings of a timer.", &unblockOptions)
+	parser.AddCommand("run", "Run a timer now", "Queue a fresh timer task without changing its schedule.", &unblockOptions)
 	if len(args) == 0 {
 		args = []string{"--help"}
 	}
@@ -117,7 +125,7 @@ func admin(args []string, out, diag io.Writer, now func() time.Time) int {
 	if args[0] == "status" {
 		id = statusOptions.Args.ID
 	}
-	if args[0] == "unblock" {
+	if args[0] == "unblock" || args[0] == "enable" || args[0] == "disable" || args[0] == "run" {
 		id = unblockOptions.Args.ID
 	}
 	if id != "" {
@@ -130,6 +138,37 @@ func admin(args []string, out, diag io.Writer, now func() time.Time) int {
 	}
 	if args[0] == "status" {
 		return status(home, args[1:], out, diag)
+	}
+	if args[0] == "list" {
+		return list(home, listOptions.JSON, out, diag)
+	}
+	if args[0] == "run" {
+		if os.Getenv("HORIZON_INHERITED_ACCESS") == "read" {
+			fmt.Fprintln(diag, "running a timer requires write access")
+			return 1
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		taskID, err := timer.RunNow(ctx, home, args[1])
+		if err != nil {
+			fmt.Fprintln(diag, err)
+			return 1
+		}
+		fmt.Fprintln(out, taskID)
+		return 0
+	}
+	if args[0] == "enable" || args[0] == "disable" {
+		if os.Getenv("HORIZON_INHERITED_ACCESS") == "read" {
+			fmt.Fprintln(diag, "changing a timer requires write access")
+			return 1
+		}
+		_, err := timer.SetEnabled(home, args[1], args[0] == "enable")
+		if err != nil {
+			fmt.Fprintln(diag, err)
+			return 1
+		}
+		fmt.Fprintf(out, "%s: %sd\n", args[1], args[0])
+		return 0
 	}
 	if args[0] == "unblock" {
 		if os.Getenv("HORIZON_INHERITED_ACCESS") == "read" {
@@ -177,6 +216,62 @@ func admin(args []string, out, diag io.Writer, now func() time.Time) int {
 		fmt.Fprintf(out, "%s: %s\n", result.ID, status)
 	}
 	return code
+}
+
+func list(home string, asJSON bool, out, diag io.Writer) int {
+	results, err := timer.LoadCatalog(home)
+	if err != nil {
+		fmt.Fprintln(diag, err)
+		return 1
+	}
+	type row struct {
+		ID        string                `json:"id"`
+		Name      string                `json:"name,omitempty"`
+		Enabled   bool                  `json:"enabled"`
+		Schedule  *timer.ScheduleConfig `json:"schedule,omitempty"`
+		Workspace string                `json:"workspace,omitempty"`
+		Error     string                `json:"error,omitempty"`
+	}
+	rows := make([]row, 0, len(results))
+	for _, result := range results {
+		item := row{ID: result.ID}
+		if result.Err != nil {
+			item.Error = result.Err.Error()
+		} else {
+			item.Name, item.Enabled, item.Schedule, item.Workspace = result.Definition.Name, result.Definition.Enabled, &result.Definition.Schedule, result.Definition.Workspace
+			compiled, compileErr := timer.Compile(result.Definition.Schedule)
+			if compileErr != nil {
+				item.Error = compileErr.Error()
+			} else if _, nextErr := compiled.Next(time.Now()); nextErr != nil {
+				item.Error = nextErr.Error()
+			}
+		}
+		rows = append(rows, item)
+	}
+	if asJSON {
+		if err := json.NewEncoder(out).Encode(rows); err != nil {
+			fmt.Fprintln(diag, err)
+			return 1
+		}
+		return 0
+	}
+	writer := tabwriter.NewWriter(out, 0, 4, 2, ' ', 0)
+	fmt.Fprintln(writer, "ID\tNAME\tENABLED\tSCHEDULE\tWORKSPACE\tERROR")
+	for _, item := range rows {
+		schedule := ""
+		if item.Schedule != nil {
+			schedule = item.Schedule.Cron
+			if schedule == "" {
+				schedule = item.Schedule.Every
+			}
+		}
+		fmt.Fprintf(writer, "%s\t%s\t%t\t%s\t%s\t%s\n", item.ID, item.Name, item.Enabled, schedule, item.Workspace, item.Error)
+	}
+	if err := writer.Flush(); err != nil {
+		fmt.Fprintln(diag, err)
+		return 1
+	}
+	return 0
 }
 
 func status(home string, args []string, out, diag io.Writer) int {

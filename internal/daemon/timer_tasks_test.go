@@ -17,6 +17,35 @@ func timerRequest(workspace, source, op string) Request {
 	}
 }
 
+func TestOperatorManualTimerUsesDurableTimerQueue(t *testing.T) {
+	home, workspace := shortHome(t), t.TempDir()
+	settings := Defaults()
+	settings.Adapters = []string{TimerSource}
+	q, err := OpenQueue(home, settings, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := Request{Method: "timer_run", Caller: Caller{Kind: "operator", Workspace: workspace}, OperationID: "timer:manual:reports:abc", SourceKey: "reports", Access: "write", Message: "Inspect reports"}
+	first := taskResult(t, q, request)
+	if first.Owner != "" || first.Mode != FreshTask || first.SourceKey != "reports" {
+		t.Fatalf("task: %+v", first)
+	}
+	lookup, err := q.Handle(context.Background(), Request{Method: "timer_lookup", Caller: Caller{Kind: "operator"}, OperationID: request.OperationID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if lookup.(*Task).ID != first.ID {
+		t.Fatalf("lookup: %+v", lookup)
+	}
+	if again := taskResult(t, q, request); again.ID != first.ID {
+		t.Fatal("manual retry duplicated task")
+	}
+	request.OperationID = "timer:manual:reports:other"
+	if _, err := q.Handle(context.Background(), request); err == nil || err.(*Failure).Code != "timer_busy" {
+		t.Fatalf("busy: %v", err)
+	}
+}
+
 func runTimerQueue(t *testing.T, q *Queue) {
 	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())

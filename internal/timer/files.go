@@ -35,15 +35,15 @@ type Definition struct {
 }
 
 type ScheduleConfig struct {
-	Every    string         `yaml:"every"`
-	Cron     string         `yaml:"cron"`
-	Timezone string         `yaml:"timezone"`
-	Windows  []WindowConfig `yaml:"windows"`
+	Every    string         `yaml:"every" json:"every,omitempty"`
+	Cron     string         `yaml:"cron" json:"cron,omitempty"`
+	Timezone string         `yaml:"timezone" json:"timezone,omitempty"`
+	Windows  []WindowConfig `yaml:"windows" json:"windows,omitempty"`
 }
 
 type WindowConfig struct {
-	Start string `yaml:"start"`
-	End   string `yaml:"end"`
+	Start string `yaml:"start" json:"start"`
+	End   string `yaml:"end" json:"end"`
 }
 
 type frontmatter struct {

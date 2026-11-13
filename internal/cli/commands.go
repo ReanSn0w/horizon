@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -10,6 +11,7 @@ import (
 	"sort"
 	"syscall"
 	"text/tabwriter"
+	"time"
 
 	"github.com/ReanSn0w/horizon/internal/agent"
 	"github.com/ReanSn0w/horizon/internal/config"
@@ -197,24 +199,87 @@ type sessionsListCommand struct {
 	global    *globalOptions
 	Workspace string `long:"workspace" description:"filter by workspace directory"`
 	Active    bool   `long:"active" description:"show only sessions with an active turn"`
+	All       bool   `long:"all" description:"list sessions across all workspaces in this home"`
+	Since     string `long:"since" description:"include sessions accessed within this duration, e.g. 24h"`
+	JSON      bool   `long:"json" description:"print a JSON array"`
 }
 
 func (command *sessionsListCommand) Execute(args []string) error {
 	if err := rejectArgs(args); err != nil {
 		return err
 	}
-	store, workspace, err := command.app.sessionContext(command.global, command.Workspace)
-	if err != nil {
-		return err
+	if command.All && command.Workspace != "" {
+		return usage("--all cannot be combined with --workspace", nil)
 	}
-	items, err := store.List(workspace, command.Active)
+	var cutoff time.Time
+	if command.Since != "" {
+		duration, err := time.ParseDuration(command.Since)
+		if err != nil || duration <= 0 {
+			return usage("--since must be a positive duration (for example 24h)", err)
+		}
+		cutoff = time.Now().UTC().Add(-duration)
+	}
+	var store *session.Store
+	var workspace session.Workspace
+	var err error
+	if command.All {
+		home, resolveErr := config.ResolveHome(command.global.Home)
+		if resolveErr != nil {
+			return usage(resolveErr.Error(), resolveErr)
+		}
+		store = session.NewStore(home)
+	} else {
+		store, workspace, err = command.app.sessionContext(command.global, command.Workspace)
+		if err != nil {
+			return err
+		}
+	}
+	var items []session.ListItem
+	if command.All {
+		items, err = store.ListAll(command.Active, cutoff)
+	} else {
+		items, err = store.List(workspace, command.Active)
+		if err == nil && !cutoff.IsZero() {
+			filtered := make([]session.ListItem, 0, len(items))
+			for _, item := range items {
+				if !item.Session.LastAccessedAt.Before(cutoff) {
+					filtered = append(filtered, item)
+				}
+			}
+			items = filtered
+		}
+	}
 	if err != nil {
 		return failure(err.Error(), err)
 	}
+	if command.JSON {
+		type row struct {
+			SessionID      string    `json:"session_id"`
+			Workspace      string    `json:"workspace"`
+			Title          string    `json:"title"`
+			CreatedAt      time.Time `json:"created_at"`
+			LastAccessedAt time.Time `json:"last_accessed_at"`
+			Active         bool      `json:"active"`
+		}
+		rows := make([]row, 0, len(items))
+		for _, item := range items {
+			value := item.Session
+			rows = append(rows, row{value.SessionID, value.Workspace, value.Title, value.CreatedAt, value.LastAccessedAt, item.Active})
+		}
+		return json.NewEncoder(command.app.out).Encode(rows)
+	}
 	writer := tabwriter.NewWriter(command.app.out, 0, 4, 2, ' ', 0)
-	fmt.Fprintln(writer, "ID\tTITLE\tLAST ACCESSED\tACTIVE")
+	if command.All {
+		fmt.Fprintln(writer, "ID\tWORKSPACE\tTITLE\tLAST ACCESSED\tACTIVE")
+	} else {
+		fmt.Fprintln(writer, "ID\tTITLE\tLAST ACCESSED\tACTIVE")
+	}
 	for _, item := range items {
-		fmt.Fprintf(writer, "%s\t%s\t%s\t%t\n", item.Session.SessionID, item.Session.Title, item.Session.LastAccessedAt.Format("2006-01-02T15:04:05Z07:00"), item.Active)
+		if command.All {
+			fmt.Fprintf(writer, "%s\t%s\t%s\t%s\t%t\n", item.Session.SessionID, item.Session.Workspace, item.Session.Title, item.Session.LastAccessedAt.Format(time.RFC3339), item.Active)
+		} else {
+			fmt.Fprintf(writer, "%s\t%s\t%s\t%t\n", item.Session.SessionID, item.Session.Title, item.Session.LastAccessedAt.Format(time.RFC3339), item.Active)
+		}
 	}
 	return writer.Flush()
 }
@@ -254,6 +319,7 @@ type sessionsReadCommand struct {
 	global *globalOptions
 	ID     string `long:"id" required:"true" description:"session ID"`
 	Turns  int    `long:"turns" default:"16" description:"number of complete turns to show, including failed and cancelled turns"`
+	All    bool   `long:"all" description:"find this session in any workspace in this home"`
 }
 
 func (command *sessionsReadCommand) Execute(args []string) error {
@@ -263,13 +329,25 @@ func (command *sessionsReadCommand) Execute(args []string) error {
 	if command.Turns <= 0 {
 		return usage("--turns must be positive", nil)
 	}
-	store, workspace, err := command.app.sessionContext(command.global, "")
-	if err != nil {
-		return err
-	}
-	value, err := store.ReadForWorkspace(workspace, command.ID)
-	if err != nil {
-		return failure(err.Error(), err)
+	var value *session.Session
+	if command.All {
+		home, err := config.ResolveHome(command.global.Home)
+		if err != nil {
+			return usage(err.Error(), err)
+		}
+		value, err = session.NewStore(home).ReadByID(command.ID)
+		if err != nil {
+			return failure(err.Error(), err)
+		}
+	} else {
+		store, workspace, err := command.app.sessionContext(command.global, "")
+		if err != nil {
+			return err
+		}
+		value, err = store.ReadForWorkspace(workspace, command.ID)
+		if err != nil {
+			return failure(err.Error(), err)
+		}
 	}
 	if err := session.WriteHistory(command.app.out, value, command.Turns); err != nil {
 		return failure(err.Error(), err)
