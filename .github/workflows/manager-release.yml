@@ -1,0 +1,136 @@
+name: Manager CI and release
+
+on:
+  push:
+    branches: [master, codex/todo-fixes]
+    tags: ['v*']
+  pull_request:
+    branches: [master]
+  workflow_dispatch:
+
+defaults:
+  run:
+    shell: bash
+
+permissions:
+  contents: read
+
+concurrency:
+  group: manager-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: ${{ matrix.goos }} / ${{ matrix.goarch }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            goos: linux
+            goarch: amd64
+          - runner: ubuntu-24.04-arm
+            goos: linux
+            goarch: arm64
+          - runner: macos-15-intel
+            goos: darwin
+            goarch: amd64
+          - runner: macos-15
+            goos: darwin
+            goarch: arm64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Check native platform
+        env:
+          EXPECTED_OS: ${{ matrix.goos }}
+          EXPECTED_ARCH: ${{ matrix.goarch }}
+        run: |
+          test "$(go env GOOS)" = "$EXPECTED_OS"
+          test "$(go env GOARCH)" = "$EXPECTED_ARCH"
+      - name: Test and vet
+        run: |
+          go test -race ./...
+          go vet ./...
+      - name: Build manager
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: '0'
+          GOTOOLCHAIN: local
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          version="dev-${GITHUB_SHA:0:12}"
+          if [ "$REF_TYPE" = tag ]; then
+            [[ "$REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || exit 1
+            version="$REF_NAME"
+          fi
+          mkdir -p dist
+          binary="dist/horizon-manager-$GOOS-$GOARCH"
+          go build -trimpath -ldflags "-s -w -X github.com/ReanSn0w/horizon/internal/buildinfo.Version=$version -X github.com/ReanSn0w/horizon/internal/buildinfo.Commit=$GITHUB_SHA" -o "$binary" ./plugins/manager
+          "$binary" --help
+          "$binary" horizon-plugin-metadata > metadata.json
+          python3 - "$version" <<'PY'
+          import json, sys
+          with open('metadata.json') as stream:
+              metadata = json.load(stream)
+          assert metadata['protocol_version'] == 1
+          assert metadata['version'] == sys.argv[1], metadata
+          PY
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: horizon-manager-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: dist/horizon-manager-${{ matrix.goos }}-${{ matrix.goarch }}
+          if-no-files-found: error
+          retention-days: 14
+
+  release:
+    name: Publish release
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          pattern: horizon-manager-*
+          path: dist
+          merge-multiple: true
+      - name: Verify assets and create checksums
+        working-directory: dist
+        run: |
+          test "$(find . -maxdepth 1 -type f | wc -l)" -eq 4
+          for name in horizon-manager-linux-amd64 horizon-manager-linux-arm64 horizon-manager-darwin-amd64 horizon-manager-darwin-arm64; do
+            test -s "$name"
+          done
+          sha256sum horizon-manager-* > SHA256SUMS
+          sha256sum -c SHA256SUMS
+      - name: Publish only the complete asset set
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || exit 1
+          notes="docs/releases/$RELEASE_TAG.md"
+          test -f "$notes"
+          if gh release view "$RELEASE_TAG" --json isDraft --jq .isDraft > release-state.txt; then
+            test "$(cat release-state.txt)" = true || { echo 'Refusing to replace an already published release'; exit 1; }
+          else
+            gh release create "$RELEASE_TAG" --verify-tag --draft --title "Horizon $RELEASE_TAG" --notes-file "$notes"
+          fi
+          gh release upload "$RELEASE_TAG" dist/horizon-manager-* dist/SHA256SUMS --clobber
+          gh release edit "$RELEASE_TAG" --draft=false --latest

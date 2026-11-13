@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/ReanSn0w/horizon/internal/buildinfo"
@@ -101,7 +102,7 @@ func (a *App) Run(args []string) int {
 		fmt.Fprintf(a.errOut, "horizon: initialize CLI: %v\n", err)
 		return ExitFailure
 	}
-	reserved := commandNames(parser)
+	reserved := slices.DeleteFunc(commandNames(parser), func(name string) bool { return name == "agent" })
 	a.reserved = reserved
 	if index, homeFlag, ok := pluginCommandIndex(args); ok {
 		home, err := config.ResolveHome(homeFlag)

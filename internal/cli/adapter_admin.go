@@ -19,6 +19,16 @@ type adapterAdminCommand struct{}
 func (*adapterAdminCommand) Execute([]string) error { return usage(adapterAdminUsage, nil) }
 
 func (a *App) runAdapterAdmin(home string, args []string) int {
+	if len(args) == 0 || slices.Contains([]string{"start", "status", "stop", "resolve-input", "service", "--help", "-h"}, args[0]) {
+		entry := plugins.Inspect(home, "agent", nil)
+		if entry.Err == nil {
+			return a.runPlugin(entry, args, home)
+		}
+		if len(args) > 0 && args[0] != "--help" && args[0] != "-h" {
+			fmt.Fprintf(a.errOut, "horizon: install the supervisor with horizon manager plugins install agent: %v\n", entry.Err)
+			return ExitUsage
+		}
+	}
 	if len(args) == 1 && (args[0] == "--help" || args[0] == "-h") {
 		fmt.Fprintln(a.out, adapterAdminUsage)
 		return ExitOK

@@ -151,6 +151,17 @@ func (e *Engine) execute(ctx context.Context, o Options, in io.Reader, out io.Wr
 		return err
 	}
 	names := append([]string(nil), old.Plugins...)
+	renamedSupervisor := false
+	if _, hasAgent := catalog["agent"]; hasAgent {
+		for i, name := range names {
+			if name == "daemon" {
+				if slices.Contains(names, "agent") {
+					return errors.New("both daemon and agent are managed; remove the legacy daemon first")
+				}
+				names[i], renamedSupervisor = "agent", true
+			}
+		}
+	}
 	for _, name := range o.Adopt {
 		if _, ok := catalog[name]; !ok {
 			return fmt.Errorf("unknown legacy plugin %s", name)
@@ -176,10 +187,12 @@ func (e *Engine) execute(ctx context.Context, o Options, in io.Reader, out io.Wr
 	if err = e.buildSet(ctx, filepath.Join(stage, "source"), stage, catalog, names); err != nil {
 		return err
 	}
-	if _, err = bootstrap.Ensure(o.Home); err != nil {
+	resources, err := bootstrap.Ensure(o.Home)
+	if err != nil {
 		return err
 	}
-	if err = prepareConfig(o.Home, stage, append([]string{"manager"}, names...)); err != nil {
+	_, agentSupervisor := catalog["agent"]
+	if err = prepareConfig(o.Home, stage, filepath.Join(stage, "source"), append([]string{"manager"}, names...), resources.ConfigCreated, agentSupervisor); err != nil {
 		return err
 	}
 	if err = config.WriteInstallation(stage, config.Installation{Source: source}); err != nil {
@@ -190,12 +203,29 @@ func (e *Engine) execute(ctx context.Context, o Options, in io.Reader, out io.Wr
 		return err
 	}
 	paths := append([]string{"source", "bin/horizon"}, pluginPaths(names)...)
-	paths = append(paths, "config.yaml", "bin/horizon-manager", ".manager/state.json")
+	configChanged, err := configurationChanged(o.Home, stage)
+	if err != nil {
+		return err
+	}
+	if configChanged {
+		paths = append(paths, "config.yaml")
+	}
+	paths = append(paths, "bin/horizon-manager", ".manager/state.json")
 	if err = ctx.Err(); err != nil {
 		return err
 	}
-	if err = e.deploy(o.Home, stage, paths, nil); err != nil {
+	var removed map[string]bool
+	if renamedSupervisor {
+		paths = append(paths, "bin/horizon-daemon")
+		removed = map[string]bool{"bin/horizon-daemon": true}
+	}
+	if err = e.deploy(o.Home, stage, paths, removed); err != nil {
 		return err
+	}
+	if configChanged {
+		fmt.Fprintln(out, "Configuration updated: existing values and comments preserved.")
+	} else {
+		fmt.Fprintln(out, "Configuration already up to date.")
 	}
 	fmt.Fprintf(out, "Installed Horizon in %s\nSource: %s (%s)\nFill providers, models, default_model and decision_model in %s before running Horizon.\n", o.Home, ref, commit, filepath.Join(o.Home, "config.yaml"))
 	fmt.Fprintf(out, "Global instructions: %s\n", filepath.Join(o.Home, "AGENTS.md"))

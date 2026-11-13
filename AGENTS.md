@@ -3,7 +3,7 @@
 ## Назначение и источники
 
 Horizon — самостоятельный консольный агент на Go для работы с репозиториями
-через Responses API. Один процесс выполняет один ход агента (`mode: unit`).
+через Responses API. Один процесс выполняет один ход агента.
 Сессии и результаты инструментов сохраняются локально; интерфейс рассчитан
 на обычный терминал, скрипты и SSH.
 
@@ -132,8 +132,8 @@ HORIZON_API_CHECK=1 go test ./internal/responses -run TestConfiguredEndpointComp
 - `horizon-manager install` подготавливает home и выводит пути к `config.yaml` и
   `AGENTS.md`. Рабочие команды не создают home автоматически; при отсутствии
   конфигурации они предлагают запустить `install`. Менеджер только печатает команды HORIZON_HOME/PATH и не меняет shell-файлы. Справка и ошибки разбора
-  аргументов тоже ничего не создают. Повторный `install` не перезаписывает
-  пользовательские файлы. Новые каталоги имеют права `0700`, файлы — `0600`.
+  аргументов тоже ничего не создают. Повторный `install` сохраняет пользовательские инструкции и навыки;
+  `config.yaml` бережно актуализируется вместе с установленным набором. Новые каталоги имеют права `0700`, файлы — `0600`.
 - `config.example.yaml` и `internal/bootstrap/assets/config.yaml` должны
   совпадать побайтово: это проверяет `TestEmbeddedResources`. При изменении
   конфигурации обновляй оба шаблона, валидацию и соответствующее описание.
@@ -141,7 +141,8 @@ HORIZON_API_CHECK=1 go test ./internal/responses -run TestConfiguredEndpointComp
   Responses API и ключ. `models.<профиль>.provider` ссылается на имя подключения.
   `default_model` и `decision_model` выбирают профили диалога и решений.
   В проверках решений reasoning всегда отключён. Старые блоки `provider` и
-  `decision` не поддерживаются; `install` не переписывает пользовательский YAML.
+  `decision` не поддерживаются; manager сохраняет пользовательские значения,
+  добавляет недостающие параметры и выполняет только явные миграции формата.
   Отсутствующий или неизвестный `decision_model` даёт адресную ошибку до создания
   хода `read`/`write`; в `full` он не требуется.
   Сжатие памяти использует провайдера её профиля. Новые сессии сохраняют имя
@@ -281,9 +282,17 @@ HORIZON_API_CHECK=1 go test ./internal/responses -run TestConfiguredEndpointComp
 - Рабочие команды удерживают shared maintenance lock, manager — exclusive. Родительский `horizon manager`, metadata и config-template не должны мешать обслуживанию.
 - Тестируй manager на временных home, локальных Git fixtures и HTTP-серверах. Не меняй пользовательский home и shell-настройки. Вся настройка shell — только печатные команды.
 
-### Daemon
+- Основные настройки дополняются из `config.example.yaml` выбранного commit,
+  а настройки плагинов — из шаблонов собранных бинарников. Подготовка идёт в staging;
+  конфиг применяется в общей транзакции с rollback, сохраняет symlink и права.
+  Неизменившийся файл не перезаписывается. Не добавляй примеры моделей/провайдеров
+  в существующие именованные карты и не включай память или расширения без согласия.
+  Отсутствующая memory сохраняет смысл «выключена», memory.model по умолчанию
+  следует пользовательскому default_model. Неизвестные поля не удаляются молча.
 
-- `plugins/daemon` — CLI; `internal/daemon` — сокет, долговечная очередь, runner и адаптеры. Контракт: `docs/DAEMON.md`.
+### Agent supervisor
+
+- `plugins/agent` — CLI; `internal/daemon` — сокет, долговечная очередь, runner и адаптеры. Контракт: `docs/DAEMON.md`.
 - Один foreground-демон на home; постоянный singleton lock и shared maintenance lock удерживаются весь срок работы. Перед manager update требуется остановка.
 - `agent-*` — отдельный протокол адаптеров, только явное включение. Manager использует `agent:NAME`, отдельно от CLI `NAME`.
 - Работающая задача после аварии становится unknown без автоматического повторения; daemon не пишет напрямую в JSON-сессии и не убивает восстановленные PID.
@@ -298,6 +307,19 @@ HORIZON_API_CHECK=1 go test ./internal/responses -run TestConfiguredEndpointComp
 - `plugins/subagent` is a short-lived daemon client enabled via `agent_plugins`; it never starts daemon or Horizon itself. See `docs/SUBAGENT.md`.
 - spawn/send/cancel use write_home; list/read/wait use read. Host context must not come from model arguments. Query by operation_id after outcome_unknown before retrying.
 
+
+- Управляющий CLI — `horizon agent`, бинарник — `horizon-agent`, настройки —
+  `plugins.agent`. Внутренний пакет `internal/daemon`, пути очереди, socket/lock
+  и переменные протокола сохраняются для совместимости. Старый `plugins.daemon`
+  читается только при отсутствии `plugins.agent`; manager мигрирует настройки
+  и управляемый бинарник транзакционно при переходе на новую ревизию.
+- Старое `mode: unit` принимается для совместимости и удаляется manager при
+  обновлении до новой ревизии. Для старых ревизий manager сохраняет это поле.
+- `horizon agent service print|install` создаёт файлы systemd/LaunchAgent.
+  Установка не запускает службу и не перезаписывает существующий файл.
+- `horizon telegram check` проверяет API без отправки; `send TEXT` явно отправляет
+  владельцу без модели и повторов. При вызове из хода отправка требует full.
+
 ### Timer
 
 - `plugins/agent-timer` — один бинарник для supervised `agent-run` и
@@ -310,3 +332,11 @@ HORIZON_API_CHECK=1 go test ./internal/responses -run TestConfiguredEndpointComp
   workspace и отменяет старую ревизию только до dispatch. После unknown нужен
   явный `unblock` для разрешения будущих слотов. Контракт в
   [README Timer](plugins/agent-timer/README.md).
+
+### Выпуск
+
+- `.github/workflows/manager-release.yml` тестирует и собирает `horizon-manager`
+  на Linux/macOS amd64/arm64. Git-тег `vX.Y.Z` запускает публикацию четырёх
+  бинарников и `SHA256SUMS` после успешной матрицы. Заметки: `docs/releases/vX.Y.Z.md`.
+- Этап рефакторинга закрыт решением владельца 13 ноября 2026; остатки сняты,
+  исторический план находится в `plans/done/repository-refactoring.md`.

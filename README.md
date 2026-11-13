@@ -28,12 +28,23 @@ API и для режимов `read`/`write` настроенная модель 
 из исходников. Запуск уже собранных бинарников Go не требует.
 
 Установкой управляет самостоятельный `horizon-manager`: скачать менеджер →
-выполнить `install` → заполнить настройки → запустить Horizon. Bootstrap-артефакт
-новой схемы пока не опубликован; сейчас соберите менеджер из этой версии репозитория:
+проверить контрольную сумму → запустить установку из исходников.
+Бинарники для Linux и macOS (amd64/arm64) доступны в
+[GitHub Releases](https://github.com/ReanSn0w/horizon/releases/latest).
+Названия файлов и проверка SHA-256 описаны в [README Manager](plugins/manager/README.md).
+
+Например, после скачивания варианта для Apple Silicon:
+
+```sh
+chmod +x ./horizon-manager-darwin-arm64
+./horizon-manager-darwin-arm64 install
+```
+
+Менеджер также можно собрать вручную:
 
 ```sh
 go build -o /tmp/horizon-manager ./plugins/manager
-/tmp/horizon-manager install --branch codex/repository-refactoring
+/tmp/horizon-manager install
 ```
 
 Менеджер предложит home и установит `horizon` и `horizon-manager` в `<home>/bin`.
@@ -91,7 +102,13 @@ models:
 
 Старые блоки `provider` и `decision` удалены. При переходе перенесите подключения
 в `providers`, добавьте ссылки `provider` в профили и задайте `decision_model`.
-Менеджер сохраняет существующие значения конфигурации.
+При `install` и `update` менеджер актуализирует `config.yaml`: добавляет
+недостающие основные настройки из шаблона выбранной ревизии и настройки
+установленных плагинов, выполняет известные миграции. Пользовательские значения,
+комментарии, права и symlink сохраняются; неизменившийся файл не переписывается.
+Карты моделей и провайдеров не дополняются примерными профилями. Неизвестные
+поля и неоднозначные старые форматы требуют явного исправления — менеджер
+не удаляет их автоматически. [Подробности обновления конфигурации](plugins/manager/README.md#актуализация-конфигурации).
 Формат вопросов и ответов описан в [docs/DECISION.md](docs/DECISION.md).
 
 Остальные обязательные поля, включая лимиты, показаны в
@@ -116,6 +133,10 @@ models:
 ```sh
 horizon
 ```
+
+Поле `mode` больше не используется. Старое `mode: unit` принимается для
+совместимости; manager удаляет его при следующем обновлении. Другие значения
+требуют явного удаления поля.
 
 ## Домашний каталог Horizon
 
@@ -392,24 +413,28 @@ workspace. Память хранится локально отдельно от 
 
 [Настройки, команды, ограничения и хранение](docs/MEMORY.md).
 
-## Локальный daemon
+## Управляющий процесс agent
 
-`horizon-daemon` управляет очередями и внешними процессами Horizon через
+`horizon-agent` управляет очередями и внешними процессами Horizon через
 Unix-сокет одного home. Адаптеры `agent-*` включаются явно. Команда
 `horizon agent <имя>` передаёт административные аргументы установленному
 адаптеру с capability `admin-cli`. CLI-плагины имеют префикс `horizon-*`.
 
-Установка: `horizon manager plugins install daemon`; foreground-запуск:
-`horizon daemon start`. Перед обновлением остановите его через
-`horizon daemon stop`. Подробности и ограничения — [Daemon](docs/DAEMON.md).
+Установка: `horizon manager plugins install agent`; foreground-запуск:
+`horizon agent start`. Перед обновлением остановите его через
+`horizon agent stop`. Подробности и ограничения — [Daemon](docs/DAEMON.md).
 
 Адаптеры могут добавлять уточнения в активный диалог. Horizon сохраняет каждое
 сообщение в сессии между запросами модели, после сохранения результатов
 инструментов. После закрытия приёма следующие сообщения ждут нового хода в той
 же сессии. Подтверждение записи сообщения в историю отдельно от ответа.
-`plugins.daemon.max_active_adapter_dialogs` задаёт число одновременно
+`plugins.agent.max_active_adapter_dialogs` задаёт число одновременно
 выполняемых диалогов адаптеров (по умолчанию 2). Слоты subagent выделяются
 отдельно по глубине.
+
+Для службы ОС используйте `horizon agent service print` для просмотра и
+`horizon agent service install` для установки файла. Команда печатает отдельные
+команды запуска и автозапуска. [Установка службы и переход с daemon](plugins/agent/README.md).
 
 ## Telegram
 
@@ -420,10 +445,13 @@ daemon и добавляет уточнения в активные ходы. [�
 упоминании или отправить несколько сообщений. Существующая установка
 переносится через `horizon telegram migrate --check` и `--apply`.
 
+Проверка Telegram без модели: `horizon telegram check`; явная тестовая отправка
+владельцу: `horizon telegram send 'hi!'`.
+
 ## Таймеры
 
 Установите `horizon manager plugins install agent:timer` и добавьте `timer` в
-`plugins.daemon.adapters`. Запустите daemon и поместите Markdown-расписания в
+`plugins.agent.adapters`. Запустите daemon и поместите Markdown-расписания в
 `<home>/timers/`. Используйте `horizon agent timer validate [timer-id]` для
 проверки файлов и `horizon agent timer status [timer-id]` для проверки запусков.
 Поручения выполняются в новых сессиях, состояние между запусками можно хранить

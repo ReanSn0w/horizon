@@ -276,7 +276,8 @@ describe. Отмена завершает группу процессов SIGTER
 Статические `plugins/*/plugin.json` описывают команду, Go-пакет и имя бинарника.
 Установка и обновление выполняются [Manager](../plugins/manager/README.md) из
 одного commit официального репозитория. Пакеты не содержат команд установки.
-Отдельного удалённого каталога и release workflow нет. Makefile остаётся
+Отдельного удалённого каталога плагинов нет. GitHub Actions публикует bootstrap-менеджер
+для Linux/macOS amd64/arm64; остальные компоненты менеджер собирает из исходников. Makefile остаётся
 инструментом разработчика и не ведёт состояние управляемой установки.
 
 Рабочие команды ядра и официальных плагинов удерживают общую блокировку
@@ -285,15 +286,15 @@ describe. Отмена завершает группу процессов SIGTER
 и config-template не захватывают runtime-блокировку, чтобы проверять staging
 во время обслуживания. Прямой manager работает без готового config.yaml.
 
-## Локальный daemon
+## Управляющий процесс agent
 
-`horizon-daemon` управляет очередями и внешними процессами Horizon через
+`horizon-agent` управляет очередями и внешними процессами Horizon через
 Unix-сокет одного home. Адаптеры `agent-*` обнаруживаются только демоном
 и включаются явно. CLI-плагины сохраняют префикс `horizon-*`.
 
-Установка: `horizon manager plugins install daemon`; foreground-запуск:
-`horizon daemon start`. Перед обновлением остановите его через
-`horizon daemon stop`. Подробности и ограничения — [Daemon](DAEMON.md).
+Установка: `horizon manager plugins install agent`; foreground-запуск:
+`horizon agent start`. Перед обновлением остановите его через
+`horizon agent stop`. Подробности и ограничения — [Daemon](DAEMON.md).
 
 ## Subagent
 
@@ -314,3 +315,7 @@ selected `HORIZON_HOME` and inherited access. Administrative commands share
 the maintenance lock and receive no supervised adapter credential. Each adapter
 defines its own arguments and exit codes. The `agent` name is reserved for the
 built-in CLI route.
+
+Пользовательские CLI плагинов используют `go-flags`; `--help` строится из описаний
+команд и параметров. Служебные JSON-команды метаданных и протокола расширений
+обрабатываются отдельно и не выводят пользовательскую справку.

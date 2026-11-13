@@ -66,33 +66,36 @@ func adapterTemplate(stage, home, name string) (config.PluginTemplate, error) {
 func disableAdapter(home, name string) error {
 	short := strings.TrimPrefix(name, "agent:")
 	_, err := config.UpdateDocument(home, func(doc *yaml.Node) (bool, error) {
-		n := doc.Content[0]
-		for _, key := range []string{"plugins", "daemon", "adapters"} {
-			var next *yaml.Node
-			for i := 0; i+1 < len(n.Content); i += 2 {
-				if n.Content[i].Value == key {
-					next = n.Content[i+1]
-					break
+		changed := false
+	supervisors:
+		for _, supervisor := range []string{"agent", "daemon"} {
+			n := doc.Content[0]
+			for _, key := range []string{"plugins", supervisor, "adapters"} {
+				var next *yaml.Node
+				for i := 0; i+1 < len(n.Content); i += 2 {
+					if n.Content[i].Value == key {
+						next = n.Content[i+1]
+						break
+					}
+				}
+				if next == nil {
+					continue supervisors
+				}
+				n = next
+			}
+			if n.Kind != yaml.SequenceNode {
+				return false, fmt.Errorf("plugins.agent.adapters must be a sequence")
+			}
+			kept := n.Content[:0]
+			for _, item := range n.Content {
+				if item.Value == short {
+					changed = true
+				} else {
+					kept = append(kept, item)
 				}
 			}
-			if next == nil {
-				return false, nil
-			}
-			n = next
+			n.Content = kept
 		}
-		if n.Kind != yaml.SequenceNode {
-			return false, fmt.Errorf("plugins.daemon.adapters must be a sequence")
-		}
-		kept := n.Content[:0]
-		changed := false
-		for _, item := range n.Content {
-			if item.Value == short {
-				changed = true
-			} else {
-				kept = append(kept, item)
-			}
-		}
-		n.Content = kept
 		return changed, nil
 	})
 	return err

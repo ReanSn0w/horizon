@@ -24,7 +24,7 @@ func start(ctx context.Context) error {
 	}
 	credential := os.Getenv("HORIZON_ADAPTER_CREDENTIAL")
 	if os.Getenv("HORIZON_ADAPTER_NAME") != "telegram" || os.Getenv("HORIZON_DAEMON_SOCKET") != daemon.Socket(home) || credential == "" {
-		return errors.New("agent-telegram must be started by horizon daemon")
+		return errors.New("agent-telegram must be started by horizon agent")
 	}
 	cfg, err := config.Load(home)
 	if err != nil {

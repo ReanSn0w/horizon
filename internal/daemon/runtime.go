@@ -15,7 +15,14 @@ func LoadSettings(home string) (Settings, error) {
 		return Settings{}, errors.New("cannot load Horizon configuration")
 	}
 	s := Defaults()
-	if n, ok := cfg.Plugins["daemon"]; ok {
+	n, ok := cfg.Plugins["agent"]
+	if legacy, exists := cfg.Plugins["daemon"]; exists {
+		if ok {
+			return s, errors.New("both plugins.agent and legacy plugins.daemon are configured; keep only plugins.agent")
+		}
+		n, ok = legacy, true
+	}
+	if ok {
 		b, e := yaml.Marshal(n)
 		if e != nil {
 			return s, e
@@ -23,7 +30,7 @@ func LoadSettings(home string) (Settings, error) {
 		d := yaml.NewDecoder(bytes.NewReader(b))
 		d.KnownFields(true)
 		if e = d.Decode(&s); e != nil {
-			return s, errors.New("invalid plugins.daemon settings")
+			return s, errors.New("invalid plugins.agent settings")
 		}
 	}
 	return s, s.Validate()

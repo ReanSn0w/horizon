@@ -8,20 +8,37 @@ Go не ниже версии `go.mod` выбранной ревизии. Мен
 
 ## Первая установка
 
-Скачиваемый bootstrap-бинарник — только `horizon-manager`. Артефакт новой схемы
-пока не опубликован; рабочая ссылка на скачивание появится после его публикации.
-Сейчас соберите его из этой версии репозитория:
+Скачиваемый bootstrap-бинарник — только `horizon-manager`.
+[Релизы](https://github.com/ReanSn0w/horizon/releases/latest) содержат:
+
+| Система | Процессор | Бинарник |
+| --- | --- | --- |
+| Linux | x86_64 | `horizon-manager-linux-amd64` |
+| Linux | aarch64 | `horizon-manager-linux-arm64` |
+| macOS | Intel | `horizon-manager-darwin-amd64` |
+| macOS | Apple Silicon | `horizon-manager-darwin-arm64` |
+
+Скачайте бинарник и `SHA256SUMS` из одного релиза. Сравните строку для выбранного
+файла с `sha256sum <файл>` (Linux) или `shasum -a 256 <файл>` (macOS), затем:
+
+```sh
+chmod +x ./horizon-manager-darwin-arm64
+./horizon-manager-darwin-arm64 install
+```
+
+В примере выбран Apple Silicon; для другой платформы используйте имя из таблицы. На macOS сборки не имеют Developer ID/notarization.
+Установка по умолчанию выбирает последний стабильный release. Для ручной сборки:
 
 ```sh
 go build -o /tmp/horizon-manager ./plugins/manager
-/tmp/horizon-manager install --branch codex/repository-refactoring
+/tmp/horizon-manager install
 ```
 
 Интерактивная установка предлагает `HORIZON_HOME` или `~/.horizon` и позволяет
 ввести другой путь. `--home` имеет приоритет. В скриптах требуется `--yes`:
 
 ```sh
-/tmp/horizon-manager install --home "$HOME/.horizon" --branch codex/repository-refactoring --yes --shell zsh
+/tmp/horizon-manager install --home "$HOME/.horizon" --branch master --yes --shell zsh
 ```
 
 Менеджер создаёт `bin`, `source`, `dialogs`, `memory/workspaces`, стартовые навыки,
@@ -53,7 +70,7 @@ export PATH="$HORIZON_HOME/bin:$PATH"
 installation:
   source:
     type: branch
-    branch: codex/repository-refactoring
+    branch: master
 ```
 
 Для последнего стабильного опубликованного GitHub release:
@@ -82,6 +99,41 @@ horizon --home /another/home manager update
 замену. Сохраните собственные изменения вне checkout перед обновлением.
 Не храните пользовательские файлы в `source`: чистый checkout заменяется целиком.
 
+## Актуализация конфигурации
+
+`install` (включая повторный) и `update` обновляют конфигурацию вместе с бинарниками:
+
+- При первом создании `config.yaml` используется `config.example.yaml` из
+  **выбранного commit**, а не встроенный шаблон запущенного bootstrap-менеджера.
+- В существующий файл добавляются недостающие основные параметры и вложенные
+  настройки. Уже заданные значения, включая `false`, `0`, пустые строки и списки,
+  сохраняются. Комментарии остаются; YAML может изменить форматирование отступов.
+- Карты `models` и `providers` принадлежат пользователю. Менеджер не добавляет
+  туда примерные профили и подключения. Отсутствующие `default_model` и
+  `decision_model` дополняются из шаблона лишь при наличии соответствующего
+  профиля. Ключи API и выбор новых моделей заполняются пользователем.
+- Если секции `memory` не было, она добавляется выключенной. Недостающий
+  `memory.model` следует пользовательскому `default_model`. Уже заданная модель
+  и состояние памяти не меняются. Расширения сами не включаются.
+- Настройки управляемых плагинов дополняются по шаблонам собранных бинарников.
+  Примеры из общей секции `plugins` не накладываются на существующие настройки.
+- Известные миграции выполняются явно: устаревшая память переносится из плагина
+  в ядро, настройки `daemon` переименовываются в `agent`, `mode: unit` удаляется,
+  если его больше нет в шаблоне выбранной версии. Для старой ревизии с `mode`
+  поле сохраняется или восстанавливается. Неизвестные поля не удаляются.
+
+Конфигурация подготавливается в staging и попадает в ту же транзакцию, что и
+бинарники. При ошибке применяется rollback. Ссылка `config.yaml` и права её цели
+сохраняются. Если актуализация ничего не изменила, файл не перезаписывается;
+менеджер сообщает `Configuration already up to date`.
+
+Новый неизвестный текущему менеджеру формат шаблона вызывает понятную ошибку
+до замены установленного набора: используйте manager из выбранной ревизии.
+Повреждённый YAML, конфликт старой и новой секций, неподдерживаемое значение
+старого поля требуют явного исправления. Это не повод угадывать значения или
+терять пользовательские настройки. Отдельная настройка моделей не требуется
+для самой установки: пустые стартовые поля остаются для последующего заполнения.
+
 ## Плагины
 
 ```sh
@@ -95,7 +147,7 @@ horizon manager plugins remove browser
 менеджером (`MANAGED`) и включение в `agent_plugins` (`ENABLED`). Менеджер обязателен
 и не удаляется этой командой. Описания `plugins/*/plugin.json` задают имя команды,
 Go-пакет и имя бинарника без произвольных shell-команд. `plugins/agent` соответствует
-`telegram` и `horizon-telegram`.
+`agent` и `horizon-agent`; `plugins/telegram` — `telegram` и `horizon-telegram`.
 
 `plugins install` собирает только выбранный плагин из **установленного commit**,
 без fetch и скрытого обновления ядра. Шаблон настроек добавляет недостающие поля,
@@ -138,7 +190,7 @@ Go-пакет и имя бинарника без произвольных shell
 плагинов явно:
 
 ```sh
-/tmp/horizon-manager install --home "$HOME/.horizon" --branch codex/repository-refactoring --adopt telegram --adopt browser
+/tmp/horizon-manager install --home "$HOME/.horizon" --branch master --adopt telegram --adopt browser
 ```
 
 Перенос означает сборку выбранных плагинов в `bin`; старые файлы и неизвестные
@@ -165,8 +217,22 @@ for target in darwin/amd64 darwin/arm64 linux/amd64 linux/arm64; do
 done
 ```
 
-Эта команда создаёт файлы, но не публикует их. Новых release workflow, каталога
-удалённых пакетов и автоматического обновления по расписанию нет. Makefile
-предназначен для разработки: `make build-manager`, `make install`,
-`make install-plugins PLUGINS=browser`. Ручная установка Makefile не регистрирует
-бинарники в состоянии менеджера; используйте отдельный dev home.
+Эта команда создаёт файлы, но не публикует их. Makefile предназначен для разработки:
+`make build-manager`, `make install`, `make install-plugins PLUGINS=browser`.
+Ручная установка Makefile не регистрирует бинарники в состоянии менеджера.
+
+## Pipeline и выпуск релиза
+
+[manager-release.yml](../../.github/workflows/manager-release.yml) проверяет изменения
+в `master`, ветке текущих доработок и pull request в `master`. Матрица использует
+нативные runners Linux/macOS на amd64/arm64: выполняет `go test -race ./...`,
+`go vet ./...`, собирает manager без CGO, проверяет справку и версию метаданных.
+Версия берётся из тега, commit встраивается в бинарник. Windows не собирается.
+
+Для нового релиза добавьте `docs/releases/vX.Y.Z.md` и отправьте тег `vX.Y.Z`
+на проверенный commit. После успеха всех четырёх jobs отдельный job с
+`contents: write` формирует `SHA256SUMS`, загружает полный набор в draft release
+и только затем публикует его. Повторный запуск может завершить draft, но не
+перезаписывает уже опубликованный релиз. `workflow_dispatch` выполняет проверку
+и сборку без публикации. Используются официальные Actions, закреплённые по SHA;
+личный токен для выпуска не нужен.

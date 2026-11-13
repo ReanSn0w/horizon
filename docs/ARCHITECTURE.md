@@ -73,8 +73,9 @@ make install
 `make install-telegram` собирает `horizon-telegram`;
 `make install-agent-telegram` собирает `agent-telegram`.
 `make install-browser` собирает Browser. Установка выполняется из исходников.
-Прежняя release-инфраструктура удалена. Новый manager собирает исходники;
-публикация bootstrap-артефактов и автоматизация выпуска остаются отдельной задачей.
+Прежнюю release-инфраструктуру заменил `.github/workflows/manager-release.yml`: он
+проверяет и публикует bootstrap-менеджер для Linux/macOS amd64/arm64. Manager
+по-прежнему собирает ядро и выбранные плагины из исходников на машине пользователя.
 
 ## Установка и обслуживание
 
@@ -89,19 +90,23 @@ make install
 `internal/maintenance` согласует рабочие процессы и замену установки.
 Изменение набора защищено журналом и резервными копиями; источник и state
 отражают commit всего управляемого набора. Desired source находится в config.yaml,
-installed commit — в `.manager/state.json`. Детали — в
+installed commit — в `.manager/state.json`. Manager актуализирует `config.yaml`
+по шаблону выбранного commit и шаблонам установленных плагинов в staging.
+Явные миграции выполняются до добавления новых полей. Пользовательские значения
+и комментарии сохраняются; именованные карты моделей/провайдеров не заполняются
+примерами. Неизменившийся конфиг исключается из замены. Детали — в
 [README Manager](../plugins/manager/README.md).
 
-## Локальный daemon
+## Управляющий процесс agent
 
-`horizon-daemon` управляет очередями и внешними процессами Horizon через
+`horizon-agent` управляет очередями и внешними процессами Horizon через
 Unix-сокет одного home. Адаптеры `agent-*` включаются явно. Команда
 `horizon agent <имя>` передаёт административные аргументы установленному
 адаптеру с capability `admin-cli`. CLI-плагины имеют префикс `horizon-*`.
 
-Установка: `horizon manager plugins install daemon`; foreground-запуск:
-`horizon daemon start`. Перед обновлением остановите его через
-`horizon daemon stop`. Подробности и ограничения — [Daemon](DAEMON.md).
+Установка: `horizon manager plugins install agent`; foreground-запуск:
+`horizon agent start`. Перед обновлением остановите его через
+`horizon agent stop`. Подробности и ограничения — [Daemon](DAEMON.md).
 
 Daemon владеет долговечным буфером диалога и арбитражем между задачами.
 `internal/turninput` задаёт контракт передачи сообщений ядру. Ядро получает

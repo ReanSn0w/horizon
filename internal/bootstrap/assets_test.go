@@ -26,7 +26,7 @@ func TestEmbeddedResources(t *testing.T) {
 	if err := yaml.Unmarshal(configTemplate, &config); err != nil {
 		t.Fatal(err)
 	}
-	if config.Mode != "unit" || config.Providers["default"].URL != "" || config.Providers["default"].Key != "" {
+	if config.Mode != "" || config.Providers["default"].URL != "" || config.Providers["default"].Key != "" {
 		t.Fatalf("unexpected initial configuration: %+v", config)
 	}
 	parts := bytes.SplitN(skillTemplate, []byte("---"), 3)

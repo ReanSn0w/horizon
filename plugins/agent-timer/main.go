@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -14,6 +15,7 @@ import (
 	"github.com/ReanSn0w/horizon/internal/config"
 	"github.com/ReanSn0w/horizon/internal/daemon"
 	"github.com/ReanSn0w/horizon/internal/timer"
+	flags "github.com/umputun/go-flags"
 )
 
 func main() {
@@ -66,15 +68,48 @@ func run(ctx context.Context, args []string, out, diag io.Writer, now func() tim
 }
 
 func admin(args []string, out, diag io.Writer, now func() time.Time) int {
-	const usage = "Usage: horizon agent timer validate [timer-id] | status [timer-id] | unblock <timer-id>"
-	switch {
-	case len(args) == 0, len(args) == 1 && (args[0] == "--help" || args[0] == "-h"),
-		len(args) == 2 && (args[1] == "--help" || args[1] == "-h"):
-		fmt.Fprintln(out, usage)
-		return 0
-	case len(args) > 2 || args[0] != "validate" && args[0] != "status" && args[0] != "unblock" || args[0] == "unblock" && len(args) != 2:
-		fmt.Fprintln(diag, usage)
+	var validateOptions, statusOptions struct {
+		Args struct {
+			ID string `positional-arg-name:"TIMER_ID"`
+		} `positional-args:"yes"`
+	}
+	var unblockOptions struct {
+		Args struct {
+			ID string `positional-arg-name:"TIMER_ID" required:"yes"`
+		} `positional-args:"yes"`
+	}
+	parser := flags.NewParser(&struct{}{}, flags.HelpFlag|flags.PassDoubleDash)
+	parser.Name = "horizon agent timer"
+	parser.AddCommand("validate", "Validate schedules", "Check one timer or all timer files.", &validateOptions)
+	parser.AddCommand("status", "Show timer status", "Show one timer or all timers.", &statusOptions)
+	parser.AddCommand("unblock", "Unblock a timer", "Allow future slots after an unknown outcome.", &unblockOptions)
+	if len(args) == 0 {
+		args = []string{"--help"}
+	}
+	remaining, err := parser.ParseArgs(args)
+	if err != nil {
+		var flagErr *flags.Error
+		if errors.As(err, &flagErr) && flagErr.Type == flags.ErrHelp {
+			fmt.Fprint(out, flagErr.Message)
+			return 0
+		}
+		fmt.Fprintln(diag, err)
 		return 2
+	}
+	if len(remaining) > 0 {
+		fmt.Fprintln(diag, "unexpected arguments")
+		return 2
+	}
+	args = []string{parser.Active.Name}
+	id := validateOptions.Args.ID
+	if args[0] == "status" {
+		id = statusOptions.Args.ID
+	}
+	if args[0] == "unblock" {
+		id = unblockOptions.Args.ID
+	}
+	if id != "" {
+		args = append(args, id)
 	}
 	home, err := config.ResolveHome("")
 	if err != nil {

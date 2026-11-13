@@ -54,9 +54,9 @@ reserved per depth; explicit depth/queue/child limits prevent unbounded delegati
 ## Setup
 
 ```sh
-horizon manager plugins install daemon
+horizon manager plugins install agent
 horizon manager plugins install subagent
-horizon daemon start
+horizon agent start
 # In another terminal:
 horizon subagent status
 ```

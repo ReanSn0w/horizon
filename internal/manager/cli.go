@@ -6,22 +6,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"strings"
 
 	"github.com/ReanSn0w/horizon/internal/buildinfo"
 	"github.com/ReanSn0w/horizon/internal/config"
 	"github.com/ReanSn0w/horizon/internal/plugins"
+	flags "github.com/umputun/go-flags"
 )
-
-const Help = `Usage:
-  horizon-manager install [--home PATH] [--branch NAME | --release] [--yes] [--shell bash|zsh|fish] [--adopt NAME]
-  horizon-manager update [--home PATH]
-  horizon-manager plugins list [--home PATH]
-  horizon-manager plugins install NAME [--home PATH]
-  horizon-manager plugins remove NAME [--home PATH]
-Adapter names use agent:NAME; CLI plugin names remain NAME.
-After installation: horizon manager <command>.
-`
 
 type Options struct {
 	Command, Name, Home, Shell string
@@ -30,63 +20,65 @@ type Options struct {
 	Adopt                      []string
 }
 
+type installFlags struct {
+	Branch  string   `long:"branch" description:"Install a branch" value-name:"NAME"`
+	Release bool     `long:"release" description:"Install the latest release"`
+	Yes     bool     `long:"yes" description:"Use the selected home without prompting"`
+	Shell   string   `long:"shell" choice:"bash" choice:"zsh" choice:"fish" description:"Print shell setup instructions"`
+	Adopt   []string `long:"adopt" description:"Adopt an existing optional plugin" value-name:"NAME"`
+}
+type pluginNameFlags struct {
+	Args struct {
+		Name string `positional-arg-name:"NAME" required:"yes"`
+	} `positional-args:"yes"`
+}
+
 func Parse(args []string) (Options, error) {
 	var o Options
-	var positional []string
-	for i := 0; i < len(args); i++ {
-		arg := args[i]
-		switch arg {
-		case "--yes":
-			o.Yes = true
-		case "--release":
-			if o.Source != nil {
-				return o, errors.New("choose one source")
-			}
-			o.Source = &config.Source{Type: "release"}
-		case "--home", "--branch", "--shell", "--adopt":
-			i++
-			if i >= len(args) || args[i] == "" {
-				return o, fmt.Errorf("%s requires a value", arg)
-			}
-			switch arg {
-			case "--home":
-				o.Home = args[i]
-				o.ExplicitHome = true
-			case "--shell":
-				o.Shell = args[i]
-			case "--adopt":
-				o.Adopt = append(o.Adopt, args[i])
-			case "--branch":
-				if o.Source != nil {
-					return o, errors.New("choose one source")
-				}
-				o.Source = &config.Source{Type: "branch", Branch: args[i]}
-			}
-		default:
-			if strings.HasPrefix(arg, "-") {
-				return o, fmt.Errorf("unknown option %s", arg)
-			}
-			positional = append(positional, arg)
+	var global struct {
+		Home string `long:"home" description:"Horizon home directory" value-name:"PATH"`
+	}
+	var install installFlags
+	var add, remove pluginNameFlags
+	parser := flags.NewParser(&global, flags.HelpFlag|flags.PassDoubleDash)
+	parser.Name = "horizon-manager"
+	parser.LongDescription = "Install and maintain Horizon from source. Adapter names use agent:NAME; CLI plugin names use NAME."
+	parser.AddCommand("install", "Install Horizon", "Build and install Horizon from source.", &install)
+	parser.AddCommand("update", "Update the installation", "Update the managed binaries from the configured source.", &struct{}{})
+	pluginsCommand, _ := parser.AddCommand("plugins", "Manage plugins", "List, install or remove managed plugins.", &struct{}{})
+	pluginsCommand.AddCommand("list", "List plugins", "Show available, managed and enabled plugins.", &struct{}{})
+	pluginsCommand.AddCommand("install", "Install a plugin", "Use agent:NAME for an adapter.", &add)
+	pluginsCommand.AddCommand("remove", "Remove a plugin", "Preserve plugin data and settings.", &remove)
+	remaining, err := parser.ParseArgs(args)
+	if err != nil {
+		return o, err
+	}
+	if len(remaining) != 0 {
+		return o, errors.New("unexpected arguments")
+	}
+	o.Command = parser.Active.Name
+	if o.Command == "plugins" {
+		o.Command += " " + parser.Active.Active.Name
+		if o.Command == "plugins install" {
+			o.Name = add.Args.Name
+		}
+		if o.Command == "plugins remove" {
+			o.Name = remove.Args.Name
+		}
+		if o.Name != "" && (!validManagedName(o.Name) || o.Name == "manager") {
+			return o, errors.New("choose an optional plugin; manager is mandatory")
 		}
 	}
-	if len(positional) == 1 && (positional[0] == "install" || positional[0] == "update") {
-		o.Command = positional[0]
-	} else if len(positional) >= 2 && positional[0] == "plugins" {
-		o.Command = "plugins " + positional[1]
-		if o.Command == "plugins list" && len(positional) == 2 {
-		} else if (o.Command == "plugins install" || o.Command == "plugins remove") && len(positional) == 3 {
-			o.Name = positional[2]
-			if !validManagedName(o.Name) || o.Name == "manager" {
-				return o, errors.New("choose an optional plugin; manager is mandatory")
-			}
-		} else {
-			return o, errors.New("invalid plugin command")
-		}
-	} else {
-		return o, errors.New("expected install, update or plugins command")
+	o.Home, o.ExplicitHome = global.Home, global.Home != ""
+	o.Yes, o.Shell, o.Adopt = install.Yes, install.Shell, install.Adopt
+	if install.Release && install.Branch != "" {
+		return o, errors.New("choose one source")
 	}
-	if o.Command != "install" && (o.Source != nil || o.Yes || o.Shell != "" || len(o.Adopt) > 0) {
-		return o, errors.New("installation options require install")
+	if install.Release {
+		o.Source = &config.Source{Type: "release"}
+	}
+	if install.Branch != "" {
+		o.Source = &config.Source{Type: "branch", Branch: install.Branch}
 	}
 	if o.Source != nil {
 		if err := o.Source.Validate(); err != nil {
@@ -112,18 +104,16 @@ func Run(ctx context.Context, args []string, in io.Reader, out, diag io.Writer, 
 		}
 		return 0
 	}
-	if len(args) == 0 || len(args) == 1 && (args[0] == "--help" || args[0] == "-h") {
-		fmt.Fprint(out, Help)
-		return 0
-	}
-	for _, arg := range args {
-		if arg == "--help" || arg == "-h" {
-			fmt.Fprint(out, Help)
-			return 0
-		}
+	if len(args) == 0 {
+		args = []string{"--help"}
 	}
 	o, err := Parse(args)
 	if err != nil {
+		var flagErr *flags.Error
+		if errors.As(err, &flagErr) && flagErr.Type == flags.ErrHelp {
+			fmt.Fprint(out, flagErr.Message)
+			return 0
+		}
 		fmt.Fprintln(diag, "manager:", err)
 		return 2
 	}

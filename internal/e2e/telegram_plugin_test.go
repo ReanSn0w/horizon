@@ -343,7 +343,7 @@ func telegramBins(t *testing.T, home, binary, endpoint string) {
 		name, pkg string
 		local     bool
 	}{
-		{"horizon-daemon", "daemon", false},
+		{"horizon-agent", "agent", false},
 		{"horizon-telegram", "telegram", true},
 		{"agent-telegram", "agent-telegram", true},
 	} {
@@ -375,7 +375,7 @@ func telegramEventually(t *testing.T, what string, done func() bool) {
 func startTelegramDaemon(t *testing.T, binary, home, cwd string) func() {
 	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
-	cmd := exec.CommandContext(ctx, binary, "--home", home, "daemon", "start")
+	cmd := exec.CommandContext(ctx, binary, "--home", home, "agent", "start")
 	cmd.Dir = cwd
 	var diag bytes.Buffer
 	cmd.Stderr = &diag
@@ -599,11 +599,66 @@ aliases: {"-2": "-22"}
 	if pendingSeen.Load() || compactions.Load() != 1 {
 		t.Fatal("unknown legacy task did not block its dialog or idle compaction repeated")
 	}
-	if out, diag, err := run(binary, workspace.Dir, "", "--home", home, "daemon", "resolve-input", unknown); err != nil {
+	if out, diag, err := run(binary, workspace.Dir, "", "--home", home, "agent", "resolve-input", unknown); err != nil {
 		t.Fatalf("resolve legacy unknown: %v %q %q", err, out, diag)
 	}
 	telegramEventually(t, "migrated input on original session", func() bool {
 		value, err := store.ReadSnapshot(workspace, id)
 		return err == nil && len(value.Turns) == 2 && value.Turns[1].Status == session.StatusCompleted
 	})
+}
+
+func TestTelegramDiagnosticCLIWithoutModel(t *testing.T) {
+	binary := buildBinary(t)
+	home := t.TempDir()
+	var sent atomic.Int64
+	var failed atomic.Bool
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/bot99:fixture/getMe":
+			fmt.Fprint(w, `{"ok":true,"result":{"id":99,"is_bot":true,"username":"test_bot"}}`)
+		case "/bot99:fixture/getWebhookInfo":
+			fmt.Fprint(w, `{"ok":true,"result":{"url":""}}`)
+		case "/bot99:fixture/sendMessage":
+			sent.Add(1)
+			var message struct {
+				Chat int64  `json:"chat_id"`
+				Text string `json:"text"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&message); err != nil || message.Chat != 1 || message.Text != "hi!" {
+				t.Errorf("unexpected message %#v: %v", message, err)
+			}
+			if failed.Load() {
+				http.Error(w, "unavailable", 503)
+				return
+			}
+			fmt.Fprint(w, `{"ok":true,"result":{"message_id":7,"chat":{"id":1}}}`)
+		default:
+			t.Errorf("unexpected API call %s", r.URL.Path)
+			http.Error(w, "unexpected request", 500)
+		}
+	}))
+	defer server.Close()
+	writeConfig(t, home, server.URL)
+	path := filepath.Join(home, "config.yaml")
+	data, _ := os.ReadFile(path)
+	data = append(data, []byte("\nplugins:\n  telegram:\n    bot_token: '99:fixture'\n    owner_user_id: 1\n")...)
+	if err := os.WriteFile(path, data, 0600); err != nil {
+		t.Fatal(err)
+	}
+	telegramBins(t, home, binary, server.URL)
+	for _, args := range [][]string{{"check"}, {"send", "hi!"}} {
+		out, diag, err := run(binary, home, "", append([]string{"--home", home, "telegram"}, args...)...)
+		if err != nil || strings.Contains(out+diag, "99:fixture") {
+			t.Fatal(args, out, diag, err)
+		}
+	}
+	if sent.Load() != 1 {
+		t.Fatal("check sent a message or send retried", sent.Load())
+	}
+	failed.Store(true)
+	_, diag, err := run(binary, home, "", "--home", home, "telegram", "send", "hi!")
+	if err == nil || sent.Load() != 2 || !strings.Contains(diag, "inspect Telegram before retrying") {
+		t.Fatal(diag, err, sent.Load())
+	}
 }

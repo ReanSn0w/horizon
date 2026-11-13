@@ -14,7 +14,7 @@ import (
 func inspect(home string, args []string, out io.Writer) error {
 	if args[0] == "list" && len(args) > 2 || args[0] == "list" && len(args) == 2 && args[1] != "--json" ||
 		args[0] == "read" && (len(args) != 3 || args[1] != "--operation-id") {
-		return errors.New("usage: horizon telegram list [--json] | read --operation-id ID")
+		return errors.New("invalid chat inspection arguments")
 	}
 	cfg, err := config.Load(home)
 	if err != nil {

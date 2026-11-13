@@ -58,7 +58,8 @@ func TestMigrateMemoryPreservesConfigSymlinkAndComments(t *testing.T) {
 	original := validConfig + `# keep memory comment
 agent_plugins: [memory, browser]
 plugins:
-  memory:
+  # keep section comment
+  memory: # keep inline section comment
     threshold: 7 # keep threshold comment
     interval: 2h
   browser:
@@ -78,7 +79,7 @@ plugins:
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"# keep memory comment", "# keep threshold comment", "memory:", "enabled: true", "threshold: 7", "browser:", "api_key: retained"} {
+	for _, want := range []string{"# keep memory comment", "# keep section comment", "# keep inline section comment", "# keep threshold comment", "memory:", "enabled: true", "threshold: 7", "browser:", "api_key: retained"} {
 		if !strings.Contains(string(data), want) {
 			t.Fatalf("missing %q:\n%s", want, data)
 		}

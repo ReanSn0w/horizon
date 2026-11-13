@@ -119,12 +119,27 @@ func MigrateMemory(home string) (bool, error) {
 			return false, nil
 		}
 		section := &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
-		appendMapping(section, "enabled", &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!bool", Value: fmt.Sprint(enabled)})
+		key := &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "memory"}
 		if legacy != nil {
-			section.Content = append(section.Content, legacy.Content...)
+			if legacy.Kind != yaml.MappingNode {
+				return false, errors.New("legacy plugins.memory must be a mapping")
+			}
+			section = legacy
+			for i := 0; i < len(plugins.Content); i += 2 {
+				if plugins.Content[i].Value == "memory" {
+					key = plugins.Content[i]
+					break
+				}
+			}
 			removeMapping(plugins, "memory")
 		}
-		appendMapping(root, "memory", section)
+		if node := mappingValue(section, "enabled"); node != nil {
+			node.Kind, node.Tag, node.Value = yaml.ScalarNode, "!!bool", fmt.Sprint(enabled)
+			node.Content, node.Alias = nil, nil
+		} else {
+			appendMapping(section, "enabled", &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!bool", Value: fmt.Sprint(enabled)})
+		}
+		root.Content = append(root.Content, key, section)
 		removeSequenceValue(agents, "memory")
 		return true, nil
 	})

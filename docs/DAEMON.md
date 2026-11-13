@@ -1,6 +1,6 @@
 # Daemon protocol v1
 
-`horizon daemon start` runs a foreground supervisor for one normalized home.
+`horizon agent start` runs a foreground supervisor for one normalized home.
 `status` performs a handshake; `stop` requests shutdown. Installation does not
 start services. Stop the daemon before manager updates: the shared maintenance
 lock protects its running binary set, and exclusive maintenance fails promptly.
@@ -50,7 +50,7 @@ cancelled before starting. Restart converts running to unknown, never retries it
 Queued turns behind an unknown turn stay blocked pending explicit cancellation of
 those queued turns or operator investigation. No persisted PID is blindly killed.
 Sessions serialize; independent sessions run concurrently. Top-level adapter
-work has its own `plugins.daemon.max_active_adapter_dialogs` capacity (default
+work has its own `plugins.agent.max_active_adapter_dialogs` capacity (default
 2, range 1–128). It runs one task per source and route at a time, using the
 workspace when no route is present. The scheduler prefers the
 dialog least recently dispatched and keeps queued order within each dialog.
@@ -106,7 +106,7 @@ Responses stream or a tool.
 
 After restart, an interrupted task is unknown and its dialog stays blocked.
 A cancellation recorded before the worker exited is also unknown on restart.
-After investigating the outcome, run `horizon daemon resolve-input TASK_ID`
+After investigating the outcome, run `horizon agent resolve-input TASK_ID`
 to unblock the dialog. The adapter protocol exposes the same operation as
 `resolve_input` with a fresh operation ID. The task retains its terminal status.
 Horizon checks the journal before passing retained messages to the model.
@@ -130,7 +130,7 @@ session-write, cancellation and budget errors.
 ## Adapter contract
 
 Only immediate executable `agent-<name>` entries in home/bin are candidates;
-only names explicitly enabled in `plugins.daemon.adapters` are started.
+only names explicitly enabled in `plugins.agent.adapters` are started.
 `agent-plugin-metadata` returns protocol_version 1, version, description and
 capabilities. `agent-plugin-config-template` optionally follows the existing
 config-template envelope, using an independently named `plugins.agent-<name>`
@@ -150,11 +150,11 @@ Restart is delayed with bounded backoff; stopping daemon stops all adapters.
 ## Installation
 
 ```sh
-horizon manager plugins install daemon
-horizon daemon start
+horizon manager plugins install agent
+horizon agent start
 # In another terminal:
-horizon daemon status
-horizon daemon stop
+horizon agent status
+horizon agent stop
 ```
 
 Manager catalog entries optionally use `kind: "adapter"` (default `cli`).
@@ -162,14 +162,14 @@ Adapter `name: "telegram"` has binary `agent-telegram` and manager identity
 `agent:telegram`, distinct from CLI plugin `telegram` / `horizon-telegram`.
 Source remains `plugins/<directory>/plugin.json`. Install/remove use
 `horizon manager plugins install|remove agent:NAME`. Config templates belong to
-`plugins.agent-NAME`; enabling is explicit via `plugins.daemon.adapters: [NAME]`.
+`plugins.agent-NAME`; enabling is explicit via `plugins.agent.adapters: [NAME]`.
 Removal disables that adapter while preserving settings and data. Manager stages
 and validates both kinds before replacement; transaction rollback covers both.
 
 ## Telegram adapter
 
 Install `telegram` and `agent:telegram` with manager. Enable `telegram` in
-`plugins.daemon.adapters`, `agent_plugins`, and `agent_communication`. The
+`plugins.agent.adapters`, `agent_plugins`, and `agent_communication`. The
 adapter submits active input with `channel: true` and a stable chat route.
 Daemon forwards that route only to the selected extension of the turn. The
 adapter advances Telegram offset once daemon confirms storage. Turn completion
@@ -208,3 +208,18 @@ creating a session or contacting the model. `cancel` with `queued_only: true`
 can cancel one queued timer task. If dispatch acquires the queue lock first,
 cancellation leaves the running task and its message intact. Timer records
 and recovery are documented in [Timer](../plugins/agent-timer/README.md).
+
+## Command naming and service installation
+
+The public supervisor name is `agent`: binary `horizon-agent`, CLI
+`horizon agent start|status|stop|resolve-input`, configuration `plugins.agent`.
+Adapter administration remains `horizon agent timer ...`. The supervisor command
+names are reserved in this shared namespace. See [Agent](../plugins/agent/README.md)
+for systemd/launchd installation and migration.
+
+The package `internal/daemon`, persistent `daemon` state directory, socket and
+lock names, and `HORIZON_DAEMON_*` protocol environment variables remain unchanged
+for compatibility. Never rename or remove lock files to migrate an installation.
+Legacy `plugins.daemon` is accepted only when `plugins.agent` is absent; configuring
+both is an error. Manager stages the configuration rename and replaces the managed
+`horizon-daemon` with `horizon-agent` in the same rollback-capable transaction.

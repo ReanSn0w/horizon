@@ -26,7 +26,7 @@ func migrationFixture(t *testing.T) (string, string, []byte) {
 	}
 	binaries := map[string]string{
 		"horizon":          "{}",
-		"horizon-daemon":   `{"protocol_version":1,"description":"daemon","version":"1"}`,
+		"horizon-agent":   `{"protocol_version":1,"description":"daemon","version":"1"}`,
 		"horizon-telegram": `{"protocol_version":1,"agent_protocol_version":2,"description":"telegram","version":"1"}`,
 		"agent-telegram":   `{"protocol_version":1,"description":"telegram input","version":"1","capabilities":["active-input"]}`,
 	}

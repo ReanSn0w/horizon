@@ -17,6 +17,7 @@ import (
 	"github.com/ReanSn0w/horizon/internal/maintenance"
 	"github.com/ReanSn0w/horizon/internal/plugins"
 	"github.com/ReanSn0w/horizon/internal/session"
+	flags "github.com/umputun/go-flags"
 )
 
 func main() {
@@ -25,16 +26,36 @@ func main() {
 	os.Exit(run(ctx, os.Args[1:], os.Stdin, os.Stdout, os.Stderr))
 }
 func run(ctx context.Context, args []string, in io.Reader, out, diag io.Writer) int {
-	if len(args) == 0 || len(args) == 1 && (args[0] == "--help" || args[0] == "-h") {
-		fmt.Fprintln(out, "horizon subagent status\nInstall and start daemon, then enable agent_plugins: [subagent]. Children share the parent's workspace.")
-		return 0
+	if len(args) == 0 {
+		args = []string{"--help"}
+	}
+	if !strings.HasPrefix(args[0], "horizon-plugin-") {
+		parser := flags.NewParser(&struct{}{}, flags.HelpFlag|flags.PassDoubleDash)
+		parser.Name = "horizon subagent"
+		parser.LongDescription = "Install and start the agent supervisor, then enable agent_plugins: [subagent]. Children share the parent's workspace."
+		parser.AddCommand("status", "Check supervisor connectivity", "Check the local supervisor without a model request.", &struct{}{})
+		remaining, err := parser.ParseArgs(args)
+		if err != nil {
+			var flagErr *flags.Error
+			if errors.As(err, &flagErr) && flagErr.Type == flags.ErrHelp {
+				fmt.Fprint(out, flagErr.Message)
+				return 0
+			}
+			fmt.Fprintln(diag, err)
+			return 2
+		}
+		if len(remaining) > 0 {
+			fmt.Fprintln(diag, "unexpected arguments")
+			return 2
+		}
+		args = []string{parser.Active.Name}
 	}
 	if len(args) != 1 {
-		fmt.Fprintln(diag, "subagent: expected one command")
+		fmt.Fprintln(diag, "expected one protocol command")
 		return 2
 	}
 	if args[0] == "horizon-plugin-metadata" {
-		json.NewEncoder(out).Encode(plugins.Metadata{ProtocolVersion: 1, AgentProtocolVersion: 1, Version: buildinfo.Version, Description: "Delegate Horizon tasks through daemon"})
+		json.NewEncoder(out).Encode(plugins.Metadata{ProtocolVersion: 1, AgentProtocolVersion: 1, Version: buildinfo.Version, Description: "Delegate Horizon tasks through the agent supervisor"})
 		return 0
 	}
 	home, err := config.ResolveHome("")
@@ -53,7 +74,7 @@ func run(ctx context.Context, args []string, in io.Reader, out, diag io.Writer) 
 			fmt.Fprintln(diag, err)
 			return 1
 		}
-		fmt.Fprintln(out, "daemon is available")
+		fmt.Fprintln(out, "agent supervisor is available")
 		return 0
 	}
 	if strings.HasPrefix(args[0], "horizon-plugin-agent-") {

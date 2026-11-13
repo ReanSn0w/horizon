@@ -65,7 +65,7 @@ func TestAgentTimerValidateOffline(t *testing.T) {
 		t.Fatalf("validate good: stdout=%q stderr=%q err=%v", out, diag, err)
 	}
 	out, diag, err = run(binary, workspace, "", "--home", home, "agent", "timer", "--help")
-	if err != nil || !strings.Contains(out, "horizon agent timer validate") || diag != "" {
+	if err != nil || (!strings.Contains(out, "horizon agent timer") || !strings.Contains(out, "Validate schedules")) || diag != "" {
 		t.Fatalf("help: stdout=%q stderr=%q err=%v", out, diag, err)
 	}
 	if requests.Load() != 0 {

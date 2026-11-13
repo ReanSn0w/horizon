@@ -46,6 +46,6 @@ func run(ctx context.Context, args []string) int {
 			return 1
 		}
 	}
-	fmt.Fprintln(os.Stderr, "agent-telegram is supervised by horizon daemon")
+	fmt.Fprintln(os.Stderr, "agent-telegram is supervised by horizon agent")
 	return 2
 }

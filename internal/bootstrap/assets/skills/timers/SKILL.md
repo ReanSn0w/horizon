@@ -8,8 +8,8 @@ description: Создаёт, проверяет и редактирует рас
 Запусти `horizon agent timer --help` через `shell_exec`, чтобы проверить наличие
 адаптера в текущем Horizon home. Если бинарник отсутствует, команда
 `horizon manager plugins install agent:timer` устанавливает его из управляемого
-источника. Для исполнения нужен установленный `horizon-daemon`, имя `timer` в
-`plugins.daemon.adapters` и запущенный `horizon daemon start`. Установка
+источника. Для исполнения нужен установленный `horizon-agent`, имя `timer` в
+`plugins.agent.adapters` и запущенный `horizon agent start`. Установка
 и валидация не запускают службу. Учитывай текущий список адаптеров при изменении
 конфигурации и запускай или перезапускай службу только по запросу пользователя.
 

@@ -26,6 +26,13 @@ func fixtureRepo(t *testing.T) string {
 	}
 	data, _ := os.ReadFile("../../plugins/manager/plugin.json")
 	_ = os.WriteFile(filepath.Join(dir, "plugins", "manager", "plugin.json"), data, 0600)
+	template, err := os.ReadFile("../../config.example.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = os.WriteFile(filepath.Join(dir, "config.example.yaml"), template, 0600); err != nil {
+		t.Fatal(err)
+	}
 	_ = os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module example.test/fixture\ngo 1.20\n"), 0600)
 	for _, args := range [][]string{{"add", "."}, {"commit", "-qm", "fixture"}, {"branch", "-M", "feature/install"}, {"tag", "v1"}} {
 		if _, err := command(ctx, dir, "git", args...); err != nil {

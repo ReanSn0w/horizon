@@ -1,0 +1,1 @@
+{"name":"agent","description":"Local Horizon process supervisor","package":"./plugins/agent","binary":"horizon-agent"}

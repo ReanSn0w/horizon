@@ -5,27 +5,18 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/ReanSn0w/horizon/internal/buildinfo"
 	"io"
 	"os"
 	"os/signal"
 	"strings"
 	"syscall"
 
+	"github.com/ReanSn0w/horizon/internal/buildinfo"
 	"github.com/ReanSn0w/horizon/internal/config"
 	"github.com/ReanSn0w/horizon/internal/maintenance"
 	"github.com/ReanSn0w/horizon/internal/plugins"
 	flags "github.com/umputun/go-flags"
 )
-
-const usage = `Usage: horizon browser <list|close> [options]
-  horizon browser list
-  horizon browser close <id>
-  horizon browser close --stale
-
-Configure plugins.browser.api_key in config.yaml. Enable agent tools with
-agent_plugins: [browser] and use resume --access full.
-`
 
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -51,12 +42,34 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 		}
 		return 0
 	}
-	if len(args) == 0 || len(args) == 1 && (args[0] == "--help" || args[0] == "-h") {
-		_, err := io.WriteString(stdout, usage)
+	if len(args) == 0 {
+		args = []string{"--help"}
+	}
+	var closeOptions struct {
+		Stale bool `long:"stale" description:"Close browsers left by inactive turns"`
+		Args  struct {
+			ID string `positional-arg-name:"ID"`
+		} `positional-args:"yes"`
+	}
+	parser := flags.NewParser(&struct{}{}, flags.HelpFlag|flags.PassDoubleDash)
+	parser.Name = "horizon browser"
+	parser.LongDescription = "Configure plugins.browser.api_key. Enable model tools with agent_plugins: [browser] and resume --access full."
+	parser.AddCommand("list", "List browsers", "List active and orphaned browser sessions.", &struct{}{})
+	parser.AddCommand("close", "Close browsers", "Specify a browser ID or --stale.", &closeOptions)
+	protocolCall := len(args) == 1 && strings.HasPrefix(args[0], "horizon-plugin-agent-")
+	if !protocolCall {
+		remaining, err := parser.ParseArgs(args)
 		if err != nil {
-			return fail(1, err)
+			var flagErr *flags.Error
+			if errors.As(err, &flagErr) && flagErr.Type == flags.ErrHelp {
+				fmt.Fprint(stdout, flagErr.Message)
+				return 0
+			}
+			return fail(2, err)
 		}
-		return 0
+		if len(remaining) > 0 {
+			return fail(2, fmt.Errorf("unexpected arguments"))
+		}
 	}
 	home, err := config.ResolveHome("")
 	if err != nil {
@@ -70,24 +83,11 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 	if len(args) == 1 && strings.HasPrefix(args[0], "horizon-plugin-agent-") {
 		return protocol(ctx, strings.TrimPrefix(args[0], "horizon-plugin-agent-"), stdin, stdout, stderr)
 	}
-	if args[0] != "list" && args[0] != "close" {
-		return fail(2, fmt.Errorf("unknown command %q", args[0]))
+	var positional []string
+	if closeOptions.Args.ID != "" {
+		positional = []string{closeOptions.Args.ID}
 	}
-	var opts struct {
-		Stale bool `long:"stale" description:"Close inactive turns"`
-	}
-	parser := flags.NewParser(&opts, flags.HelpFlag|flags.PassDoubleDash)
-	parser.Name = "horizon browser " + args[0]
-	remaining, err := parser.ParseArgs(args[1:])
-	if err != nil {
-		var flagErr *flags.Error
-		if errors.As(err, &flagErr) && flagErr.Type == flags.ErrHelp {
-			_, _ = io.WriteString(stdout, usage)
-			return 0
-		}
-		return fail(2, err)
-	}
-	return browserCLI(ctx, args[0], remaining, opts.Stale, stdout, stderr)
+	return browserCLI(ctx, parser.Active.Name, positional, closeOptions.Stale, stdout, stderr)
 }
 
 func configuration(home string) (settings, error) {

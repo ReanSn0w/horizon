@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"text/tabwriter"
 
 	"github.com/ReanSn0w/horizon/internal/bootstrap"
 	"github.com/ReanSn0w/horizon/internal/config"
@@ -36,11 +37,8 @@ func checkLegacyBusy(home string) error {
 	}
 	return nil
 }
-func prepareConfig(home, stage string, names []string) error {
-	if err := copyPrivate(filepath.Join(home, "config.yaml"), filepath.Join(stage, "config.yaml")); err != nil {
-		return err
-	}
-	if _, err := config.MigrateMemory(stage); err != nil {
+func prepareConfig(home, stage, source string, names []string, fresh, agentSupervisor bool) error {
+	if err := prepareCoreConfig(home, stage, source, fresh, agentSupervisor); err != nil {
 		return err
 	}
 	var templates []config.PluginTemplate
@@ -83,7 +81,10 @@ func enabledPlugins(home string) ([]string, error) {
 	var raw struct {
 		Names   []string `yaml:"agent_plugins"`
 		Plugins struct {
-			Daemon struct {
+			Agent struct {
+				Adapters []string `yaml:"adapters"`
+			} `yaml:"agent"`
+			LegacyDaemon struct {
 				Adapters []string `yaml:"adapters"`
 			} `yaml:"daemon"`
 		} `yaml:"plugins"`
@@ -91,7 +92,7 @@ func enabledPlugins(home string) ([]string, error) {
 	if err = yaml.Unmarshal(data, &raw); err != nil {
 		return nil, fmt.Errorf("cannot read agent_plugins from configuration")
 	}
-	for _, name := range raw.Plugins.Daemon.Adapters {
+	for _, name := range append(raw.Plugins.Agent.Adapters, raw.Plugins.LegacyDaemon.Adapters...) {
 		raw.Names = append(raw.Names, "agent:"+name)
 	}
 	return raw.Names, nil
@@ -112,12 +113,13 @@ func listPlugins(home string, state State, out io.Writer) error {
 		}
 	}
 	slices.Sort(names)
-	fmt.Fprintln(out, "NAME\tAVAILABLE\tMANAGED\tENABLED\tDESCRIPTION")
+	table := tabwriter.NewWriter(out, 0, 4, 2, ' ', 0)
+	fmt.Fprintln(table, "NAME\tAVAILABLE\tMANAGED\tENABLED\tDESCRIPTION")
 	for _, name := range names {
 		p, available := catalog[name]
-		fmt.Fprintf(out, "%s\t%t\t%t\t%t\t%s\n", name, available, name == "manager" || slices.Contains(state.Plugins, name), slices.Contains(enabled, name), p.Description)
+		fmt.Fprintf(table, "%s\t%t\t%t\t%t\t%s\n", name, available, name == "manager" || slices.Contains(state.Plugins, name), slices.Contains(enabled, name), p.Description)
 	}
-	return nil
+	return table.Flush()
 }
 func disablePlugin(home, name string) error {
 	if strings.HasPrefix(name, "agent:") {
@@ -187,7 +189,8 @@ func (e *Engine) changePlugin(ctx context.Context, o Options, state State, stage
 		if err = e.buildBinary(ctx, filepath.Join(o.Home, "source"), p.Package, filepath.Join(stage, path)); err != nil {
 			return err
 		}
-		if err = prepareConfig(o.Home, stage, []string{o.Name}); err != nil {
+		_, agentSupervisor := catalog["agent"]
+		if err = prepareConfig(o.Home, stage, filepath.Join(o.Home, "source"), []string{o.Name}, false, agentSupervisor); err != nil {
 			return err
 		}
 		if o.Name == "agent:timer" {
@@ -206,7 +209,16 @@ func (e *Engine) changePlugin(ctx context.Context, o Options, state State, stage
 	if err = ctx.Err(); err != nil {
 		return err
 	}
-	if err = e.deploy(o.Home, stage, []string{path, "config.yaml", ".manager/state.json"}, map[string]bool{path: removing}); err != nil {
+	configChanged, err := configurationChanged(o.Home, stage)
+	if err != nil {
+		return err
+	}
+	paths := []string{path}
+	if configChanged {
+		paths = append(paths, "config.yaml")
+	}
+	paths = append(paths, ".manager/state.json")
+	if err = e.deploy(o.Home, stage, paths, map[string]bool{path: removing}); err != nil {
 		return err
 	}
 	fmt.Fprintf(out, "%s: %s (plugin data and existing settings preserved)\n", o.Command, o.Name)

@@ -86,7 +86,14 @@ func TestPluginLifecycleUsesInstalledRevision(t *testing.T) {
 	if err = e.execute(context.Background(), Options{Command: "plugins list", Home: home}, nil, &out); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out.String(), "browser\ttrue\tfalse\tfalse") {
+	lines := strings.Split(strings.TrimSpace(out.String()), "\n")
+	availableColumn := strings.Index(lines[0], "AVAILABLE")
+	for _, line := range lines[1:] {
+		if strings.Contains(line, "\t") || strings.Index(line, "true") != availableColumn {
+			t.Fatalf("misaligned table: %q", out.String())
+		}
+	}
+	if !strings.Contains(strings.Join(strings.Fields(out.String()), " "), "browser true false false") {
 		t.Fatal(out.String())
 	}
 }
@@ -104,7 +111,8 @@ func TestUpdateRollbackAtEveryReplacement(t *testing.T) {
 	}
 	os.WriteFile(filepath.Join(e.repository, "revision"), []byte("next"), 0600)
 	commitFixture(t, e.repository)
-	for index := 0; index < 7; index++ {
+	// Unchanged configuration is not a deployment entry.
+	for index := 0; index < 6; index++ {
 		t.Run(fmt.Sprint(index), func(t *testing.T) {
 			e.afterReplace = func(i int) error {
 				if i == index {

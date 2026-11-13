@@ -3,18 +3,18 @@
 `agent-timer` передаёт задачи по расписанию в очередь Horizon daemon.
 
 ```sh
-horizon manager plugins install daemon
+horizon manager plugins install agent
 horizon manager plugins install agent:timer
 horizon agent timer validate
 ```
 
-Добавьте `timer` к существующим именам в `plugins.daemon.adapters` и запустите
-`horizon daemon start`. Установка службы не запускает. Для разработки
+Добавьте `timer` к существующим именам в `plugins.agent.adapters` и запустите
+`horizon agent start`. Установка службы не запускает. Для разработки
 `make install-agent-timer` собирает этот же бинарник в `HORIZON_HOME/bin`.
 
 ```yaml
 plugins:
-  daemon:
+  agent:
     adapters: [timer]
   agent-timer:
     access: write

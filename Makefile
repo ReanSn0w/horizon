@@ -8,7 +8,7 @@ PLUGINS ?= manager
 PLUGIN_NAMES := $(notdir $(patsubst %/main.go,%,$(wildcard plugins/*/main.go)))
 PLUGIN_TARGETS := $(addprefix install-plugin-,$(PLUGIN_NAMES))
 
-.PHONY: help install install-all install-plugins install-telegram install-agent-telegram install-browser install-daemon install-subagent install-agent-timer $(PLUGIN_TARGETS)
+.PHONY: help install install-all install-plugins install-telegram install-agent-telegram install-browser install-agent install-subagent install-agent-timer $(PLUGIN_TARGETS)
 
 help:
 	@printf '%s\n' \
@@ -18,7 +18,7 @@ help:
 	  'make install-telegram        Install the Telegram delivery extension' \
 	  'make install-agent-telegram  Install the Telegram input adapter' \
 	  'make install-agent-timer     Install the Markdown timer adapter' \
-	  'make install-daemon          Install the local supervisor' \
+	  'make install-agent          Install the local supervisor' \
 	  'make install-browser         Install the Browser Use plugin' \
 	  'make install-all             Install Horizon and selected plugins' \
 	  'Overrides: GO, BIN_DIR, HORIZON_HOME, PLUGINS'
@@ -40,7 +40,7 @@ install-plugins: $(addprefix install-plugin-,$(PLUGINS))
 install-telegram: install-plugin-telegram
 install-agent-telegram: install-plugin-agent-telegram
 install-browser: install-plugin-browser
-install-daemon: install-plugin-daemon
+install-agent: install-plugin-agent
 install-subagent: install-plugin-subagent
 install-agent-timer: install-plugin-agent-timer
 # Build beside the destination and replace only after a successful build.

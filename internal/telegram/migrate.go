@@ -270,7 +270,7 @@ func lockMigration(home string, check bool) (func(), error) {
 	}
 	daemonUnlock, err := maintenance.Lock(filepath.Join(run, "daemon.lock"), true)
 	if err != nil {
-		return nil, errors.New("stop horizon daemon before Telegram migration")
+		return nil, errors.New("stop horizon agent before Telegram migration")
 	}
 	pollPath, err := PollLock(home)
 	if err != nil {
@@ -302,7 +302,7 @@ func lockMigration(home string, check bool) (func(), error) {
 }
 
 func installedForMigration(ctx context.Context, home string) error {
-	for _, name := range []string{"horizon", "horizon-daemon", "horizon-telegram", "agent-telegram"} {
+	for _, name := range []string{"horizon", "horizon-agent", "horizon-telegram", "agent-telegram"} {
 		path := filepath.Join(home, "bin", name)
 		info, err := os.Stat(path)
 		if err != nil || !info.Mode().IsRegular() || info.Mode()&0111 == 0 {
@@ -310,11 +310,11 @@ func installedForMigration(ctx context.Context, home string) error {
 		}
 	}
 	extension := plugins.Inspect(home, "telegram", nil)
-	daemonCLI := plugins.Inspect(home, "daemon", nil)
+	daemonCLI := plugins.Inspect(home, "agent", nil)
 	adapter, err := daemon.AdapterInspect(ctx, home, "telegram")
 	if extension.Err != nil || extension.Metadata.AgentProtocolVersion != plugins.ChannelProtocolVersion ||
 		daemonCLI.Err != nil || err != nil || !slices.Contains(adapter.Capabilities, daemon.ActiveInputCapability) {
-		return errors.New("install compatible daemon, telegram and agent:telegram before migration")
+		return errors.New("install compatible agent, telegram and agent:telegram before migration")
 	}
 	return nil
 }
@@ -466,7 +466,7 @@ func convertLegacyConfig(ctx context.Context, home, path, oldHash, key string, b
 				var currentSettings AdapterSettings
 				if decodeSection(*adapter, &currentSettings) == nil && reflect.DeepEqual(currentSettings, settings) &&
 					hasYAML(root, "agent_plugins", "telegram") && hasYAML(root, "agent_communication", "telegram") &&
-					hasYAML(yamlKey(p, "daemon"), "adapters", "telegram") {
+					hasYAML(yamlKey(p, "agent"), "adapters", "telegram") {
 					return false, nil
 				}
 			}
@@ -494,10 +494,18 @@ func convertLegacyConfig(ctx context.Context, home, path, oldHash, key string, b
 		if err := appendYAML(root, "agent_communication", "telegram"); err != nil {
 			return false, err
 		}
-		d := yamlKey(p, "daemon")
+		d := yamlKey(p, "agent")
+		if legacy := yamlKey(p, "daemon"); legacy != nil {
+			if d != nil {
+				return false, errors.New("both plugins.agent and plugins.daemon exist")
+			}
+			d = legacy
+			removeYAML(p, "daemon")
+			setYAML(p, "agent", d)
+		}
 		if d == nil {
 			d = &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
-			setYAML(p, "daemon", d)
+			setYAML(p, "agent", d)
 		}
 		if err := appendYAML(d, "adapters", "telegram"); err != nil {
 			return false, err

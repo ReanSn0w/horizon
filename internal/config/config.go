@@ -27,7 +27,6 @@ type Config struct {
 	Plugins            map[string]yaml.Node
 	DisabledSkills     []string
 	SoulEnabled        bool
-	Mode               string
 	DefaultModel       string
 	Models             map[string]Model
 	Providers          map[string]Provider
@@ -76,7 +75,7 @@ type rawConfig struct {
 	Plugins            map[string]yaml.Node `yaml:"plugins"`
 	DisabledSkills     disabledIDs          `yaml:"disabled_skills"`
 	SoulEnabled        bool                 `yaml:"soul_enabled"`
-	Mode               string               `yaml:"mode"`
+	LegacyMode         string               `yaml:"mode"` // Accepted only for existing unit configurations.
 	DefaultModel       string               `yaml:"default_model"`
 	Models             map[string]rawModel  `yaml:"models"`
 	Providers          map[string]Provider  `yaml:"providers"`
@@ -179,11 +178,8 @@ func validate(raw rawConfig) (Config, error) {
 		}
 		granted[name] = true
 	}
-	if raw.Mode != "unit" {
-		if raw.Mode == "server" {
-			return Config{}, errors.New("configuration mode server is not implemented")
-		}
-		return Config{}, fmt.Errorf("configuration mode must be unit, got %q", raw.Mode)
+	if raw.LegacyMode != "" && raw.LegacyMode != "unit" {
+		return Config{}, errors.New("configuration mode has been removed; remove the mode field (only legacy unit is accepted)")
 	}
 	var missing []string
 	if len(raw.Providers) == 0 {
@@ -265,7 +261,6 @@ func validate(raw rawConfig) (Config, error) {
 		AgentCommunication: raw.AgentCommunication,
 		DisabledSkills:     append([]string(nil), raw.DisabledSkills...),
 		SoulEnabled:        raw.SoulEnabled,
-		Mode:               raw.Mode,
 		DefaultModel:       raw.DefaultModel,
 		Models:             models,
 		Providers:          raw.Providers,

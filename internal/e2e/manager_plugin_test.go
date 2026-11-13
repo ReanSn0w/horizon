@@ -18,7 +18,7 @@ func TestBuiltManagerDelegationWithoutModelConfiguration(t *testing.T) {
 		t.Fatalf("build: %v %s", err, data)
 	}
 	// Help and metadata have no initialization side effects.
-	if out, diag, err := run(binary, t.TempDir(), "", "--home", home, "manager", "--help"); err != nil || diag != "" || !strings.Contains(out, "horizon-manager install") {
+	if out, diag, err := run(binary, t.TempDir(), "", "--home", home, "manager", "--help"); err != nil || diag != "" || (!strings.Contains(out, "horizon-manager") || !strings.Contains(out, "Install Horizon")) {
 		t.Fatal(out, diag, err)
 	}
 	if _, err := os.Stat(filepath.Join(home, "config.yaml")); !os.IsNotExist(err) {
@@ -37,7 +37,7 @@ func TestBuiltManagerDelegationWithoutModelConfiguration(t *testing.T) {
 	os.WriteFile(filepath.Join(home, "config.yaml"), []byte("installation:\n  source:\n    type: release\nagent_plugins: []\n"), 0600)
 	os.WriteFile(filepath.Join(home, ".manager/state.json"), []byte(`{"version":1,"commit":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","ref":"refs/tags/v1","source":{"type":"release"},"plugins":[]}`), 0600)
 	out, diag, err := run(binary, t.TempDir(), "", "--home", home, "manager", "plugins", "list")
-	if err != nil || diag != "" || !strings.Contains(out, "manager\ttrue\ttrue\tfalse") {
+	if err != nil || diag != "" || !strings.Contains(strings.Join(strings.Fields(out), " "), "manager true true false") {
 		t.Fatal(out, diag, err)
 	}
 }

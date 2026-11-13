@@ -6,7 +6,7 @@
 ход того же диалога. Для каждого чата daemon использует свою привязку workspace
 и сессии. Миграция группы в супергруппу сохраняет эту привязку.
 
-Установите `daemon`, `telegram` и `agent:telegram` через
+Установите `agent`, `telegram` и `agent:telegram` через
 `horizon manager plugins install <имя>`. В `config.yaml`:
 
 ```yaml
@@ -16,7 +16,7 @@ plugins:
   telegram:
     bot_token: ""
     owner_user_id: 0
-  daemon:
+  agent:
     adapters: [telegram]
     max_active_adapter_dialogs: 2
   agent-telegram:
@@ -30,7 +30,7 @@ plugins:
     idle_compact_after: 12h
 ```
 
-Заполните параметры бота и запустите `horizon daemon start`. Адаптер
+Заполните параметры бота и запустите `horizon agent start`. Адаптер
 перечитывает свои настройки после перезапуска. `workspace_dir` по умолчанию
 равен `<home>/workspaces/telegram`; явно заданный относительный путь
 разрешается от `<home>`.

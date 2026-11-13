@@ -6,6 +6,7 @@
 Адаптеры daemon устанавливаются как `agent-<имя>`.
 Memory и decision встроены в ядро.
 
+- [Agent](agent/README.md) — управляющий процесс и службы ОС.
 - [Manager](manager/README.md) — обязательный установщик и менеджер обновлений.
 - [Telegram](telegram/README.md) — расширение для явной отправки сообщений.
 - [Agent Telegram](agent-telegram/README.md) — входной адаптер Telegram для daemon.

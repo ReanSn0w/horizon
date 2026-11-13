@@ -100,7 +100,7 @@ func TestLoadValidation(t *testing.T) {
 	tests := []struct {
 		name, contents, want string
 	}{
-		{"server", strings.Replace(validConfig, "mode: unit", "mode: server", 1), "not implemented"},
+		{"server", strings.Replace(validConfig, "mode: unit", "mode: server", 1), "mode has been removed"},
 		{"unknown field", validConfig + "mystery: true\n", "field mystery not found"},
 		{"missing threshold", strings.Replace(validConfig, "    compact_threshold: 100000\n", "", 1), "compact_threshold"},
 		{"bad default", strings.Replace(validConfig, "default_model: coding", "default_model: absent", 1), "does not name"},
@@ -284,5 +284,18 @@ func TestModelProviderReferences(t *testing.T) {
 				t.Fatalf("err=%v", err)
 			}
 		})
+	}
+}
+
+func TestModeOptionalAndLegacyUnitPreserved(t *testing.T) {
+	for _, contents := range []string{validConfig, strings.Replace(validConfig, "mode: unit\n", "", 1)} {
+		home := writeConfig(t, contents)
+		if _, err := Load(home); err != nil {
+			t.Fatal(err)
+		}
+		data, err := os.ReadFile(filepath.Join(home, "config.yaml"))
+		if err != nil || string(data) != contents {
+			t.Fatal("loading rewrote configuration", err)
+		}
 	}
 }
