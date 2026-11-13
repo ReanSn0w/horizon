@@ -39,6 +39,9 @@ func TestListIncludesInvalidAndDisabledWithoutDaemon(t *testing.T) {
 	if err := json.Unmarshal(out.Bytes(), &rows); err != nil || len(rows) != 2 || rows[0].ID != "alpha" || rows[0].Error == "" || rows[1].ID != "zeta" || rows[1].Enabled {
 		t.Fatalf("rows: %+v %v", rows, err)
 	}
+	if !strings.Contains(out.String(), `"every":"1h"`) || strings.Contains(out.String(), `"Every"`) {
+		t.Fatalf("unexpected JSON schedule: %q", out.String())
+	}
 	out.Reset()
 	if code := list(home, false, &out, &diag); code != 0 || !strings.Contains(out.String(), "WORKSPACE") {
 		t.Fatalf("table: %d %q", code, out.String())

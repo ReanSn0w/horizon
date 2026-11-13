@@ -225,12 +225,12 @@ func list(home string, asJSON bool, out, diag io.Writer) int {
 		return 1
 	}
 	type row struct {
-		ID        string               `json:"id"`
-		Name      string               `json:"name,omitempty"`
-		Enabled   bool                 `json:"enabled"`
-		Schedule  timer.ScheduleConfig `json:"schedule,omitempty"`
-		Workspace string               `json:"workspace,omitempty"`
-		Error     string               `json:"error,omitempty"`
+		ID        string                `json:"id"`
+		Name      string                `json:"name,omitempty"`
+		Enabled   bool                  `json:"enabled"`
+		Schedule  *timer.ScheduleConfig `json:"schedule,omitempty"`
+		Workspace string                `json:"workspace,omitempty"`
+		Error     string                `json:"error,omitempty"`
 	}
 	rows := make([]row, 0, len(results))
 	for _, result := range results {
@@ -238,7 +238,7 @@ func list(home string, asJSON bool, out, diag io.Writer) int {
 		if result.Err != nil {
 			item.Error = result.Err.Error()
 		} else {
-			item.Name, item.Enabled, item.Schedule, item.Workspace = result.Definition.Name, result.Definition.Enabled, result.Definition.Schedule, result.Definition.Workspace
+			item.Name, item.Enabled, item.Schedule, item.Workspace = result.Definition.Name, result.Definition.Enabled, &result.Definition.Schedule, result.Definition.Workspace
 			compiled, compileErr := timer.Compile(result.Definition.Schedule)
 			if compileErr != nil {
 				item.Error = compileErr.Error()
@@ -258,9 +258,12 @@ func list(home string, asJSON bool, out, diag io.Writer) int {
 	writer := tabwriter.NewWriter(out, 0, 4, 2, ' ', 0)
 	fmt.Fprintln(writer, "ID\tNAME\tENABLED\tSCHEDULE\tWORKSPACE\tERROR")
 	for _, item := range rows {
-		schedule := item.Schedule.Cron
-		if schedule == "" {
-			schedule = item.Schedule.Every
+		schedule := ""
+		if item.Schedule != nil {
+			schedule = item.Schedule.Cron
+			if schedule == "" {
+				schedule = item.Schedule.Every
+			}
 		}
 		fmt.Fprintf(writer, "%s\t%s\t%t\t%s\t%s\t%s\n", item.ID, item.Name, item.Enabled, schedule, item.Workspace, item.Error)
 	}
