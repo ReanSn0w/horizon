@@ -33,6 +33,9 @@ func MergePluginTemplates(home string, templates []PluginTemplate) (map[string]s
 			if template.Section.Kind != yaml.MappingNode {
 				return false, fmt.Errorf("plugins.%s template must be a mapping", template.Name)
 			}
+			// Plugin templates arrive as JSON. Its flow style is valid YAML but
+			// renders nested settings as one long inline object.
+			defaults := blockTemplate(template.Section)
 			if plugins == nil {
 				plugins = &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
 				appendMapping(root, "plugins", plugins)
@@ -60,7 +63,7 @@ func MergePluginTemplates(home string, templates []PluginTemplate) (map[string]s
 				changed = true
 			}
 			if section == nil {
-				appendMapping(plugins, template.Name, template.Section)
+				appendMapping(plugins, template.Name, defaults)
 				status[template.Name] = "added"
 				changed = true
 				continue
@@ -68,7 +71,7 @@ func MergePluginTemplates(home string, templates []PluginTemplate) (map[string]s
 			if section.Kind != yaml.MappingNode {
 				return false, fmt.Errorf("plugins.%s must be a mapping", template.Name)
 			}
-			if mergeMissingMapping(section, template.Section) {
+			if mergeMissingMapping(section, defaults) {
 				changed = true
 				status[template.Name] = "updated"
 			} else if legacySection != nil {
@@ -83,6 +86,21 @@ func MergePluginTemplates(home string, templates []PluginTemplate) (map[string]s
 		return nil, err
 	}
 	return status, nil
+}
+
+func blockTemplate(source *yaml.Node) *yaml.Node {
+	clone := *source
+	if clone.Kind == yaml.ScalarNode {
+		clone.Style = 0
+	}
+	if len(source.Content) > 0 {
+		clone.Style &^= yaml.FlowStyle
+		clone.Content = make([]*yaml.Node, len(source.Content))
+		for i, child := range source.Content {
+			clone.Content[i] = blockTemplate(child)
+		}
+	}
+	return &clone
 }
 
 func mappingValue(node *yaml.Node, key string) *yaml.Node {
