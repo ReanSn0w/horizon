@@ -42,7 +42,7 @@ func TestSkillUpdatesPreserveConfigAndSymlink(t *testing.T) {
 	home := t.TempDir()
 	target := filepath.Join(t.TempDir(), "real.yaml")
 	path := filepath.Join(home, "config.yaml")
-	original := "# keep this comment\nmode: unit\nprovider:\n  url: ''\n  key: '' # private field\n"
+	original := "# keep this comment\nmode: unit\nproviders:\n  default:\n    url: ''\n    key: '' # private field\n"
 	if err := os.WriteFile(target, []byte(original), 0640); err != nil {
 		t.Fatal(err)
 	}

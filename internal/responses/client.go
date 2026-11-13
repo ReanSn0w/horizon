@@ -33,12 +33,13 @@ func (e *Error) Error() string { return e.Message }
 func (e *Error) Unwrap() error { return e.Cause }
 
 type Client struct {
-	ResponsesURL string
-	CompactURL   string
-	APIKey       string
-	HTTPClient   *http.Client
-	MaxAttempts  int
-	RetryDelay   func(int) time.Duration
+	ResponsesURL     string
+	CompactURL       string
+	APIKey           string
+	HTTPClient       *http.Client
+	MaxAttempts      int
+	MaxResponseBytes int64
+	RetryDelay       func(int) time.Duration
 }
 
 func (c *Client) Stream(ctx context.Context, request Request, beforeAttempt func() error, publish func(Event)) (*Response, error) {
@@ -100,7 +101,11 @@ func (c *Client) streamOnce(ctx context.Context, request Request, publish func(E
 		return nil, &Error{Code: "incompatible_endpoint", Message: "provider did not return a Responses SSE stream", StatusCode: response.StatusCode}
 	}
 
-	reader := bufio.NewReader(response.Body)
+	var body io.Reader = response.Body
+	if c.MaxResponseBytes > 0 {
+		body = io.LimitReader(body, c.MaxResponseBytes)
+	}
+	reader := bufio.NewReader(body)
 	started := false
 	for {
 		data, err := readSSEData(reader)

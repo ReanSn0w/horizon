@@ -38,10 +38,10 @@ func (r *countingReviewer) Review(context.Context, decision.Command) (decision.V
 
 func (r *forbiddenReviewer) Review(context.Context, decision.Command) (decision.Verdict, error) {
 	r.calls++
-	return decision.Verdict{}, errors.New("full mode must not call Jev")
+	return decision.Verdict{}, errors.New("full mode must not call Decision")
 }
 
-func TestExecutorFullRunsWithoutJev(t *testing.T) {
+func TestExecutorFullRunsWithoutDecision(t *testing.T) {
 	store := session.NewStore(t.TempDir())
 	workspace, err := store.ResolveWorkspace(t.TempDir())
 	if err != nil {
@@ -81,7 +81,7 @@ func TestExecutorFullRunsWithoutJev(t *testing.T) {
 		}
 	}
 	if reviewer.calls != 0 {
-		t.Fatalf("Jev reviewer called %d times", reviewer.calls)
+		t.Fatalf("Decision reviewer called %d times", reviewer.calls)
 	}
 }
 

@@ -218,9 +218,9 @@ func TestConfiguredEndpointCompatibility(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	responsesURL, _ := cfg.Endpoint("responses")
-	compactURL, _ := cfg.Endpoint("responses/compact")
-	client := &Client{ResponsesURL: responsesURL, CompactURL: compactURL, APIKey: cfg.Provider.Key, MaxAttempts: 1}
+	responsesURL, _ := cfg.Endpoint(model.Provider, "responses")
+	compactURL, _ := cfg.Endpoint(model.Provider, "responses/compact")
+	client := &Client{ResponsesURL: responsesURL, CompactURL: compactURL, APIKey: cfg.Providers[model.Provider].Key, MaxAttempts: 1}
 	request := Request{
 		Model: model.Model, Instructions: "Reply briefly.", Input: []json.RawMessage{UserMessage(strings.Repeat("alpha ", 1500) + "Reply with OK.")},
 		Tools: []Tool{}, Store: false, Include: []string{"reasoning.encrypted_content"},

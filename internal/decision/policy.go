@@ -3,7 +3,6 @@ package decision
 import (
 	"context"
 	"errors"
-	"fmt"
 	"os"
 	"regexp"
 	"strings"
@@ -36,12 +35,6 @@ type CommandPolicy struct {
 	Secrets []string
 }
 
-// These advisory model scores are not operating-system permission boundaries.
-const (
-	maxWriteProbabilityInRead    = 0.20
-	maxOutsideProbabilityInWrite = 0.20
-)
-
 var inlineSecret = regexp.MustCompile(`(?i)(bearer\s+\S+|(?:api[_-]?key|token|secret|password)\s*[:=]\s*\S+)`)
 
 func (p *CommandPolicy) Review(ctx context.Context, command Command) (Verdict, error) {
@@ -64,12 +57,10 @@ func (p *CommandPolicy) Review(ctx context.Context, command Command) (Verdict, e
 	}
 	questions := map[string]Question{
 		"file_write": {
-			Type: "noul", Instructions: "Does `command` apparently intend to create, modify, or delete local filesystem content? Count explicit writes through subprocesses, shell redirections, scripts, and clear cache or temporary writes. Do not infer a write from ordinary inspection, listing, or help commands. Judge intended local file effects, not remote effects.",
-			Criteria: map[string]string{"true": "The command apparently writes, modifies, or deletes local filesystem content.", "false": "The command is read-only or has no apparent local file write."},
+			Instructions: "Does `command` apparently intend to create, modify, or delete local filesystem content? Count explicit writes through subprocesses, shell redirections, scripts, and clear cache or temporary writes. Do not infer a write from ordinary inspection, listing, or help commands. Judge intended local file effects, not remote effects.",
 		},
 		"outside_write": {
-			Type: "noul", Instructions: "Does `command` apparently intend to write, modify, or delete local filesystem content outside both `workspace` and `horizon_home`? Relative paths start in `workspace`. Include explicit subprocesses, redirections, and clear cache or temporary writes. A read-only command has no outside write. Judge local file paths only, not remote effects.",
-			Criteria: map[string]string{"true": "The command apparently writes outside both allowed directory trees.", "false": "All apparent local file writes remain within the allowed directory trees, or there is no apparent local file write."},
+			Instructions: "Does `command` apparently intend to write, modify, or delete local filesystem content outside both `workspace` and `horizon_home`? Relative paths start in `workspace`. Include explicit subprocesses, redirections, and clear cache or temporary writes. A read-only command has no outside write. Judge local file paths only, not remote effects.",
 		},
 	}
 	response, err := p.Client.Decide(ctx, Request{State: state, Questions: questions})
@@ -78,17 +69,17 @@ func (p *CommandPolicy) Review(ctx context.Context, command Command) (Verdict, e
 	}
 	for _, id := range []string{"file_write", "outside_write"} {
 		answer, ok := response.Answers[id]
-		if !ok || answer.Noul == nil || !validProbability(*answer.Noul) {
+		if !ok || answer == nil {
 			return Verdict{}, errors.New("decision response is incomplete")
 		}
 	}
-	fileWrite := *response.Answers["file_write"].Noul
-	outsideWrite := *response.Answers["outside_write"].Noul
-	if command.Access == "read" && fileWrite > maxWriteProbabilityInRead {
-		return Verdict{ID: response.ID, Reason: fmt.Sprintf("read mode: possible file write (Jev score %.2f)", fileWrite)}, nil
+	fileWrite := *response.Answers["file_write"]
+	outsideWrite := *response.Answers["outside_write"]
+	if command.Access == "read" && (fileWrite || outsideWrite) {
+		return Verdict{ID: response.ID, Reason: "read mode: apparent local file write"}, nil
 	}
-	if command.Access == "write" && outsideWrite > maxOutsideProbabilityInWrite {
-		return Verdict{ID: response.ID, Reason: fmt.Sprintf("write mode: possible file write outside workspace or Horizon home (Jev score %.2f)", outsideWrite)}, nil
+	if command.Access == "write" && outsideWrite {
+		return Verdict{ID: response.ID, Reason: "write mode: apparent file write outside workspace or Horizon home"}, nil
 	}
 	return Verdict{Allowed: true, ID: response.ID}, nil
 }

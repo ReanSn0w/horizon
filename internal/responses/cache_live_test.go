@@ -49,8 +49,8 @@ func TestConfiguredPromptCacheRouting(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	endpoint, _ := cfg.Endpoint("responses")
-	metaEndpoint, _ := cfg.Endpoint("generation")
+	endpoint, _ := cfg.Endpoint(model.Provider, "responses")
+	metaEndpoint, _ := cfg.Endpoint(model.Provider, "generation")
 	runID := time.Now().UTC().Format("20060102T150405.000000000")
 	for _, phase := range []string{"implicit", "session_header", "explicit_breakpoint"} {
 		body := strings.Repeat("alpha ", 1500) + phase + runID
@@ -61,7 +61,7 @@ func TestConfiguredPromptCacheRouting(t *testing.T) {
 		if phase != "implicit" {
 			probe.sessionID = "horizon-cache-probe-" + hex.EncodeToString(prefix[:8])
 		}
-		client := &Client{ResponsesURL: endpoint, APIKey: cfg.Provider.Key, HTTPClient: &http.Client{Transport: probe}, MaxAttempts: 1}
+		client := &Client{ResponsesURL: endpoint, APIKey: cfg.Providers[model.Provider].Key, HTTPClient: &http.Client{Transport: probe}, MaxAttempts: 1}
 		firstItem := first
 		if phase == "explicit_breakpoint" {
 			firstItem, _ = json.Marshal(map[string]any{"role": "user", "content": []any{map[string]any{"type": "input_text", "text": body, "prompt_cache_breakpoint": map[string]any{"mode": "explicit"}}}})
@@ -80,7 +80,7 @@ func TestConfiguredPromptCacheRouting(t *testing.T) {
 			if generationID == "" {
 				generationID = response.ID
 			}
-			provider, nativeCached := generationProbe(t, metaEndpoint, cfg.Provider.Key, generationID)
+			provider, nativeCached := generationProbe(t, metaEndpoint, cfg.Providers[model.Provider].Key, generationID)
 			cached := "unknown"
 			if usage.CachedTokens != nil {
 				cached = fmt.Sprint(*usage.CachedTokens)

@@ -1,7 +1,6 @@
 # Диагностика кеша промпта
 
-`model_request_completed` в JSONL Horizon и в локальном журнале Telegram
-показывает `input_tokens`, `output_tokens` и `cached_tokens` для каждого
+`model_request_completed` в JSONL Horizon показывает `input_tokens`, `output_tokens` и `cached_tokens` для каждого
 обращения, когда провайдер возвращает эти значения. `usage_available: false`
 означает отсутствие числового расхода; `cached_tokens: 0` означает измеренный
 ноль. Сопоставляйте `attempt` и `phase` с событиями одного хода.

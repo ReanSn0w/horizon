@@ -64,6 +64,9 @@ func readConfig(path string) (rawConfig, *yaml.Node, error) {
 		if root.Content[i].Value == "disabled_skills" && root.Content[i+1].Tag == "!!null" {
 			return raw, nil, errors.New("disabled_skills must be a list of skill IDs")
 		}
+		if root.Content[i].Value == "memory" && root.Content[i+1].Tag == "!!null" {
+			return raw, nil, errors.New("memory must be a mapping")
+		}
 	}
 	return raw, &document, nil
 }

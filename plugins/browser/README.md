@@ -2,12 +2,14 @@
 
 Плагин управляет удалённым Chromium через [Browser Use Browsers API v4](https://docs.browser-use.com/cloud/openapi/v4.json) и CDP. Локальный браузер не устанавливается. Плагин не входит в набор `make install-plugins` по умолчанию.
 
+Сначала установите Horizon через [Manager](../manager/README.md). Плагин
+собирается из установленной ревизии и размещается в `<home>/bin/horizon-browser`:
+
 ```sh
-make install-browser HORIZON_HOME=/path/to/home
-horizon --home /path/to/home init
+horizon manager plugins install browser
 ```
 
-`horizon init` добавит `plugins.browser` с пустым `api_key`, не затрагивая
+Менеджер добавит `plugins.browser` с пустым `api_key`, не затрагивая
 существующие значения. Заполните ключ и включите инструменты модели:
 
 ```yaml
@@ -51,9 +53,9 @@ HTTP-статус отказа WebSocket, числовой код CDP или и�
 отказа сайта. CDP URL и произвольный текст ошибок сервера не выводятся.
 
 Для диагностики сначала проверьте установленный бинарник выбранного home:
-`go version -m /path/to/home/plugins/horizon-browser`. Исходники в `plugins/browser`
+`go version -m /path/to/home/bin/horizon-browser`. Исходники в `plugins/browser`
 не заменяют установленный плагин автоматически. После обновления выполните
-`make install-browser HORIZON_HOME=/path/to/home` и повторите вызов в новом ходе.
+`horizon --home /path/to/home manager update` и повторите вызов в новом ходе.
 Live-тест можно запустить с отдельным `HORIZON_HOME`, содержащим приватный
 `config.yaml` с настройками Browser Use; ключ не передавайте в аргументах команд.
 
@@ -64,3 +66,16 @@ Browser Use может вернуть HTTP(S)-адрес CDP вместо гот
 Навигация ждёт `DOMContentLoaded` основного документа, а не завершения всех
 фоновых ресурсов. Динамическое содержимое, появившееся позже, можно прочитать
 следующим `browser__snapshot`.
+
+## Локальные данные
+
+Настройки находятся в `plugins.browser` общего `<home>/config.yaml`.
+Служебное состояние плагина хранится в `<home>/browser/`:
+
+- `home-id` — идентификатор home для меток удалённых браузеров;
+- `state.lock` — блокировка изменения состояния;
+- `turn-<turn-id>.json` — привязка браузера к ходу и сессии Horizon,
+  данные CDP-подключения и ссылки на элементы страницы.
+
+Удаление локального состояния не останавливает удалённый браузер. Для остановки
+используйте описанные выше команды `horizon browser close`.

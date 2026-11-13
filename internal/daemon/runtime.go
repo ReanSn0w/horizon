@@ -1,0 +1,67 @@
+package daemon
+
+import (
+	"bytes"
+	"context"
+	"errors"
+	"github.com/ReanSn0w/horizon/internal/config"
+	"gopkg.in/yaml.v3"
+	"os"
+)
+
+func LoadSettings(home string) (Settings, error) {
+	cfg, err := config.Load(home)
+	if err != nil {
+		return Settings{}, errors.New("cannot load Horizon configuration")
+	}
+	s := Defaults()
+	n, ok := cfg.Plugins["agent"]
+	if legacy, exists := cfg.Plugins["daemon"]; exists {
+		if ok {
+			return s, errors.New("both plugins.agent and legacy plugins.daemon are configured; keep only plugins.agent")
+		}
+		n, ok = legacy, true
+	}
+	if ok {
+		b, e := yaml.Marshal(n)
+		if e != nil {
+			return s, e
+		}
+		d := yaml.NewDecoder(bytes.NewReader(b))
+		d.KnownFields(true)
+		if e = d.Decode(&s); e != nil {
+			return s, errors.New("invalid plugins.agent settings")
+		}
+	}
+	return s, s.Validate()
+}
+func Start(ctx context.Context, home string) error {
+	settings, err := LoadSettings(home)
+	if err != nil {
+		return err
+	}
+	var queueErr error
+	err = serve(ctx, home, nil, func(ctx context.Context) (Handler, func(), error) {
+		if _, e := os.Lstat(MigrationBarrier(home)); e == nil {
+			return nil, nil, errors.New("an offline adapter migration is unfinished; finish migration before starting daemon")
+		} else if !os.IsNotExist(e) {
+			return nil, nil, e
+		}
+		q, e := OpenQueue(home, settings, HorizonRunner(home))
+		if e != nil {
+			return nil, nil, e
+		}
+		cleanupAdapters, e := q.SuperviseAdapters(ctx)
+		if e != nil {
+			return nil, nil, e
+		}
+		runCtx, cancel := context.WithCancel(ctx)
+		done := make(chan error, 1)
+		go func() { done <- q.Run(runCtx) }()
+		return q.Handle, func() { cancel(); cleanupAdapters(); queueErr = <-done }, nil
+	})
+	if err != nil {
+		return err
+	}
+	return queueErr
+}

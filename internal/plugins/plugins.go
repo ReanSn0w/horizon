@@ -39,7 +39,7 @@ type Entry struct {
 	Err      error
 }
 
-func directory(home string) string { return filepath.Join(home, "plugins") }
+func directory(home string) string { return filepath.Join(home, "bin") }
 
 // Candidates returns installed executable paths without starting them.
 func Candidates(home string, reserved []string) ([]Entry, error) {
@@ -212,7 +212,7 @@ func Environment(base []string, home, executable string, access ...string) []str
 	for _, item := range base {
 		name, _, ok := strings.Cut(item, "=")
 		if ok {
-			if _, replace := values[name]; replace {
+			if _, replace := values[name]; replace || name == TurnChannelEnvironment {
 				continue
 			}
 		}

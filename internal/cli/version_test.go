@@ -9,7 +9,6 @@ import (
 	"testing"
 
 	"github.com/ReanSn0w/horizon/internal/buildinfo"
-	catalog "github.com/ReanSn0w/horizon/plugins"
 	flags "github.com/umputun/go-flags"
 )
 
@@ -34,7 +33,7 @@ func TestVersionWithoutHomeOrPlugins(t *testing.T) {
 		t.Fatal("consumed non-global version")
 	}
 }
-func TestCatalogReservedCommands(t *testing.T) {
+func TestBuiltInCommands(t *testing.T) {
 	a := New(nil, nil, nil)
 	o := globalOptions{}
 	p := flags.NewParser(&o, flags.None)
@@ -42,7 +41,7 @@ func TestCatalogReservedCommands(t *testing.T) {
 		t.Fatal(err)
 	}
 	actual := commandNames(p)
-	expected := slices.Clone(catalog.Reserved)
+	expected := []string{"resume", "models", "sessions", "skills", "decision", "memory", "agent"}
 	slices.Sort(actual)
 	slices.Sort(expected)
 	if !reflect.DeepEqual(actual, expected) {

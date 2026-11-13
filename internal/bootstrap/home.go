@@ -15,7 +15,7 @@ type Result struct {
 // Ensure creates missing initialization resources without replacing user files.
 func Ensure(home string) (Result, error) {
 	var result Result
-	for _, dir := range []string{home, filepath.Join(home, "dialogs"), filepath.Join(home, "plugins"), filepath.Join(home, "skills", "skill-creator"), filepath.Join(home, "skills", "filesystem")} {
+	for _, dir := range []string{home, filepath.Join(home, "dialogs"), filepath.Join(home, "bin"), filepath.Join(home, "memory", "workspaces"), filepath.Join(home, ".manager"), filepath.Join(home, "skills", "skill-creator"), filepath.Join(home, "skills", "filesystem")} {
 		if err := os.MkdirAll(dir, 0700); err != nil {
 			return result, fmt.Errorf("initialize directory %q: %w", dir, err)
 		}
@@ -31,8 +31,21 @@ func Ensure(home string) (Result, error) {
 	if _, err := install(filepath.Join(home, "skills", "skill-creator", "SKILL.md"), skillTemplate); err != nil {
 		return result, err
 	}
-	_, err = install(filepath.Join(home, "skills", "filesystem", "SKILL.md"), filesystemSkillTemplate)
-	return result, err
+	if _, err := install(filepath.Join(home, "skills", "filesystem", "SKILL.md"), filesystemSkillTemplate); err != nil {
+		return result, err
+	}
+	return result, EnsureTimerSkill(home)
+}
+
+// EnsureTimerSkill also supports plugin installation into a home bootstrapped
+// by an older manager that did not bundle the timer skill.
+func EnsureTimerSkill(home string) error {
+	dir := filepath.Join(home, "skills", "timers")
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		return fmt.Errorf("initialize directory %q: %w", dir, err)
+	}
+	_, err := install(filepath.Join(dir, "SKILL.md"), timerSkillTemplate)
+	return err
 }
 
 func existingFile(path string) (bool, error) {

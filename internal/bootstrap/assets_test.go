@@ -20,13 +20,13 @@ func TestEmbeddedResources(t *testing.T) {
 		t.Fatal("bundled agent instructions are missing")
 	}
 	var config struct {
-		Mode     string                    `yaml:"mode"`
-		Provider struct{ URL, Key string } `yaml:"provider"`
+		Mode      string                               `yaml:"mode"`
+		Providers map[string]struct{ URL, Key string } `yaml:"providers"`
 	}
 	if err := yaml.Unmarshal(configTemplate, &config); err != nil {
 		t.Fatal(err)
 	}
-	if config.Mode != "unit" || config.Provider.URL != "" || config.Provider.Key != "" {
+	if config.Mode != "" || config.Providers["default"].URL != "" || config.Providers["default"].Key != "" {
 		t.Fatalf("unexpected initial configuration: %+v", config)
 	}
 	parts := bytes.SplitN(skillTemplate, []byte("---"), 3)

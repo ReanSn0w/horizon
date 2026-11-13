@@ -7,16 +7,17 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"sort"
+	"syscall"
 	"text/tabwriter"
 
 	"github.com/ReanSn0w/horizon/internal/agent"
-	"github.com/ReanSn0w/horizon/internal/bootstrap"
 	"github.com/ReanSn0w/horizon/internal/config"
+	"github.com/ReanSn0w/horizon/internal/daemon"
 	"github.com/ReanSn0w/horizon/internal/decision"
 	"github.com/ReanSn0w/horizon/internal/eventstream"
 	"github.com/ReanSn0w/horizon/internal/instructions"
+	"github.com/ReanSn0w/horizon/internal/memory"
 	"github.com/ReanSn0w/horizon/internal/plugins"
 	"github.com/ReanSn0w/horizon/internal/responses"
 	"github.com/ReanSn0w/horizon/internal/session"
@@ -26,41 +27,6 @@ import (
 type optionalString struct {
 	Value string
 	Set   bool
-}
-
-type initCommand struct {
-	app    *App
-	global *globalOptions
-}
-
-func (command *initCommand) Execute(args []string) error {
-	if err := rejectArgs(args); err != nil {
-		return err
-	}
-	home := command.global.Home
-	result, err := bootstrap.Ensure(home)
-	if err != nil {
-		return failure(err.Error(), err)
-	}
-	statuses, skipped, err := initializePluginConfig(home, command.app.reserved)
-	if err != nil {
-		return failure(fmt.Sprintf("initialize plugin configuration: %v", err), err)
-	}
-	fmt.Fprintf(command.app.out, "Horizon home: %s\n", home)
-	configPath := filepath.Join(home, "config.yaml")
-	if result.ConfigCreated {
-		fmt.Fprintf(command.app.out, "Отредактируйте %s: задайте provider.url, provider.key, models.chatting.model и decision.provider.key; проверьте decision.provider.url, decision.model и models.chatting.compact_threshold.\n", configPath)
-	} else {
-		fmt.Fprintf(command.app.out, "Существующая конфигурация сохранена: %s.\n", configPath)
-	}
-	fmt.Fprintf(command.app.out, "При необходимости добавьте инструкции агента в %s.\n", filepath.Join(home, "AGENTS.md"))
-	for _, name := range sortedKeys(statuses) {
-		fmt.Fprintf(command.app.out, "Плагин %s: %s.\n", name, statuses[name])
-	}
-	for _, name := range skipped {
-		fmt.Fprintf(command.app.errOut, "horizon: настройки плагина %s пропущены (шаблон недоступен).\n", name)
-	}
-	return nil
 }
 
 func (value *optionalString) UnmarshalFlag(text string) error {
@@ -94,7 +60,7 @@ func (command *modelsCommand) Execute(args []string) error {
 	sort.Strings(names)
 
 	writer := tabwriter.NewWriter(command.app.out, 0, 4, 2, ' ', 0)
-	fmt.Fprintln(writer, "NAME\tMODEL\tREASONING\tSCORE\tDEFAULT")
+	fmt.Fprintln(writer, "NAME\tPROVIDER\tMODEL\tREASONING\tSCORE\tDEFAULT")
 	for _, name := range names {
 		profile := cfg.Models[name]
 		reasoning := profile.Reasoning
@@ -109,7 +75,7 @@ func (command *modelsCommand) Execute(args []string) error {
 		if name == cfg.DefaultModel {
 			isDefault = "*"
 		}
-		fmt.Fprintf(writer, "%s\t%s\t%s\t%s\t%s\n", name, profile.Model, reasoning, score, isDefault)
+		fmt.Fprintf(writer, "%s\t%s\t%s\t%s\t%s\t%s\n", name, profile.Provider, profile.Model, reasoning, score, isDefault)
 	}
 	return writer.Flush()
 }
@@ -145,54 +111,72 @@ func (command *resumeCommand) Execute(args []string) error {
 			return usage(err.Error(), err)
 		}
 	}
-	message, err := command.app.readMessageMode(command.Message, command.Mode)
-	if err != nil {
-		return err
+	var message string
+	if !daemon.HasTurnInput() {
+		message, err = command.app.readMessageMode(command.Message, command.Mode)
+		if err != nil {
+			return err
+		}
 	}
 	store, workspace, err := command.app.sessionContext(command.global, "")
 	if err != nil {
 		return err
+	}
+	inbound, err := daemon.OpenTurnInput(home, workspace.Dir, command.Session)
+	if err != nil {
+		return failure(err.Error(), err)
+	}
+	if inbound != nil && command.Message.Set {
+		return usage("daemon input cannot be combined with an explicit message", nil)
 	}
 	locked, value, err := store.AcquireForResume(workspace, command.Session, message)
 	if err != nil {
 		return failure(err.Error(), err)
 	}
 	defer locked.Close()
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	signals := []os.Signal{os.Interrupt}
+	if inbound != nil {
+		signals = append(signals, syscall.SIGTERM)
+	}
+	ctx, stop := signal.NotifyContext(context.Background(), signals...)
 	defer stop()
-	snapshot, extensions, err := command.app.buildPluginInstructions(ctx, home, workspace, cfg, access, true)
+	snapshot, extensions, memoryService, err := command.app.buildPluginInstructions(ctx, home, workspace, cfg, access, true, value.SessionID)
 	if err != nil {
 		return failure(err.Error(), err)
 	}
-	responsesURL, err := cfg.Endpoint("responses")
+	responsesURL, err := cfg.Endpoint(profile.Provider, "responses")
 	if err != nil {
 		return failure(err.Error(), err)
 	}
-	compactURL, err := cfg.Endpoint("responses/compact")
+	compactURL, err := cfg.Endpoint(profile.Provider, "responses/compact")
 	if err != nil {
 		return failure(err.Error(), err)
 	}
 	var reviewer decision.Reviewer
 	if access != "full" {
-		decisionURL, err := cfg.DecisionEndpoint()
+		decisionProfile := cfg.Models[cfg.DecisionModel]
+		decisionURL, err := cfg.Endpoint(decisionProfile.Provider, "responses")
 		if err != nil {
 			return usage(err.Error(), err)
 		}
-		reviewer = &decision.CommandPolicy{Client: &decision.Client{Endpoint: decisionURL, APIKey: cfg.Decision.Provider.Key, Model: cfg.Decision.Model, HTTPClient: http.DefaultClient}, Secrets: []string{cfg.Provider.Key, cfg.Decision.Provider.Key}}
+		reviewer = &decision.CommandPolicy{Client: &decision.Client{Endpoint: decisionURL, APIKey: cfg.Providers[decisionProfile.Provider].Key, Model: decisionProfile.Model, HTTPClient: http.DefaultClient}, Secrets: cfg.ProviderKeys()}
+
 	}
 	runtime := &agent.Runtime{
-		Client: &responses.Client{ResponsesURL: responsesURL, CompactURL: compactURL, APIKey: cfg.Provider.Key, HTTPClient: http.DefaultClient},
+		Client: &responses.Client{ResponsesURL: responsesURL, CompactURL: compactURL, APIKey: cfg.Providers[profile.Provider].Key, HTTPClient: http.DefaultClient},
 		Locked: locked, Store: store, Workspace: workspace, Session: value,
 		ProfileName:    profileName,
 		Access:         access,
 		Reviewer:       reviewer,
-		Profile:        session.ModelProfile{Name: profileName, Model: profile.Model, Reasoning: profile.Reasoning, CompactThreshold: profile.CompactThreshold},
+		Profile:        session.ModelProfile{Provider: profile.Provider, Name: profileName, Model: profile.Model, Reasoning: profile.Reasoning, CompactThreshold: profile.CompactThreshold},
 		Instructions:   snapshot,
 		Extensions:     extensions,
+		Memory:         memoryService,
 		MaxRequests:    cfg.Limits.MaxModelRequests,
 		MaxInputTokens: cfg.Limits.MaxInputTokens,
 		MaxDuration:    cfg.Limits.MaxTurnDuration,
 		Publish:        newEventPublisher(command.Mode, command.global.Verbose, command.app.out, command.app.errOut),
+		Inbound:        inbound,
 	}
 	result, err := runtime.Run(ctx, message)
 	if err != nil {
@@ -273,6 +257,9 @@ type sessionsReadCommand struct {
 }
 
 func (command *sessionsReadCommand) Execute(args []string) error {
+	if err := rejectArgs(args); err != nil {
+		return err
+	}
 	if command.Turns <= 0 {
 		return usage("--turns must be positive", nil)
 	}
@@ -349,19 +336,28 @@ func (command *sessionsCompactCommand) Execute(args []string) error {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
-	snapshot, _, err := command.app.buildPluginInstructions(ctx, home, workspace, cfg, "read", false)
+	snapshot, _, _, err := command.app.buildPluginInstructions(ctx, home, workspace, cfg, "read", false, value.SessionID)
 	if err != nil {
 		return failure(err.Error(), err)
 	}
-	responsesURL, err := cfg.Endpoint("responses")
+	_, profile, _, _ := agent.SuccessfulWindow(value)
+	if profile.Provider == "" {
+		// Old sessions did not store a provider name; resolve their named profile.
+		_, configured, err := cfg.SelectModel(profile.Name)
+		if err != nil {
+			return usage(err.Error(), err)
+		}
+		profile.Provider = configured.Provider
+	}
+	responsesURL, err := cfg.Endpoint(profile.Provider, "responses")
 	if err != nil {
 		return failure(err.Error(), err)
 	}
-	compactURL, err := cfg.Endpoint("responses/compact")
+	compactURL, err := cfg.Endpoint(profile.Provider, "responses/compact")
 	if err != nil {
 		return failure(err.Error(), err)
 	}
-	client := &responses.Client{ResponsesURL: responsesURL, CompactURL: compactURL, APIKey: cfg.Provider.Key, HTTPClient: http.DefaultClient}
+	client := &responses.Client{ResponsesURL: responsesURL, CompactURL: compactURL, APIKey: cfg.Providers[profile.Provider].Key, HTTPClient: http.DefaultClient}
 	result, err := agent.Compact(ctx, client, locked, value, snapshot.Prompt, cfg.Limits.MaxTurnDuration, publish)
 	if err != nil {
 		return failure(err.Error(), err)
@@ -376,11 +372,15 @@ func (a *App) addCommands(parser *flags.Parser, global *globalOptions) error {
 	if err := a.addSkillCommands(parser, global); err != nil {
 		return err
 	}
+	if err := a.addMemoryCommands(parser, global); err != nil {
+		return err
+	}
 	commands := []struct {
 		name, short, long string
 		data              any
 	}{
-		{"init", "Initialize Horizon home", "Create missing home files and show what to configure.", &initCommand{app: a, global: global}},
+		{"agent", "Manage the supervisor or an installed adapter", adapterAdminUsage, &adapterAdminCommand{}},
+		{"decision", "Evaluate structured JSON", decisionLongDescription(), &decisionCommand{app: a, global: global}},
 		{"models", "List model profiles", "Print configured model profiles without contacting the provider.", &modelsCommand{app: a, global: global}},
 		{"resume", "Run one agent turn", "Read a message and execute one turn.", &resumeCommand{app: a, global: global}},
 	}
@@ -423,15 +423,46 @@ func buildInstructions(home, workspace string, cfg config.Config) (*instructions
 	return instructions.Build(home, workspace, agent.Introduction, instructions.Options{DisabledSkills: cfg.DisabledSkills, SoulEnabled: cfg.SoulEnabled})
 }
 
-func (a *App) buildPluginInstructions(ctx context.Context, home string, workspace session.Workspace, cfg config.Config, access string, maintain bool) (*instructions.Snapshot, []plugins.Extension, error) {
-	extensions, err := plugins.Prepare(ctx, home, workspace, access, cfg.AgentPlugins, maintain, func(message string) { fmt.Fprintln(a.errOut, message) })
-	if err != nil {
-		return nil, nil, err
+func (a *App) buildPluginInstructions(ctx context.Context, home string, workspace session.Workspace, cfg config.Config, access string, maintain bool, sessionID string) (*instructions.Snapshot, []plugins.Extension, *memory.Service, error) {
+	var memoryService *memory.Service
+	blocks := make([]instructions.Extension, 0, len(cfg.AgentPlugins)+1)
+	if cfg.Memory.Enabled {
+		var err error
+		memoryService, err = memory.New(home, workspace.Dir, cfg)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		if maintain && access != "read" {
+			if _, err := memoryService.Maintain(ctx); err != nil {
+				fmt.Fprintf(a.errOut, "horizon: memory maintenance: %v\n", err)
+			}
+		}
+		data, err := memoryService.Context()
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		converted := make([]plugins.Block, len(data))
+		for i := range data {
+			converted[i] = plugins.Block{Source: data[i].Source, Text: data[i].Text}
+		}
+		blocks = append(blocks, instructions.Extension{Name: "memory", Instructions: memory.Instructions, Data: converted})
 	}
-	blocks := make([]instructions.Extension, 0, len(extensions))
+	policy := plugins.TurnPolicy{SessionID: sessionID}
+	if maintain {
+		var err error
+		policy.Channel, err = plugins.ReadTurnChannel()
+		policy.Communication = cfg.AgentCommunication
+		if err != nil {
+			return nil, nil, nil, err
+		}
+	}
+	extensions, err := plugins.PrepareForTurn(ctx, home, workspace, access, cfg.AgentPlugins, maintain, func(message string) { fmt.Fprintln(a.errOut, message) }, policy)
+	if err != nil {
+		return nil, nil, nil, err
+	}
 	for _, extension := range extensions {
 		blocks = append(blocks, instructions.Extension{Name: extension.Name, Instructions: extension.Description.Instructions, Data: extension.Context})
 	}
 	snapshot, err := instructions.Build(home, workspace.Dir, agent.Introduction, instructions.Options{DisabledSkills: cfg.DisabledSkills, SoulEnabled: cfg.SoulEnabled, Extensions: blocks})
-	return snapshot, extensions, err
+	return snapshot, extensions, memoryService, err
 }

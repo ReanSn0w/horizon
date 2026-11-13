@@ -20,16 +20,19 @@ mode: unit
 default_model: zebra
 models:
   zebra:
+    provider: default
     model: model-z
     compact_threshold: 1000
   alpha:
+    provider: default
     model: model-a
     reasoning: high
     score: 42
     compact_threshold: 2000
-provider:
-  url: https://example.test/v1
-  key: secret
+providers:
+  default:
+    url: https://example.test/v1
+    key: secret
 `)
 	code, stdout, stderr := runApp(t, "", "--home", home, "models")
 	if code != ExitOK || stderr != "" {
@@ -51,11 +54,13 @@ mode: unit
 default_model: coding
 models:
   coding:
+    provider: default
     model: model-code
     compact_threshold: 1000
-provider:
-  url: https://example.test/v1
-  key: secret
+providers:
+  default:
+    url: https://example.test/v1
+    key: secret
 `)
 	tests := []struct {
 		name  string
@@ -86,7 +91,7 @@ provider:
 }
 
 func TestEmptyMessageDoesNotCreateState(t *testing.T) {
-	home := testHome(t, "mode: unit\ndefault_model: coding\nmodels:\n  coding:\n    model: model-code\n    compact_threshold: 1000\nprovider:\n  url: https://example.test/v1\n  key: secret\n")
+	home := testHome(t, "mode: unit\ndefault_model: coding\nmodels:\n  coding:\n    provider: default\n    model: model-code\n    compact_threshold: 1000\nproviders:\n  default:\n    url: https://example.test/v1\n    key: secret\n")
 	code, _, _ := runApp(t, "", "--home", home, "resume", "--message=   ")
 	if code != ExitUsage {
 		t.Fatalf("empty message code = %d", code)
@@ -99,7 +104,7 @@ func TestEmptyMessageDoesNotCreateState(t *testing.T) {
 func TestSessionCommands(t *testing.T) {
 	home := t.TempDir()
 	workspace := t.TempDir()
-	if code, _, stderr := runApp(t, "", "--home", home, "init"); code != ExitOK || stderr != "" {
+	if code, _, stderr := runInitialize(t, "", "--home", home, "init"); code != ExitOK || stderr != "" {
 		t.Fatalf("init code=%d stderr=%q", code, stderr)
 	}
 	code, stdout, stderr := runAppAt(t, workspace, "", "--home", home, "sessions", "create")
@@ -157,11 +162,13 @@ mode: unit
 default_model: coding
 models:
   coding:
+    provider: default
     model: model-code
     compact_threshold: 1000
-provider:
-  url: https://example.test/v1
-  key: secret
+providers:
+  default:
+    url: https://example.test/v1
+    key: secret
 `)
 	workspace := t.TempDir()
 	code, _, stderr := runAppAt(t, workspace, "", "--home", home, "resume", "-m", "\n  First line 🚀  \nsecond")
@@ -197,11 +204,13 @@ mode: unit
 default_model: coding
 models:
   coding:
+    provider: default
     model: model-code
     compact_threshold: 1000
-provider:
-  url: %s
-  key: secret
+providers:
+  default:
+    url: %s
+    key: secret
 `, server.URL))
 	workspace := t.TempDir()
 	code, stdout, stderr := runAppAt(t, workspace, "", "--home", home, "resume", "--mode", "jsonl", "-m", "say hello")
@@ -238,11 +247,13 @@ mode: unit
 default_model: coding
 models:
   coding:
+    provider: default
     model: model-code
     compact_threshold: 1000
-provider:
-  url: %s
-  key: secret
+providers:
+  default:
+    url: %s
+    key: secret
 `, server.URL))
 	code, stdout, stderr := runAppAt(t, t.TempDir(), "", "--home", home, "resume", "--mode", "jsonl", "-m", "fail")
 	if code != ExitFailure || !strings.Contains(stderr, "terminal event") {
@@ -281,9 +292,16 @@ func runAppAt(t *testing.T, workspace, stdin string, args ...string) (int, strin
 func testHome(t *testing.T, config string) string {
 	t.Helper()
 	home := t.TempDir()
-	if !strings.Contains(config, "\ndecision:") {
-		config += "\ndecision:\n  provider:\n    url: https://example.test/api\n    key: decision-secret\n  model: typesafe/jev-1.13\n"
+	if !strings.Contains(config, "\ndecision_model:") {
+		// Reuse this fixture's default profile for checks.
+		for _, line := range strings.Split(config, "\n") {
+			if strings.HasPrefix(line, "default_model:") {
+				config += "\ndecision_model:" + strings.TrimPrefix(line, "default_model:") + "\n"
+				break
+			}
+		}
 	}
+
 	if err := os.WriteFile(filepath.Join(home, "config.yaml"), []byte(config), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -302,7 +320,7 @@ func TestImplicitResume(t *testing.T) {
 		fmt.Fprint(w, "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"r\",\"status\":\"completed\",\"output\":[{\"type\":\"message\",\"content\":[{\"type\":\"output_text\",\"text\":\"answer\"}]}]}}\n\n")
 	}))
 	defer server.Close()
-	home := testHome(t, fmt.Sprintf("mode: unit\ndefault_model: coding\nmodels:\n  coding:\n    model: model-code\n    compact_threshold: 1000\nprovider:\n  url: %s\n  key: secret\n", server.URL))
+	home := testHome(t, fmt.Sprintf("mode: unit\ndefault_model: coding\nmodels:\n  coding:\n    provider: default\n    model: model-code\n    compact_threshold: 1000\nproviders:\n  default:\n    url: %s\n    key: secret\n", server.URL))
 	workspace := t.TempDir()
 	for _, explicit := range []bool{false, true} {
 		for _, tail := range [][]string{nil, {"-m", "models"}, {"--message=resume"}, {"--model", "coding", "--mode", "plain"}, {"-v", "-m", "x"}} {

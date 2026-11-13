@@ -1,0 +1,1 @@
+{"name":"subagent","description":"Delegate Horizon tasks through daemon","package":"./plugins/subagent","binary":"horizon-subagent"}

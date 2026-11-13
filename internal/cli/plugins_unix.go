@@ -60,6 +60,10 @@ func (a *App) printPluginHelp(homeFlag string, reserved []string) {
 }
 
 func (a *App) runPlugin(entry plugins.Entry, args []string, home string) int {
+	return a.runExternal(entry, args, home, os.Environ())
+}
+
+func (a *App) runExternal(entry plugins.Entry, args []string, home string, env []string) int {
 	executable, err := os.Executable()
 	if err != nil {
 		fmt.Fprintf(a.errOut, "horizon: locate executable: %v\n", err)
@@ -80,7 +84,7 @@ func (a *App) runPlugin(entry plugins.Entry, args []string, home string) int {
 	command.Stdin = a.in
 	command.Stdout = a.out
 	command.Stderr = a.errOut
-	command.Env = plugins.Environment(os.Environ(), home, executable)
+	command.Env = plugins.Environment(env, home, executable)
 	terminal := false
 	if file, ok := a.in.(*os.File); ok {
 		terminal = term.IsTerminal(int(file.Fd()))

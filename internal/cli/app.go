@@ -6,10 +6,12 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/ReanSn0w/horizon/internal/buildinfo"
 	"github.com/ReanSn0w/horizon/internal/config"
+	"github.com/ReanSn0w/horizon/internal/maintenance"
 	"github.com/ReanSn0w/horizon/internal/plugins"
 	"github.com/ReanSn0w/horizon/internal/session"
 	flags "github.com/umputun/go-flags"
@@ -71,8 +73,10 @@ func (a *App) Run(args []string) int {
 	parser.LongDescription = "Horizon executes one agent turn per process and stores session state in its home directory. Without a command, runs resume (including -m and other resume options)."
 	parser.SubcommandsOptional = false
 	parser.CommandHandler = func(command flags.Commander, remaining []string) error {
-		if err := rejectArgs(remaining); err != nil {
-			return err
+		if _, allows := command.(interface{ allowArguments() }); !allows {
+			if err := rejectArgs(remaining); err != nil {
+				return err
+			}
 		}
 		if validator, ok := command.(interface{ ValidateArgs() error }); ok {
 			if err := validator.ValidateArgs(); err != nil {
@@ -84,18 +88,21 @@ func (a *App) Run(args []string) int {
 			return usage(err.Error(), err)
 		}
 		options.Home = home
-		if _, ok := command.(*initCommand); !ok {
-			if err := requireInitializedHome(home); err != nil {
-				return err
-			}
+		if err := requireInitializedHome(home); err != nil {
+			return err
 		}
+		release, err := maintenance.Acquire(home, false)
+		if err != nil {
+			return failure(err.Error(), err)
+		}
+		defer release()
 		return command.Execute(remaining)
 	}
 	if err := a.addCommands(parser, &options); err != nil {
 		fmt.Fprintf(a.errOut, "horizon: initialize CLI: %v\n", err)
 		return ExitFailure
 	}
-	reserved := commandNames(parser)
+	reserved := slices.DeleteFunc(commandNames(parser), func(name string) bool { return name == "agent" })
 	a.reserved = reserved
 	if index, homeFlag, ok := pluginCommandIndex(args); ok {
 		home, err := config.ResolveHome(homeFlag)
@@ -104,14 +111,25 @@ func (a *App) Run(args []string) int {
 			return ExitUsage
 		}
 		name := args[index]
+		if name == "agent" {
+			return a.runAdapterAdmin(home, args[index+1:])
+		}
 		if parser.Find(name) == nil {
+			if name != "manager" && !(name == "telegram" && index+1 < len(args) && args[index+1] == "migrate") {
+				release, err := maintenance.Acquire(home, false)
+				if err != nil {
+					fmt.Fprintln(a.errOut, err)
+					return ExitFailure
+				}
+				defer release()
+			}
 			entry := plugins.Inspect(home, name, reserved)
 			if entry.Err == nil || !os.IsNotExist(entry.Err) {
 				if entry.Err != nil {
 					fmt.Fprintf(a.errOut, "horizon: plugin %q unavailable: %v\n", name, entry.Err)
 					return ExitUsage
 				}
-				if !pluginHelp(args[index+1:]) {
+				if name != "manager" && !pluginHelp(args[index+1:]) {
 					if err := requireInitializedHome(home); err != nil {
 						fmt.Fprintf(a.errOut, "horizon: %v\n", err)
 						return exitCode(err)
@@ -209,7 +227,7 @@ func requireInitializedHome(home string) error {
 	path := filepath.Join(home, "config.yaml")
 	info, err := os.Stat(path)
 	if errors.Is(err, os.ErrNotExist) {
-		return usage(fmt.Sprintf("Horizon home %q is not initialized; run 'horizon init' with the same --home or HORIZON_HOME", home), err)
+		return usage(fmt.Sprintf("Horizon home %q is not initialized; run 'horizon-manager install' with the same --home or HORIZON_HOME", home), err)
 	}
 	if err != nil {
 		return failure(fmt.Sprintf("read Horizon home configuration %q: %v", path, err), err)

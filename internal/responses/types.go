@@ -14,6 +14,8 @@ type Tool struct {
 }
 
 type Request struct {
+	Text              *TextConfig       `json:"text,omitempty"`
+	MaxOutputTokens   int               `json:"max_output_tokens,omitempty"`
 	Model             string            `json:"model"`
 	Instructions      string            `json:"instructions"`
 	Input             []json.RawMessage `json:"input"`
@@ -24,6 +26,17 @@ type Request struct {
 	Include           []string          `json:"include,omitempty"`
 	Reasoning         *Reasoning        `json:"reasoning,omitempty"`
 	ContextManagement []ContextPolicy   `json:"context_management,omitempty"`
+}
+
+type TextConfig struct {
+	Format TextFormat `json:"format"`
+}
+
+type TextFormat struct {
+	Type   string         `json:"type"`
+	Name   string         `json:"name"`
+	Strict bool           `json:"strict"`
+	Schema map[string]any `json:"schema"`
 }
 
 type Reasoning struct {

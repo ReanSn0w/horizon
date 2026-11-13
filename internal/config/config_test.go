@@ -14,11 +14,13 @@ mode: unit
 default_model: coding
 models:
   coding:
+    provider: default
     model: model-code
     compact_threshold: 100000
-provider:
-  url: https://example.test/v1
-  key: super-secret
+providers:
+  default:
+    url: https://example.test/v1
+    key: super-secret
 `
 
 func TestLoadLimits(t *testing.T) {
@@ -60,7 +62,7 @@ func TestLoadLimits(t *testing.T) {
 func TestRemovedProviderAppAttributionIsRejected(t *testing.T) {
 	for _, field := range []string{"app_url", "app_title"} {
 		t.Run(field, func(t *testing.T) {
-			_, err := Load(writeConfig(t, strings.Replace(validConfig, "  key: super-secret\n", "  key: super-secret\n  "+field+": old-value\n", 1)))
+			_, err := Load(writeConfig(t, strings.Replace(validConfig, "    key: super-secret\n", "    key: super-secret\n    "+field+": old-value\n", 1)))
 			if err == nil || !strings.Contains(err.Error(), "field "+field+" not found") {
 				t.Fatalf("Load() error = %v", err)
 			}
@@ -98,7 +100,7 @@ func TestLoadValidation(t *testing.T) {
 	tests := []struct {
 		name, contents, want string
 	}{
-		{"server", strings.Replace(validConfig, "mode: unit", "mode: server", 1), "not implemented"},
+		{"server", strings.Replace(validConfig, "mode: unit", "mode: server", 1), "mode has been removed"},
 		{"unknown field", validConfig + "mystery: true\n", "field mystery not found"},
 		{"missing threshold", strings.Replace(validConfig, "    compact_threshold: 100000\n", "", 1), "compact_threshold"},
 		{"bad default", strings.Replace(validConfig, "default_model: coding", "default_model: absent", 1), "does not name"},
@@ -122,7 +124,7 @@ func TestEndpointsAndModelSelection(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	endpoint, err := cfg.Endpoint("responses/compact")
+	endpoint, err := cfg.Endpoint("default", "responses/compact")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -138,25 +140,23 @@ func TestEndpointsAndModelSelection(t *testing.T) {
 	}
 }
 
-func TestDecisionProviderIsSeparateAndRequiredForAgent(t *testing.T) {
-	config := validConfig + "decision:\n  provider:\n    url: https://openrouter.ai/api\n    key: decision-secret\n  model: typesafe/jev-1.13\n"
-	cfg, err := Load(writeConfig(t, config))
+func TestDecisionUsesSharedProviderAndProfile(t *testing.T) {
+	cfg, err := Load(writeConfig(t, validConfig+"decision_model: coding\n"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err := cfg.RequireDecision(); err != nil {
 		t.Fatal(err)
 	}
-	endpoint, err := cfg.DecisionEndpoint()
-	if err != nil || endpoint != "https://openrouter.ai/api/alpha/decisions" || cfg.Provider.Key != "super-secret" || cfg.Decision.Provider.Key != "decision-secret" {
-		t.Fatalf("decision endpoint=%q provider=%+v error=%v", endpoint, cfg.Decision.Provider, err)
+	endpoint, err := cfg.Endpoint("default", "responses")
+	if err != nil || endpoint != "https://example.test/v1/responses" || cfg.Providers["default"].Key != "super-secret" || cfg.Models[cfg.DecisionModel].Model != "model-code" {
+		t.Fatalf("endpoint=%s err=%v", endpoint, err)
 	}
-	old, err := Load(writeConfig(t, validConfig))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := old.RequireDecision(); err == nil || !strings.Contains(err.Error(), "decision.provider.key") {
-		t.Fatalf("old config decision error=%v", err)
+	for _, name := range []string{"", "missing"} {
+		cfg.DecisionModel = name
+		if err := cfg.RequireDecision(); err == nil || !strings.Contains(err.Error(), "decision_model") {
+			t.Fatalf("name=%q err=%v", name, err)
+		}
 	}
 }
 
@@ -252,16 +252,6 @@ func TestPluginSettings(t *testing.T) {
 	}
 }
 
-func TestDecisionFullEndpoint(t *testing.T) {
-	for _, endpoint := range []string{"https://example.test/api", "https://example.test/api/alpha/decisions", "https://example.test/api/alpha/decisions/"} {
-		cfg := Config{Decision: Decision{Provider: Provider{URL: endpoint, Key: "secret"}, Model: "jev"}}
-		got, err := cfg.DecisionEndpoint()
-		if err != nil || got != "https://example.test/api/alpha/decisions" {
-			t.Fatalf("endpoint=%q err=%v", got, err)
-		}
-	}
-}
-
 func TestAgentPlugins(t *testing.T) {
 	for _, value := range []string{"", "agent_plugins: []\n", "agent_plugins: [memory, other]\n", "agent_plugins: [memory, memory]\n", "agent_plugins: [../escape]\n", "agent_plugins: memory\n"} {
 		cfg, err := Load(writeConfig(t, validConfig+value))
@@ -269,8 +259,43 @@ func TestAgentPlugins(t *testing.T) {
 		if (err != nil) != invalid {
 			t.Fatalf("%q: %v", value, err)
 		}
-		if value == "agent_plugins: [memory, other]\n" && strings.Join(cfg.AgentPlugins, ",") != "memory,other" {
+		if value == "agent_plugins: [memory, other]\n" && strings.Join(cfg.AgentPlugins, ",") != "other" {
 			t.Fatal(cfg.AgentPlugins)
+		}
+	}
+}
+
+func TestRejectsRemovedDecisionBlock(t *testing.T) {
+	if _, err := Load(writeConfig(t, validConfig+"decision:\n  model: old\n")); err == nil {
+		t.Fatal("accepted removed decision configuration")
+	}
+}
+
+func TestModelProviderReferences(t *testing.T) {
+	for _, tc := range []struct{ name, content, want string }{
+		{"missing", strings.Replace(validConfig, "    provider: default\n", "", 1), "models.coding.provider"},
+		{"unknown", strings.Replace(validConfig, "provider: default", "provider: absent", 1), "models.coding.provider"},
+		{"credentials in URL", strings.Replace(validConfig, "https://example.test/v1", "https://username:private-password@example.test/v1", 1), "providers.default.url"},
+		{"old block", validConfig + "provider: {url: https://example.test, key: unused}\n", "field provider not found"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := Load(writeConfig(t, tc.content))
+			if err == nil || !strings.Contains(err.Error(), tc.want) || strings.Contains(err.Error(), "private-password") {
+				t.Fatalf("err=%v", err)
+			}
+		})
+	}
+}
+
+func TestModeOptionalAndLegacyUnitPreserved(t *testing.T) {
+	for _, contents := range []string{validConfig, strings.Replace(validConfig, "mode: unit\n", "", 1)} {
+		home := writeConfig(t, contents)
+		if _, err := Load(home); err != nil {
+			t.Fatal(err)
+		}
+		data, err := os.ReadFile(filepath.Join(home, "config.yaml"))
+		if err != nil || string(data) != contents {
+			t.Fatal("loading rewrote configuration", err)
 		}
 	}
 }

@@ -1,0 +1,1 @@
+{"kind":"adapter","name":"timer","description":"Markdown timer schedules","package":"./plugins/agent-timer","binary":"agent-timer"}

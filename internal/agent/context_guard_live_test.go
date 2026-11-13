@@ -30,9 +30,9 @@ func TestConfiguredContextGuardEconomy(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	endpoint, _ := cfg.Endpoint("responses")
-	compactEndpoint, _ := cfg.Endpoint("responses/compact")
-	client := &responses.Client{ResponsesURL: endpoint, CompactURL: compactEndpoint, APIKey: cfg.Provider.Key, MaxAttempts: 1}
+	endpoint, _ := cfg.Endpoint(model.Provider, "responses")
+	compactEndpoint, _ := cfg.Endpoint(model.Provider, "responses/compact")
+	client := &responses.Client{ResponsesURL: endpoint, CompactURL: compactEndpoint, APIKey: cfg.Providers[model.Provider].Key, MaxAttempts: 1}
 	runtime := &Runtime{Client: client, ProfileName: name, Profile: session.ModelProfile{Model: model.Model}, Instructions: &instructions.Snapshot{Prompt: "Reply briefly."}}
 	input := []json.RawMessage{responses.UserMessage(strings.Repeat("alpha ", 15000) + "Reply with OK.")}
 	baseline, err := client.Stream(context.Background(), responses.Request{Model: model.Model, Instructions: "Reply briefly.", Input: input, Tools: []responses.Tool{}, Store: false}, nil, nil)

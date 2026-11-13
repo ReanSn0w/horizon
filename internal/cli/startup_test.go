@@ -26,7 +26,7 @@ func TestFirstRunStopsBeforeInput(t *testing.T) {
 				if code != ExitUsage || out.Len() != 0 || editor.calls != 0 {
 					t.Fatalf("code=%d out=%q editor=%d err=%q", code, out.String(), editor.calls, diagnostics.String())
 				}
-				for _, want := range []string{home, "horizon init"} {
+				for _, want := range []string{home, "horizon-manager install"} {
 					if !strings.Contains(diagnostics.String(), want) {
 						t.Fatalf("missing %q: %s", want, diagnostics.String())
 					}

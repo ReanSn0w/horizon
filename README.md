@@ -7,91 +7,111 @@
 
 ## Границы проекта
 
-Проект развивается в одном репозитории с двумя частями:
-[harness](harness/README.md) — самостоятельная CLI-утилита со встроенными
-memory, decision и поддержкой MCP;
-[agent](agent/README.md) — отдельный долгоживущий процесс со шлюзами,
-очередями и автоматическим обслуживанием, запускающий harness через CLI.
-Harness можно использовать без agent. Browser остаётся опциональным плагином
-и не устанавливается по умолчанию.
+Точка входа Horizon находится в корне, логика ядра — в `internal/`;
+memory и decision встроены.
+Плагины подключаются отдельно; Horizon работает без них. Поддержка MCP
+будет добавлена отдельно.
 
-Это целевая структура: каталоги пока содержат описания, перенос кода,
-встраивание возможностей и добавление MCP ещё предстоят. Ниже описаны
-текущие команды и установка. Согласованные границы и определение плагинов —
+Текущие команды и установка описаны ниже. Границы компонентов —
 в [архитектуре проекта](docs/ARCHITECTURE.md).
 
 ## Быстрый старт
 
 Нужны macOS или Linux (amd64/arm64), провайдер диалоговой модели с Responses
-API и для режимов `read`/`write` отдельный провайдер модели решений Jev.
-Для релизной установки Go не требуется. Готовые сборки публикуются в
-[GitHub Releases](https://github.com/ReanSn0w/horizon/releases).
+API и для режимов `read`/`write` настроенная модель проверки команд.
+Профили моделей могут ссылаться на одного или разных провайдеров.
 
-Откройте терминал (Terminal на macOS или любой shell на Linux) и выполните:
-команда скачает установщик и установит последний стабильный релиз.
+**На машине пользователя должен быть установлен Go 1.26.7 или более новая
+совместимая версия**, а команда `go` должна быть доступна в `PATH`.
+Минимальная версия задаётся в [go.mod](go.mod). Для установки и обновления нужен
+также Git в `PATH`; `make` не требуется. Horizon и плагины всегда собираются
+из исходников. Запуск уже собранных бинарников Go не требует.
 
-```sh
-curl -fLsS https://github.com/ReanSn0w/horizon/releases/latest/download/install.sh -o /tmp/horizon-install.sh &&
-  sh /tmp/horizon-install.sh
-export PATH="$HOME/.local/bin:$PATH"
-```
+Установкой управляет самостоятельный `horizon-manager`: скачать менеджер →
+проверить контрольную сумму → запустить установку из исходников.
+Бинарники для Linux и macOS (amd64/arm64) доступны в
+[GitHub Releases](https://github.com/ReanSn0w/horizon/releases/latest).
+Названия файлов и проверка SHA-256 описаны в [README Manager](plugins/manager/README.md).
 
-Установщик проверяет SHA-256 платформенного архива и устанавливает только
-`horizon` в `~/.local/bin`, а плагины `update` и `plugins` — в
-`~/.horizon/plugins`. Конфигурация создаётся отдельно через `horizon init`.
-Флаги `--version vX.Y.Z`, `--bin-dir /path/to/bin` и `--home /path/to/home`
-выбирают релиз и пути установки. Без `--home` учитывается `HORIZON_HOME`.
-Команда `export` выше добавляет каталог в `PATH` текущего терминала. Чтобы
-`horizon` был доступен и в новых терминалах, добавьте строку
-`export PATH="$HOME/.local/bin:$PATH"` в `~/.zshrc` (zsh) или `~/.bashrc` (bash).
-Установщик сам эти файлы не меняет.
-
-Подготовьте домашний каталог Horizon:
+Например, после скачивания варианта для Apple Silicon:
 
 ```sh
-horizon init
+chmod +x ./horizon-manager-darwin-arm64
+./horizon-manager-darwin-arm64 install
 ```
 
-Команда создаст `~/.horizon/config.yaml`, `~/.horizon/AGENTS.md` с общими
-инструкциями для агента и стартовые навыки `skill-creator` и `filesystem`,
-затем добавит недостающие настройки установленных плагинов и выведет пути к
-файлам для настройки. Повторный `horizon init` дополняет настройки плагинов,
-сохраняя заданные значения и комментарии. Текст начальных инструкций
-находится в [internal/bootstrap/assets/AGENTS.md](internal/bootstrap/assets/AGENTS.md);
-по умолчанию он задаёт общение на русском.
+Менеджер также можно собрать вручную:
+
+```sh
+go build -o /tmp/horizon-manager ./plugins/manager
+/tmp/horizon-manager install
+```
+
+Менеджер предложит home и установит `horizon` и `horizon-manager` в `<home>/bin`.
+В конце он покажет команды для `HORIZON_HOME` и `PATH`; выполните их и при желании
+самостоятельно добавьте в shell-конфигурацию. Менеджер shell-файлы не меняет.
+Для скрипта используйте `install --yes --home /path/to/home --branch codex/repository-refactoring`.
+Подробности источников release/branch, shell-подсказок, обновления и восстановления —
+в [README Manager](plugins/manager/README.md).
+
+Установка создаёт `config.yaml`, `AGENTS.md` и стартовые навыки, сохраняя существующие
+пользовательские файлы. Начальные инструкции —
+[internal/bootstrap/assets/AGENTS.md](internal/bootstrap/assets/AGENTS.md).
 В `config.yaml` укажите:
 
-- `provider.url` — базовый URL API, например `https://api.openai.com/v1`;
-- `provider.key` — ключ провайдера;
-- `models.chatting.model` — идентификатор модели;
-- `models.chatting.compact_threshold` — порог сжатия в токенах с запасом
-  относительно окна контекста модели. Horizon передаёт его провайдеру и
-  использует для локальной защиты, если провайдер не вернул сжатие.
-- `limits.max_input_tokens` — суммарный предел входных токенов за ход
-  (по умолчанию 2 000 000; `0` отключает). После достижения предела
-  следующий запрос к модели не выполняется.
-- `decision.provider.url` — URL Decisions API, например
-  `https://openrouter.ai/api/alpha/decisions`;
-- `decision.provider.key` — ключ провайдера Jev;
-- `decision.model` — идентификатор модели, например `typesafe/jev-1.13`.
+- `providers.<имя>.url` и `key` — базовый URL API и секретный ключ подключения.
+- `models.<профиль>.provider` — имя подключения из `providers`, не секретный ключ.
+- `models.<профиль>.model` — идентификатор модели у выбранного провайдера.
+- `default_model` — профиль диалога по умолчанию; `--model` выбирает другой профиль.
+- `decision_model` — профиль для проверки команд и `horizon decision`.
+- `models.<профиль>.compact_threshold` — положительный порог сжатия в токенах,
+  с запасом относительно окна контекста модели.
+- `limits.max_input_tokens` — суммарный предел входных токенов за ход;
+  по умолчанию 2 000 000, `0` отключает.
 
-Настройки `decision` нужны для режимов `read` и `write`. В режиме `full` Horizon
-не обращается к Jev, поэтому эти поля можно не задавать.
-
-Провайдеры диалога и решений могут различаться. Пример двух провайдеров:
+Пример двух подключений:
 
 ```yaml
-provider:
-  url: https://api.openai.com/v1
-  key: YOUR_RESPONSES_KEY
-decision:
-  provider:
-    url: https://openrouter.ai/api/alpha/decisions
+default_model: chatting
+decision_model: checks
+
+providers:
+  openai:
+    url: https://api.openai.com/v1
+    key: YOUR_OPENAI_KEY
+  router:
+    url: https://openrouter.ai/api/v1
     key: YOUR_OPENROUTER_KEY
-  model: typesafe/jev-1.13
+
+models:
+  chatting:
+    provider: openai
+    model: gpt-6-luna
+    reasoning: medium
+    compact_threshold: 200000
+  checks:
+    provider: router
+    model: openai/gpt-6-luna
+    compact_threshold: 200000
 ```
 
-Остальные обязательные поля, включая `models`, показаны в
+Оценка решений использует строгую булеву JSON-схему и всегда отключает reasoning,
+независимо от настройки выбранного профиля. `decision_model` обязателен для
+`read`, `write` и команды `decision`; в `full` проверка команд не вызывается.
+Диалог, решения и сжатие памяти используют подключения своих профилей.
+
+Старые блоки `provider` и `decision` удалены. При переходе перенесите подключения
+в `providers`, добавьте ссылки `provider` в профили и задайте `decision_model`.
+При `install` и `update` менеджер актуализирует `config.yaml`: добавляет
+недостающие основные настройки из шаблона выбранной ревизии и настройки
+установленных плагинов, выполняет известные миграции. Пользовательские значения,
+комментарии, права и symlink сохраняются; неизменившийся файл не переписывается.
+Карты моделей и провайдеров не дополняются примерными профилями. Неизвестные
+поля и неоднозначные старые форматы требуют явного исправления — менеджер
+не удаляет их автоматически. [Подробности обновления конфигурации](plugins/manager/README.md#актуализация-конфигурации).
+Формат вопросов и ответов описан в [docs/DECISION.md](docs/DECISION.md).
+
+Остальные обязательные поля, включая лимиты, показаны в
 [config.example.yaml](config.example.yaml). Ключи храните только в своём
 `config.yaml`, не в репозитории.
 
@@ -103,13 +123,10 @@ decision:
 строгая проверка конфигурации отклонит неизвестные поля.
 
 В `AGENTS.md` при необходимости измените или дополните общие инструкции агенту.
-Повторный `init` добавляет недостающие файлы поставки, сохраняя существующие настройки,
-инструкции и пользовательские навыки. Существующий `AGENTS.md`, даже пустой,
-не перезаписывается; если файл отсутствует, устанавливается встроенный шаблон.
-Для другого каталога данных
-используйте `horizon --home /path/to/home init` или `HORIZON_HOME=/path/to/home horizon init`.
-Остальные команды не создают home автоматически и предложат вызвать `init`,
-если конфигурации ещё нет.
+Повторный `horizon-manager install --yes --home /path/to/home` восстанавливает
+отсутствующие стартовые ресурсы и сохраняет существующие инструкции и навыки.
+Рабочие команды не создают home автоматически и предлагают запустить
+`horizon-manager install`, если конфигурации ещё нет. Команда `horizon init` удалена.
 
 Перейдите в проект, с которым хотите работать, и запустите:
 
@@ -117,81 +134,77 @@ decision:
 horizon
 ```
 
-## Плагины и обновление
+Поле `mode` больше не используется. Старое `mode: unit` принимается для
+совместимости; manager удаляет его при следующем обновлении. Другие значения
+требуют явного удаления поля.
 
-После первоначального `init`:
+## Домашний каталог Horizon
 
-```sh
-horizon --version
-horizon plugins list
-horizon plugins install telegram  # также установит decision
-horizon init                      # добавит недостающие настройки
-horizon plugins install memory
-horizon init
+По умолчанию Horizon хранит настройки и данные в `~/.horizon`.
+Переменная `HORIZON_HOME` задаёт другой каталог; глобальный флаг
+`--home` имеет приоритет над ней.
+
+После установки, без необязательных плагинов:
+
+```text
+~/.horizon/
+├── bin/
+│   ├── horizon
+│   └── horizon-manager
+├── source/                 # checkout установленного commit
+├── .manager/               # состояние, блокировки, staging и журнал замены
+├── config.yaml
+├── AGENTS.md
+├── dialogs/
+├── memory/
+│   └── workspaces/
+└── skills/
+    ├── filesystem/SKILL.md
+    └── skill-creator/SKILL.md
 ```
 
-Установка использует релиз текущего Horizon. Каталог этого релиза содержит
-описания и зависимости; master и последний релиз не подмешиваются в него.
-Установка не включает расширение в `agent_plugins` автоматически.
+`config.yaml` хранит настройки моделей, памяти, лимитов и `installation.source`.
+`AGENTS.md` содержит общие инструкции. В `dialogs/` позднее появляются реестр
+workspace, JSON-сессии и артефакты инструментов; в `memory/` — `agent.json`,
+`user.json` и файлы памяти workspace. Необязательный `SOUL.md` пользователь
+добавляет самостоятельно и включает через `soul_enabled: true`.
+Начальные каталоги приватные (`0700`), файлы настроек — `0600`.
+Плагиновые данные не входят в базовую структуру.
 
-Перед обновлением завершите ходы агента и остановите долгоживущие сервисы.
-Для установленного Telegram-сервиса:
+## Плагины
 
-```sh
-horizon telegram service stop
-horizon update
-horizon init
-horizon telegram service start
-```
+- [Manager — установка, обновление и управление плагинами](plugins/manager/README.md).
+- [Telegram — явная отправка сообщений](plugins/telegram/README.md).
+- [Agent Telegram — входной адаптер daemon](plugins/agent-telegram/README.md).
+- [Browser — удалённый браузер](plugins/browser/README.md).
 
-Без Telegram достаточно `horizon update` и `horizon init`. Обновляются Horizon,
-оба служебных плагина, установленные управляемые плагины и их новые зависимости.
-`horizon update --version vX.Y.Z` выбирает точный тег; prerelease требует явного
-тега. Понижение версии не поддерживается. Пользовательские файлы не изменяются.
+## Обновление Horizon
 
 ```sh
-horizon plugins remove telegram
-horizon plugins remove decision
+horizon manager update
 ```
 
-Удаление зависимости блокируется, пока установлен её потребитель. Зависимости
-не удаляются автоматически; данные плагина остаются. Включённое расширение нужно
-сначала убрать из `agent_plugins`. Плагины `update` и `plugins` обязательны.
+Менеджер читает `installation.source`, собирает ядро, себя и установленный
+управляемый набор плагинов. Перед обслуживанием завершите ходы и остановите
+службы. Данные и существующие настройки сохраняются; ошибка замены откатывает
+набор. Не изменяйте управляемый checkout `source` вручную.
+Старые `<home>/plugins`, `.distribution/` и бинарники вне home автоматически
+не удаляются; переход описан в README Manager.
 
-Повторный запуск установщика сохраняет управляемый набор плагинов и позволяет
-восстановиться после прерванной замены, даже если Horizon больше не запускается.
-Один управляемый бинарник связан с одним home; для независимых установок нужны
-разные `--bin-dir`. Сервисные пути сохраняются. Подробности —
-[формат и восстановление поставки](docs/DISTRIBUTION.md).
+## Сборка для разработки
 
-## Установка из исходников
-
-Нужен Go версии из [go.mod](go.mod) или новее. Из корня репозитория:
+Из корня репозитория:
 
 ```sh
-make install
-make install-all
-make install-browser
+go build -o /tmp/horizon-dev .
+go build -o /tmp/horizon-manager ./plugins/manager
 ```
 
-Основной бинарник устанавливается в первый `GOPATH/bin`; доступны переопределения
-`BIN_DIR`, `HORIZON_HOME` и `PLUGINS`. Стандартный `go install .` учитывает обычные
-правила Go, а `go build -o horizon .` создаёт локальный бинарник. Все цели показывает
-`make help`. Сборка из исходников без релизных параметров имеет версию `dev` и не
-создаёт учёт управляемой установки; такой бинарник не угадывает тег для обновления.
-
-Для перехода существующей установки на релиз используйте установщик с явным
-`--adopt`, указав каталог фактически используемого бинарника и прежний home:
-
-```sh
-sh /tmp/horizon-install.sh --adopt --bin-dir /path/to/bin --home /path/to/home
-/path/to/bin/horizon --home /path/to/home init
-```
-
-Будут заменены обнаруженные официальные бинарники; неизвестные файлы и данные
-сохраняются. Без `--adopt` конфликт с неуправляемым файлом останавливает установку.
-Неоднозначные symlink не заменяются автоматически. После перехода не используйте
-`make install` поверх управляемого релиза: это смешает две модели установки.
+`make install` устанавливает только ядро в `<HORIZON_HOME>/bin`; `BIN_DIR`
+может переопределить путь. `make install-plugins` по умолчанию собирает manager,
+`PLUGINS=browser` выбирает другой набор. Эти команды не создают управляемую
+установку и не обновляют `.manager/state.json`; используйте отдельный dev home.
+Все цели показывает `make help`. Локальная сборка имеет версию `dev`.
 
 ## Работа с агентом
 
@@ -213,15 +226,15 @@ horizon < task.txt
 по умолчанию действует `write`. Чтение, просмотр списков и справки допустимы
 во всех режимах. `read` не допускает намеренной записи, `write` допускает запись
 в текущий каталог проекта и `HORIZON_HOME`, `full` не ограничивает путь записи.
-В режимах `read` и `write` перед каждой командой `shell_exec` Jev получает текст
+В режимах `read` и `write` перед каждой командой `shell_exec` decision получает текст
 команды, путь проекта и `HORIZON_HOME`. Он оценивает два свойства: предполагается
 ли запись в файлы и возможна ли запись вне этих каталогов. Выбранный режим,
 текст поручения и история
-диалога Jev не передаются. Horizon применяет режим к ответам: `read` отклоняет
-вероятную запись, `write` — вероятную запись вне разрешённых каталогов.
-При `full` вызова Jev нет: команда исполняется без его проверки и в результате
-нет `decision_id`. Соответствие команды задаче и сетевые эффекты Jev не
-проверяет. В `read` и `write` при отказе или недоступности Jev команда не
+диалога decision не передаются. Horizon применяет режим к ответам: `read` отклоняет
+предполагаемую запись, `write` — предполагаемую запись вне разрешённых каталогов.
+При `full` вызова decision нет: команда исполняется без его проверки и в результате
+нет `decision_id`. Соответствие команды задаче и сетевые эффекты decision не
+проверяет. В `read` и `write` при отказе или недоступности decision команда не
 запускается, а агент получает ошибку инструмента. Дополнительного запроса
 подтверждения нет.
 
@@ -261,9 +274,6 @@ horizon --mode jsonl -m 'Проверь проект' > events.jsonl
 что точный токенный предел для данного запроса нельзя подтвердить. События инструментов
 сохраняют `call_id` и длительность. Поток JSONL может содержать аргументы и
 результаты инструментов: это локальные данные, а не публичный журнал.
-Диагностика Telegram сохраняет из этого потока только разрешённые метаданные;
-пути журналов и состояние обработки показывает `horizon telegram service status`.
-Подробнее — в [документации Telegram](plugins/telegram/README.md#diagnostics-and-upgrades).
 Для анализа стоимости и кеша сравнивайте обращения одного хода по `attempt`:
 общий cache hit за час смешивает разные запросы. Контрольные измерения и
 ограничения приведены в [диагностике кеша](docs/PROMPT_CACHE.md).
@@ -310,7 +320,7 @@ soul_enabled: true
 По умолчанию `soul_enabled: false`, в том числе в старых конфигурациях без этого
 поля. При включении содержимое `<home>/SOUL.md` попадает в инструкции после
 глобального `AGENTS.md` и перед каталогом навыков. Отсутствующий или пустой
-`SOUL.md` вызывает ошибку до обращения к модели. `horizon init` не создаёт
+`SOUL.md` вызывает ошибку до обращения к модели. Менеджер не создаёт
 `SOUL.md` и не переписывает пользовательские файлы. Изменения подхватываются
 при следующей сборке инструкций, в том числе при продолжении диалога.
 
@@ -318,8 +328,7 @@ soul_enabled: true
 YAML-заголовок с `name` и `description`, затем инструкции. В комплект входит
 `skill-creator` и `filesystem` — можно попросить агента создать новый навык
 или прочитать встроенные приёмы работы с файлами. Новый навык станет
-доступен со следующего хода. Это относится и к Telegram: новый ход генерации
-запускает Horizon заново, перезапуск gateway для обновления навыков не нужен.
+доступен со следующего хода.
 
 Управление навыками работает локально, без настроенного провайдера:
 
@@ -352,29 +361,17 @@ disabled_skills:
 
 ## Подключаемые команды
 
-Исходники плагина решений находятся в `plugins/decision/`. Установленные
-плагины принадлежат выбранному home; Horizon не ищет их в репозитории или `PATH`.
-
-```sh
-make install-decision HORIZON_HOME=/path/to/home
-horizon --home /path/to/home init
-horizon --home /path/to/home --help
-horizon --home /path/to/home decision --help
-horizon --home /path/to/home decision request.json
-```
-
-Перед оценкой заполните секцию `decision` в конфигурации.
-
-`HORIZON_HOME` также выбирает home, а явный `--home` имеет приоритет.
-Плагин можно установить symlink на исполняемый файл; для удаления удалите
-`<home>/plugins/horizon-<имя>`. `init` создаёт каталог `plugins/`, но не
-устанавливает плагины; при наличии установленных файлов он выполняет их запросы
-метаданных и шаблонов настроек. Запрос метаданных для справки и перед запуском тоже
+Установленные плагины принадлежат выбранному home; Horizon не ищет их в
+репозитории или `PATH`. `HORIZON_HOME` выбирает home, а явный `--home` имеет
+приоритет. Установка и удаление официальных плагинов выполняются через
+`horizon manager plugins install|remove <имя>`. Неуправляемый плагин можно подключить
+symlink в `<home>/bin/horizon-<имя>`; менеджер не присваивает такие файлы себе.
+Запрос метаданных для справки и перед запуском тоже
 исполняет сторонний код с вашими правами. Протокол, лимиты и коды завершения —
 в [docs/PLUGINS.md](docs/PLUGINS.md).
 
 Установленные расширения агента включаются явно через `agent_plugins`
-в `<home>/config.yaml`, например `agent_plugins: [memory]`. При каждом непустом
+в `<home>/config.yaml`. При каждом непустом
 `resume` Horizon автоматически проверяет их метаданные, получает описание
 инструментов, выполняет разрешённое обслуживание и загружает контекст до первого
 запроса модели основного хода. Настройки `plugins.<name>` сами по себе расширение не включают.
@@ -393,30 +390,17 @@ go test -race ./...
 Карта кода и правила изменений — в [AGENTS.md](AGENTS.md), описание инструментов —
 в [docs/TOOLS.md](docs/TOOLS.md). Полная справка по командам: `horizon --help`.
 
-Плагин `decision` принимает структурированный JSON для прямой оценки Jev:
+Встроенная команда `decision` принимает структурированный JSON для прямой оценки decision:
 `horizon decision request.json` или `horizon decision - -o result.json`.
-[Установка и настройка](plugins/README.md#decision),
-[контракт JSON](plugins/decision/README.md).
-
-Плагин `telegram` связывает Telegram-бота с отдельными workspace и сессией
-на чат. `make install-plugins` устанавливает decision, telegram и memory; для отдельной
-установки используйте `make install-telegram`. После установки повторите
-`horizon init`, заполните `plugins.telegram.telegram.bot_token` и
-`owner_user_id`, затем запустите `horizon telegram start`.
-`horizon telegram list` показывает ID рядом с названием чата,
-`horizon telegram send --chat ID` запускает генерацию нового сообщения.
-Во время генерации бот показывает «печатает…»; долгие задания могут получать
-краткий служебный статус по настройке `plugins.telegram.progress_messages`.
-Общий таймаут задания согласован с `limits.max_turn_duration`.
-[Конфигурация, правила ответа и пользовательские службы](plugins/telegram/README.md).
+[Настройка и контракт JSON](docs/DECISION.md).
 
 ## Память агента
 
-Установите плагин `make install-memory`, выполните `horizon init` для добавления
-настроек и включите расширение в существующем config.yaml:
+Память встроена и в новой конфигурации явно включена:
 
 ```yaml
-agent_plugins: [memory]
+memory:
+  enabled: true
 ```
 
 Агент получает `memory__add` и `memory__read` для трёх уровней: agent, user и
@@ -424,26 +408,61 @@ workspace. Память хранится локально отдельно от 
 выполняется после 5 заметок или через 24 часа при следующем ходе/добавлении;
 для обслуживания в простое явно запускается `horizon memory watch`.
 Сжатие использует отдельный запрос к Responses-провайдеру и может быть платным.
-В read запись и обслуживание запрещены. Отключение сохраняет данные;
-без agent_plugins набор инструментов и снимок остаются прежними.
+В read запись и обслуживание запрещены. `memory.enabled: false` отключает
+контекст и инструменты, сохраняя данные и явные CLI-команды.
 
-[Настройки, команды, ограничения и хранение](plugins/memory/README.md).
+[Настройки, команды, ограничения и хранение](docs/MEMORY.md).
 
-## Браузер
+## Управляющий процесс agent
 
-Установите `make install-browser`, повторите `horizon init`, сохраните ключ
-Browser Use в `plugins.browser.api_key` и добавьте `browser` в `agent_plugins`:
+`horizon-agent` управляет очередями и внешними процессами Horizon через
+Unix-сокет одного home. Адаптеры `agent-*` включаются явно. Команда
+`horizon agent <имя>` передаёт административные аргументы установленному
+адаптеру с capability `admin-cli`. CLI-плагины имеют префикс `horizon-*`.
 
-```yaml
-agent_plugins: [browser]
-plugins:
-  browser:
-    api_key: YOUR_BROWSER_USE_API_KEY
-```
+Установка: `horizon manager plugins install agent`; foreground-запуск:
+`horizon agent start`. Перед обновлением остановите его через
+`horizon agent stop`. Подробности и ограничения — [Daemon](docs/DAEMON.md).
 
-При `horizon resume --access full` модель получает инструменты перехода,
-текстового снимка, нажатия и ввода. Удалённый браузер создаётся только при первом
-переходе к URL в ходе и автоматически останавливается после хода. После сбоя
-используйте `horizon browser list`, `horizon browser close ID` или
-`horizon browser close --stale`. Активные сессии Browser Use тарифицируются.
-[Настройка, жизненный цикл и ограничения](plugins/browser/README.md).
+Адаптеры могут добавлять уточнения в активный диалог. Horizon сохраняет каждое
+сообщение в сессии между запросами модели, после сохранения результатов
+инструментов. После закрытия приёма следующие сообщения ждут нового хода в той
+же сессии. Подтверждение записи сообщения в историю отдельно от ответа.
+`plugins.agent.max_active_adapter_dialogs` задаёт число одновременно
+выполняемых диалогов адаптеров (по умолчанию 2). Слоты subagent выделяются
+отдельно по глубине.
+
+Для службы ОС используйте `horizon agent service print` для просмотра и
+`horizon agent service install` для установки файла. Команда печатает отдельные
+команды запуска и автозапуска. [Установка службы и переход с daemon](plugins/agent/README.md).
+
+## Telegram
+
+[Адаптер Telegram](plugins/agent-telegram/README.md) передаёт сообщения в
+daemon и добавляет уточнения в активные ходы. [Расширение Telegram](plugins/telegram/README.md)
+отправляет текст в выбранный хостом чат через `telegram__send_message`.
+Финальный ответ хода сохраняется в Horizon. Модель может промолчать даже при
+упоминании или отправить несколько сообщений. Существующая установка
+переносится через `horizon telegram migrate --check` и `--apply`.
+
+Проверка Telegram без модели: `horizon telegram check`; явная тестовая отправка
+владельцу: `horizon telegram send 'hi!'`.
+
+## Таймеры
+
+Установите `horizon manager plugins install agent:timer` и добавьте `timer` в
+`plugins.agent.adapters`. Запустите daemon и поместите Markdown-расписания в
+`<home>/timers/`. Используйте `horizon agent timer validate [timer-id]` для
+проверки файлов и `horizon agent timer status [timer-id]` для проверки запусков.
+Поручения выполняются в новых сессиях, состояние между запусками можно хранить
+в workspace. Формат расписания, окна и восстановление описаны в
+[README Timer](plugins/agent-timer/README.md).
+
+## Subagent
+
+Install with `horizon manager plugins install subagent`, start daemon explicitly,
+and add `subagent` to `agent_plugins`. `horizon subagent status` checks connectivity.
+The `subagent__spawn/list/read/send/wait/cancel` tools manage separate child sessions
+in the shared workspace. Messages queue for the next turn; read access only permits
+reading and waiting. An unavailable explicitly enabled daemon fails preparation.
+See [Subagent](docs/SUBAGENT.md) for schemas and unknown-outcome recovery.

@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -16,17 +15,9 @@ import (
 	"github.com/ReanSn0w/horizon/internal/session"
 )
 
-func TestBuiltMemoryPluginLifecycle(t *testing.T) {
+func TestBuiltMemoryLifecycle(t *testing.T) {
 	binary := buildBinary(t)
 	home, workspace := t.TempDir(), t.TempDir()
-	if err := os.Mkdir(filepath.Join(home, "plugins"), 0700); err != nil {
-		t.Fatal(err)
-	}
-	build := exec.Command("go", "build", "-o", filepath.Join(home, "plugins", "horizon-memory"), "./plugins/memory")
-	build.Dir = "../.."
-	if data, err := build.CombinedOutput(); err != nil {
-		t.Fatal(err, string(data))
-	}
 	var mu sync.Mutex
 	agentCalls, summaryCalls := 0, 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -101,8 +92,8 @@ func TestBuiltMemoryPluginLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	enabled := string(base) + "\nagent_plugins: [memory]\nplugins:\n  memory:\n    threshold: 1\n    model: memory\n"
-	enabled = strings.Replace(enabled, "provider:\n", "  memory:\n    model: memory-model\n    compact_threshold: 1000\nprovider:\n", 1)
+	enabled := string(base) + "\nmemory:\n  enabled: true\n  threshold: 1\n  model: memory\n"
+	enabled = strings.Replace(enabled, "models:\n", "models:\n  memory:\n    provider: default\n    model: memory-model\n    compact_threshold: 1000\n", 1)
 	if err := os.WriteFile(path, []byte(enabled), 0600); err != nil {
 		t.Fatal(err)
 	}
@@ -132,7 +123,8 @@ func TestBuiltMemoryPluginLifecycle(t *testing.T) {
 		t.Fatal("session compact wrote memory", err)
 	}
 	turn(t.TempDir())
-	if err := os.WriteFile(path, base, 0600); err != nil {
+	disabled := string(base) + "\nmemory:\n  enabled: false\n"
+	if err := os.WriteFile(path, []byte(disabled), 0600); err != nil {
 		t.Fatal(err)
 	}
 	turn(workspace)

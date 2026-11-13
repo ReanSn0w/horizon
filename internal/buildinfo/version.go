@@ -1,4 +1,4 @@
-// Package buildinfo holds release identity injected by the build pipeline.
+// Package buildinfo holds diagnostic version information for Horizon and its plugins.
 package buildinfo
 
 var Version = "dev"

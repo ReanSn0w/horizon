@@ -109,12 +109,12 @@ func (e *Executor) Execute(ctx context.Context, callID, name string, arguments j
 			} else if e.access == "full" {
 				result = registered.handler(ctx, arguments, env)
 			} else if e.reviewer == nil {
-				result = outcome{Error: &ToolError{Code: "decision_unavailable", Message: "Jev command review is unavailable"}}
+				result = outcome{Error: &ToolError{Code: "decision_unavailable", Message: "decision command review is unavailable"}}
 			} else {
 				verdict, err := e.reviewer.Review(ctx, decision.Command{Text: args.Command, Workspace: e.workspace, Home: e.home, Access: e.access})
 				switch {
 				case err != nil:
-					result = outcome{Error: &ToolError{Code: "decision_unavailable", Message: "Jev command review failed"}}
+					result = outcome{Error: &ToolError{Code: "decision_unavailable", Message: "decision command review failed"}}
 				case !verdict.Allowed:
 					result = outcome{Error: &ToolError{Code: "decision_denied", Message: verdict.Reason, Details: map[string]any{"decision_id": verdict.ID}}}
 				default:

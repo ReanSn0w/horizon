@@ -1,13 +1,20 @@
 # Horizon performs one agent turn per process.
-mode: unit
+
+# Source for installation and updates; models use their own provider settings.
+installation:
+  source:
+    type: release
 
 # Include <home>/SOUL.md in agent instructions when explicitly enabled.
 soul_enabled: false
 
 # Profile selected when --model is omitted.
 default_model: chatting
+# Profile used for boolean decisions; reasoning is always disabled for this role.
+decision_model: decision
 models:
   chatting:
+    provider: default
     # Provider model identifier, for example the identifier from its model list.
     model: ""
     reasoning: medium
@@ -15,19 +22,35 @@ models:
     # window, leaving room for the next input, tool results and generated text.
     compact_threshold: 200000
 
-provider:
-  # Base URL of a Responses-compatible API, e.g. https://api.openai.com/v1.
-  # Horizon adds /responses and /responses/compact.
-  url: ""
-  # API key issued by your provider. Keep this file private.
-  key: ""
+  decision:
+    provider: default
+    model: "openai/gpt-6-luna"
+    reasoning: none
+    compact_threshold: 200000
 
-# Separate provider for command decisions (OpenRouter Decisions API).
-decision:
-  provider:
-    url: "https://openrouter.ai/api"
+# Named provider connections; model profiles refer to these names.
+providers:
+  default:
+    # Base URL, e.g. https://openrouter.ai/api/v1 or https://api.openai.com/v1.
+    # Horizon adds /responses and /responses/compact.
+    url: ""
+    # Provider API key. Keep this file private.
     key: ""
-  model: "typesafe/jev-1.13"
+
+# Built-in persistent memory. Set enabled to false to omit memory context and
+# tools from agent turns; explicit `horizon memory` commands remain available.
+memory:
+  enabled: true
+  threshold: 5
+  interval: 24h
+  model: chatting
+  note_limit: 4096
+  summary_limit: 16384
+  context_limit: 16000
+  api_timeout: 45s
+  retry_interval: 5m
+  max_pending_notes: 256
+  max_pending_bytes: 262144
 
 # Set an individual limit to 0 to disable it.
 limits:
@@ -38,9 +61,15 @@ limits:
 # Skill directory IDs excluded from the next agent turn.
 disabled_skills: []
 
-# Optional plugin-owned settings, keyed by command name (plugins.<name>).
-# Decision uses the shared decision section above and needs no own settings.
-# Run 'horizon init' after installing plugins to add their missing settings.
+# Optional plugin-owned settings. Installation adds missing plugin sections.
+plugins:
+  agent-timer:
+    access: write
+    reload_interval: 30s
 
 # Installed agent extensions, explicitly enabled in this order.
 agent_plugins: []
+
+# Installed agent extensions allowed to communicate with an external channel.
+# Each must also appear in agent_plugins. For Telegram, use [telegram].
+agent_communication: []

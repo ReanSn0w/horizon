@@ -271,8 +271,8 @@ func TestBuiltBinaryInteractiveEditor(t *testing.T) {
 func buildBinary(t *testing.T) string {
 	t.Helper()
 	binary := filepath.Join(t.TempDir(), "horizon")
-	command := exec.Command("go", "build", "-o", binary, "../..")
-	command.Dir = filepath.Join("..", "e2e")
+	command := exec.Command("go", "build", "-o", binary, ".")
+	command.Dir = "../.."
 	if output, err := command.CombinedOutput(); err != nil {
 		t.Fatalf("build Horizon: %v: %s", err, output)
 	}
@@ -282,43 +282,52 @@ func buildBinary(t *testing.T) string {
 func writeConfig(t *testing.T, home, endpoint string) {
 	t.Helper()
 	decisionServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/alpha/decisions" {
+		if r.URL.Path != "/responses" {
 			http.NotFound(w, r)
 			return
 		}
 		var request struct {
+			State     any
 			Questions map[string]json.RawMessage `json:"questions"`
 		}
-		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		var err error
+		request.Questions, err = readDecisionState(r, &request.State)
+		if err != nil {
 			t.Errorf("decode decision request: %v", err)
 			http.Error(w, "invalid request", http.StatusBadRequest)
 			return
 		}
 		answers := map[string]any{}
 		for id := range request.Questions {
-			answers[id] = map[string]any{"type": "noul", "noul": 0.01}
+			answers[id] = false
 		}
-		json.NewEncoder(w).Encode(map[string]any{"id": "e2e-decision", "answers": answers})
+		writeDecisionResult(w, "e2e-decision", answers)
 	}))
 	t.Cleanup(decisionServer.Close)
 	config := fmt.Sprintf(`mode: unit
 default_model: coding
 models:
   coding:
+    provider: default
     model: model-code
     compact_threshold: 1000
   fast:
+    provider: default
     model: model-fast
     reasoning: low
     compact_threshold: 2000
-provider:
-  url: %s
-  key: secret
-decision:
-  provider:
+  decision:
+    provider: checks
+    model: test-decision-model
+    compact_threshold: 1000
+decision_model: decision
+providers:
+  default:
+    url: %s
+    key: secret
+  checks:
     url: %s
     key: decision-secret
-  model: typesafe/jev-1.13
 limits:
   max_model_requests: 16
   max_turn_duration: 30s
@@ -412,13 +421,13 @@ func TestBuiltBinaryInitializationAndSkillCreation(t *testing.T) {
 	workspace := t.TempDir()
 	stdout, stderr, err := run(binary, workspace, "do not consume", "--home", home, "--mode", "plain")
 	exit, ok := err.(*exec.ExitError)
-	if !ok || exit.ExitCode() != 2 || stdout != "" || !strings.Contains(stderr, "horizon init") {
+	if !ok || exit.ExitCode() != 2 || stdout != "" || !strings.Contains(stderr, "horizon-manager install") {
 		t.Fatalf("first launch: %q %q %v", stdout, stderr, err)
 	}
 	if _, err := os.Stat(home); !os.IsNotExist(err) {
 		t.Fatalf("first launch created home: %v", err)
 	}
-	stdout, stderr, err = run(binary, workspace, "", "--home", home, "init")
+	stdout, stderr, err = initializeHome(binary, workspace, "", "--home", home, "init")
 	if err != nil || stderr != "" || !strings.Contains(stdout, filepath.Join(home, "config.yaml")) || !strings.Contains(stdout, filepath.Join(home, "AGENTS.md")) {
 		t.Fatalf("init: %q %q %v", stdout, stderr, err)
 	}

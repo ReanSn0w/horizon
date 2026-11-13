@@ -35,19 +35,19 @@
 указано. Каждый вызов начинается в исходном workspace: смена каталога и
 переменные, объявленные внутри команды, не переносятся в следующий вызов.
 
-В режимах `read` и `write` до запуска Horizon передаёт отдельной модели Jev текст
-команды и пути workspace и `HORIZON_HOME`. Jev отвечает на два вопроса:
+В режимах `read` и `write` до запуска Horizon передаёт модели проверки текст
+команды и пути workspace и `HORIZON_HOME`. Она возвращает два булевых ответа:
 предполагается ли файловая запись и возможна ли запись вне этих путей. Режим
-доступа, поручение пользователя и история диалога Jev не передаются. Horizon
+доступа, поручение пользователя и история диалога decision не передаются. Horizon
 сам применяет режим: `read` запрещает
-вероятную запись, `write` — вероятную запись вне двух каталогов. При `full`
-Horizon не вызывает Jev и не требует его настройки; команда запускается без
-этой проверки. Сетевые и иные нефайловые эффекты оценкой Jev не
+предполагаемую запись, `write` — предполагаемую запись вне двух каталогов. При `full`
+Horizon не вызывает decision и не требует его настройки; команда запускается без
+этой проверки. Сетевые и иные нефайловые эффекты оценкой decision не
 ограничены. При отказе возвращается `decision_denied`, при ошибке или неполном
-ответе Jev — `decision_unavailable`; команда не запускается. Ключи и
-известные секреты не отправляются Jev; вызов с ними отклоняется до запроса.
+ответе decision — `decision_unavailable`; команда не запускается. Ключи и
+известные секреты не отправляются decision; вызов с ними отклоняется до запроса.
 Успешный результат в `read` и `write` содержит `decision_id`; в `full` этого поля
-нет. Оценка Jev семантическая, она не обеспечивает
+нет. Оценка decision семантическая, она не обеспечивает
 изоляцию ОС: команда получает права и окружение процесса Horizon, включая
 `PATH`, доступ к сети и `HORIZON_HOME`. Вложенному Horizon передаётся
 эффективный режим в `HORIZON_INHERITED_ACCESS`.
@@ -130,7 +130,7 @@ stdout/stderr с предыдущего успешного получения р
 удаляет их вместе с файлом сессии после получения блокировки; форк копирует
 артефакты, на которые ссылается переносимая история.
 
-## Инструменты расширений агента
+## Встроенная память и инструменты расширений агента
 
 Явно включённые `agent_plugins` добавляют `<plugin>__<tool>` в тот же реестр
 определений, валидации аргументов и исполнения. Вызовы сохраняются существующим
@@ -139,14 +139,16 @@ stdout/stderr с предыдущего успешного получения р
 stderr сохраняется в артефакте plugin_stderr. Stdout служебной команды является
 JSON-результатом инструмента и не печатается как финальный ответ.
 
-Инструменты объявляют эффект: read, write_home, write_workspace, unrestricted.
-Read разрешает только чтение; write — также запись в home/workspace; full — все.
+Инструменты объявляют эффект `read`, `write_home`, `write_workspace`,
+`unrestricted` или `communicate`. Коммуникация требует отдельного разрешения
+в `agent_communication` при любом файловом доступе. Полная матрица приведена
+в [протоколе расширений](PLUGINS.md#расширения-агента-версии-1-и-2).
 Запрещённая операция получает access_denied до запуска процесса. Доверенный
-плагин запускается напрямую, без Jev; shell_exec сохраняет прежнюю проверку.
+плагин запускается напрямую, без decision; shell_exec сохраняет прежнюю проверку.
 Неизвестный исход после запуска имеет код plugin_outcome_unknown; автоматически
 повторять такую запись нельзя. Удалённый инструмент возвращает unknown_tool.
 
-Memory предоставляет:
+Встроенная memory предоставляет:
 
 ```json
 {"scope":"user","text":"Confirmed durable preference"}
@@ -156,7 +158,7 @@ Memory предоставляет:
 workspace; пути выбирает хост. Read возвращает ограниченные блоки source/text,
 add — saved/id/duplicate и отдельный статус compaction. Ошибка сжатия после
 успешного add не отменяет сохранённую заметку. Инструмента clear у модели нет.
-[Подробности памяти](../plugins/memory/README.md),
+[Подробности памяти](MEMORY.md),
 [протокол расширений](PLUGINS.md).
 
 Browser предоставляет `browser__navigate` с `{"url":"https://example.com"}`,
@@ -176,3 +178,23 @@ Browser предоставляет `browser__navigate` с `{"url":"https://examp
 Навигация ждёт готовности DOM основного документа (`DOMContentLoaded`),
 без ожидания загрузки всех сторонних ресурсов. Для содержимого, появившегося
 позже, используйте новый `browser__snapshot`.
+
+## Telegram
+
+`telegram__send_message` принимает `{"text":"сообщение"}`. Хост выбирает чат
+входящего хода или личку владельца для автономного хода. `chat_id` возвращается
+в результате вместе с `operation_id`, состоянием и подтверждёнными
+`message_ids`. Только `state: confirmed` подтверждает все части сообщения.
+
+`telegram__read_send` принимает `{"operation_id":"..."}` и читает состояния
+частей в выбранном чате. После `unknown` сверяйте журнал и историю Telegram.
+Итог хода остаётся в Horizon. Подробности — в [README Telegram](../plugins/telegram/README.md).
+
+## Subagent
+
+Install with `horizon manager plugins install subagent`, start daemon explicitly,
+and add `subagent` to `agent_plugins`. `horizon subagent status` checks connectivity.
+The `subagent__spawn/list/read/send/wait/cancel` tools manage separate child sessions
+in the shared workspace. Messages queue for the next turn; read access only permits
+reading and waiting. An unavailable explicitly enabled daemon fails preparation.
+See [Subagent](SUBAGENT.md) for schemas and unknown-outcome recovery.

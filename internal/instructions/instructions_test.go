@@ -234,7 +234,7 @@ func TestEmptyExtensionDataIsOmitted(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if strings.Contains(snapshot.Prompt, "Plugin example data") || !strings.Contains(snapshot.Prompt, "TOOLS") {
+		if strings.Contains(snapshot.Prompt, "Extension example data") || !strings.Contains(snapshot.Prompt, "TOOLS") {
 			t.Fatalf("unexpected empty context: %s", snapshot.Prompt)
 		}
 	}

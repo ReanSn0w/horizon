@@ -21,19 +21,22 @@ const (
 )
 
 type Config struct {
-	AgentPlugins   []string
-	Plugins        map[string]yaml.Node
-	DisabledSkills []string
-	SoulEnabled    bool
-	Mode           string
-	DefaultModel   string
-	Models         map[string]Model
-	Provider       Provider
-	Decision       Decision
-	Limits         Limits
+	Installation       *Installation
+	AgentCommunication []string
+	AgentPlugins       []string
+	Plugins            map[string]yaml.Node
+	DisabledSkills     []string
+	SoulEnabled        bool
+	DefaultModel       string
+	Models             map[string]Model
+	Providers          map[string]Provider
+	DecisionModel      string
+	Memory             Memory
+	Limits             Limits
 }
 
 type Model struct {
+	Provider         string
 	Model            string
 	Reasoning        string
 	Score            *int
@@ -45,9 +48,18 @@ type Provider struct {
 	Key string `yaml:"key"`
 }
 
-type Decision struct {
-	Provider Provider `yaml:"provider"`
-	Model    string   `yaml:"model"`
+type Memory struct {
+	Enabled         bool
+	Threshold       int
+	Interval        time.Duration
+	Model           string
+	NoteLimit       int
+	SummaryLimit    int
+	ContextLimit    int
+	APITimeout      time.Duration
+	RetryInterval   time.Duration
+	MaxPendingNotes int
+	MaxPendingBytes int
 }
 
 type Limits struct {
@@ -57,19 +69,47 @@ type Limits struct {
 }
 
 type rawConfig struct {
-	AgentPlugins   []string             `yaml:"agent_plugins"`
-	Plugins        map[string]yaml.Node `yaml:"plugins"`
-	DisabledSkills disabledIDs          `yaml:"disabled_skills"`
-	SoulEnabled    bool                 `yaml:"soul_enabled"`
-	Mode           string               `yaml:"mode"`
-	DefaultModel   string               `yaml:"default_model"`
-	Models         map[string]rawModel  `yaml:"models"`
-	Provider       Provider             `yaml:"provider"`
-	Decision       Decision             `yaml:"decision"`
-	Limits         rawLimits            `yaml:"limits"`
+	Installation       *Installation        `yaml:"installation"`
+	AgentCommunication []string             `yaml:"agent_communication"`
+	AgentPlugins       []string             `yaml:"agent_plugins"`
+	Plugins            map[string]yaml.Node `yaml:"plugins"`
+	DisabledSkills     disabledIDs          `yaml:"disabled_skills"`
+	SoulEnabled        bool                 `yaml:"soul_enabled"`
+	LegacyMode         string               `yaml:"mode"` // Accepted only for existing unit configurations.
+	DefaultModel       string               `yaml:"default_model"`
+	Models             map[string]rawModel  `yaml:"models"`
+	Providers          map[string]Provider  `yaml:"providers"`
+	DecisionModel      string               `yaml:"decision_model"`
+	Memory             rawMemoryNode        `yaml:"memory"`
+	Limits             rawLimits            `yaml:"limits"`
+}
+
+type rawMemory struct {
+	Enabled         *bool  `yaml:"enabled"`
+	Threshold       int    `yaml:"threshold"`
+	Interval        string `yaml:"interval"`
+	Model           string `yaml:"model"`
+	NoteLimit       int    `yaml:"note_limit"`
+	SummaryLimit    int    `yaml:"summary_limit"`
+	ContextLimit    int    `yaml:"context_limit"`
+	APITimeout      string `yaml:"api_timeout"`
+	RetryInterval   string `yaml:"retry_interval"`
+	MaxPendingNotes int    `yaml:"max_pending_notes"`
+	MaxPendingBytes int    `yaml:"max_pending_bytes"`
+}
+
+type rawMemoryNode struct {
+	Node *yaml.Node
+}
+
+func (value *rawMemoryNode) UnmarshalYAML(node *yaml.Node) error {
+	copy := *node
+	value.Node = &copy
+	return nil
 }
 
 type rawModel struct {
+	Provider         string `yaml:"provider"`
 	Model            string `yaml:"model"`
 	Reasoning        string `yaml:"reasoning"`
 	Score            *int   `yaml:"score"`
@@ -114,28 +154,47 @@ func Load(home string) (Config, error) {
 }
 
 func validate(raw rawConfig) (Config, error) {
+	if raw.Installation != nil {
+		if err := raw.Installation.Source.Validate(); err != nil {
+			return Config{}, err
+		}
+	}
 	if len(raw.AgentPlugins) > 16 {
 		return Config{}, errors.New("agent_plugins supports at most 16 plugins")
 	}
 	seen := map[string]bool{}
+	legacyMemoryEnabled := false
 	for _, name := range raw.AgentPlugins {
 		if !regexp.MustCompile(`^[a-z][a-z0-9-]*$`).MatchString(name) || seen[name] {
 			return Config{}, fmt.Errorf("invalid or duplicate agent_plugins name %q", name)
 		}
 		seen[name] = true
+		legacyMemoryEnabled = legacyMemoryEnabled || name == "memory"
 	}
-	if raw.Mode != "unit" {
-		if raw.Mode == "server" {
-			return Config{}, errors.New("configuration mode server is not implemented")
+	granted := map[string]bool{}
+	for _, name := range raw.AgentCommunication {
+		if name == "memory" || !seen[name] || granted[name] {
+			return Config{}, errors.New("agent_communication requires unique names enabled in agent_plugins")
 		}
-		return Config{}, fmt.Errorf("configuration mode must be unit, got %q", raw.Mode)
+		granted[name] = true
+	}
+	if raw.LegacyMode != "" && raw.LegacyMode != "unit" {
+		return Config{}, errors.New("configuration mode has been removed; remove the mode field (only legacy unit is accepted)")
 	}
 	var missing []string
-	if strings.TrimSpace(raw.Provider.URL) == "" {
-		missing = append(missing, "provider.url")
+	if len(raw.Providers) == 0 {
+		missing = append(missing, "providers")
 	}
-	if strings.TrimSpace(raw.Provider.Key) == "" || strings.TrimSpace(raw.Provider.Key) == "replace-with-api-key" {
-		missing = append(missing, "provider.key")
+	for name, provider := range raw.Providers {
+		if strings.TrimSpace(name) == "" {
+			return Config{}, errors.New("provider name must not be empty")
+		}
+		if strings.TrimSpace(provider.URL) == "" {
+			missing = append(missing, "providers."+name+".url")
+		}
+		if strings.TrimSpace(provider.Key) == "" || provider.Key == "replace-with-api-key" {
+			missing = append(missing, "providers."+name+".key")
+		}
 	}
 	for name, model := range raw.Models {
 		if strings.TrimSpace(model.Model) == "" || strings.TrimSpace(model.Model) == "replace-with-model-name" {
@@ -146,15 +205,11 @@ func validate(raw rawConfig) (Config, error) {
 		sort.Strings(missing)
 		return Config{}, &SetupError{Fields: missing}
 	}
-	providerURL, err := url.Parse(raw.Provider.URL)
-	if err != nil || providerURL.Scheme == "" || providerURL.Host == "" {
-		return Config{}, errors.New("provider.url must be an absolute HTTP(S) base URL")
-	}
-	if providerURL.Scheme != "http" && providerURL.Scheme != "https" {
-		return Config{}, errors.New("provider.url must use http or https")
-	}
-	if providerURL.RawQuery != "" || providerURL.Fragment != "" {
-		return Config{}, errors.New("provider.url must not contain a query or fragment")
+	for name, provider := range raw.Providers {
+		u, err := url.Parse(provider.URL)
+		if err != nil || u.Host == "" || (u.Scheme != "http" && u.Scheme != "https") || u.User != nil || u.RawQuery != "" || u.Fragment != "" {
+			return Config{}, fmt.Errorf("providers.%s.url must be an absolute HTTP(S) base URL without credentials, query or fragment", name)
+		}
 	}
 	if len(raw.Models) == 0 && raw.DefaultModel != "" {
 		return Config{}, errors.New("default_model is set but models is empty")
@@ -179,12 +234,20 @@ func validate(raw rawConfig) (Config, error) {
 		if model.CompactThreshold <= 0 {
 			return Config{}, fmt.Errorf("models.%s.compact_threshold must be a positive integer", name)
 		}
+		if _, ok := raw.Providers[model.Provider]; !ok {
+			return Config{}, fmt.Errorf("models.%s.provider %q does not name a configured provider", name, model.Provider)
+		}
 		models[name] = Model{
+			Provider:         model.Provider,
 			Model:            model.Model,
 			Reasoning:        model.Reasoning,
 			Score:            model.Score,
 			CompactThreshold: model.CompactThreshold,
 		}
+	}
+	memory, agentPlugins, err := validateMemory(raw, legacyMemoryEnabled, models)
+	if err != nil {
+		return Config{}, err
 	}
 
 	limits, err := parseLimits(raw.Limits)
@@ -192,52 +255,31 @@ func validate(raw rawConfig) (Config, error) {
 		return Config{}, err
 	}
 	return Config{
-		Plugins:        raw.Plugins,
-		AgentPlugins:   append([]string(nil), raw.AgentPlugins...),
-		DisabledSkills: append([]string(nil), raw.DisabledSkills...),
-		SoulEnabled:    raw.SoulEnabled,
-		Mode:           raw.Mode,
-		DefaultModel:   raw.DefaultModel,
-		Models:         models,
-		Provider:       raw.Provider,
-		Decision:       raw.Decision,
-		Limits:         limits,
+		Installation:       raw.Installation,
+		Plugins:            raw.Plugins,
+		AgentPlugins:       agentPlugins,
+		AgentCommunication: raw.AgentCommunication,
+		DisabledSkills:     append([]string(nil), raw.DisabledSkills...),
+		SoulEnabled:        raw.SoulEnabled,
+		DefaultModel:       raw.DefaultModel,
+		Models:             models,
+		Providers:          raw.Providers,
+		DecisionModel:      raw.DecisionModel,
+		Memory:             memory,
+		Limits:             limits,
 	}, nil
 }
 
-// RequireDecision validates the separately configured decision provider before
-// a read or write agent turn is created. Full access and local administration
-// commands can run without Jev settings.
+// RequireDecision validates the decision profile before creating a read/write turn.
+// Full access and local commands do not require a decision model.
 func (c Config) RequireDecision() error {
-	var missing []string
-	if strings.TrimSpace(c.Decision.Provider.URL) == "" {
-		missing = append(missing, "decision.provider.url")
+	if strings.TrimSpace(c.DecisionModel) == "" {
+		return &SetupError{Fields: []string{"decision_model"}}
 	}
-	if strings.TrimSpace(c.Decision.Provider.Key) == "" {
-		missing = append(missing, "decision.provider.key")
-	}
-	if strings.TrimSpace(c.Decision.Model) == "" {
-		missing = append(missing, "decision.model")
-	}
-	if len(missing) > 0 {
-		return &SetupError{Fields: missing}
-	}
-	u, err := url.Parse(c.Decision.Provider.URL)
-	if err != nil || u.Scheme == "" || u.Host == "" || u.User != nil || (u.Scheme != "http" && u.Scheme != "https") || u.RawQuery != "" || u.Fragment != "" {
-		return errors.New("decision.provider.url must be an absolute HTTP(S) base URL without query or fragment")
+	if _, ok := c.Models[c.DecisionModel]; !ok {
+		return fmt.Errorf("decision_model %q does not name a configured model", c.DecisionModel)
 	}
 	return nil
-}
-
-func (c Config) DecisionEndpoint() (string, error) {
-	if err := c.RequireDecision(); err != nil {
-		return "", err
-	}
-	base := strings.TrimRight(c.Decision.Provider.URL, "/")
-	if strings.HasSuffix(base, "/alpha/decisions") {
-		return base, nil
-	}
-	return url.JoinPath(base, "alpha/decisions")
 }
 
 func parseLimits(raw rawLimits) (Limits, error) {
@@ -274,8 +316,12 @@ func parseLimits(raw rawLimits) (Limits, error) {
 	return Limits{MaxModelRequests: requests, MaxInputTokens: inputTokens, MaxTurnDuration: duration}, nil
 }
 
-func (c Config) Endpoint(resource string) (string, error) {
-	base, err := url.Parse(c.Provider.URL)
+func (c Config) Endpoint(providerName, resource string) (string, error) {
+	provider, ok := c.Providers[providerName]
+	if !ok {
+		return "", fmt.Errorf("unknown provider %q", providerName)
+	}
+	base, err := url.Parse(provider.URL)
 	if err != nil {
 		return "", errors.New("provider URL is invalid")
 	}
@@ -299,4 +345,15 @@ type SetupError struct{ Fields []string }
 func (e *SetupError) Error() string {
 	return "заполните данные провайдера и модели: " + strings.Join(e.Fields, ", ") +
 		"; проверьте models.<профиль>.compact_threshold для выбранной модели"
+}
+
+// ProviderKeys supplies all configured API secrets for redaction and command review.
+func (c Config) ProviderKeys() []string {
+	keys := make([]string, 0, len(c.Providers))
+	for _, provider := range c.Providers {
+		if provider.Key != "" {
+			keys = append(keys, provider.Key)
+		}
+	}
+	return keys
 }

@@ -15,7 +15,7 @@ import (
 	"github.com/ReanSn0w/horizon/internal/responses"
 )
 
-func TestBuiltBinaryAccessAndJevGate(t *testing.T) {
+func TestBuiltBinaryAccessAndDecisionGate(t *testing.T) {
 	binary := buildBinary(t)
 	for _, tc := range []struct {
 		name, requested, inherited, command, access, decision string
@@ -46,11 +46,16 @@ func TestBuiltBinaryAccessAndJevGate(t *testing.T) {
 			decisionCalls := 0
 			decisionServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				decisionCalls++
+				if r.Header.Get("Authorization") != "Bearer decision-key" {
+					t.Error("decision used wrong provider key")
+				}
 				var request struct {
 					State     map[string]string          `json:"state"`
 					Questions map[string]json.RawMessage `json:"questions"`
 				}
-				if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+				var err error
+				request.Questions, err = readDecisionState(r, &request.State)
+				if err != nil {
 					t.Error(err)
 				}
 				if len(request.State) != 3 || request.State["command"] != commandText || request.State["horizon_home"] != home || request.State["workspace"] != resolvedWorkspace || len(request.Questions) != 2 {
@@ -62,16 +67,16 @@ func TestBuiltBinaryAccessAndJevGate(t *testing.T) {
 				}
 				answers := map[string]any{}
 				for id := range request.Questions {
-					probability := 0.01
+					writes := false
 					if tc.decision == "deny" && (tc.access == "read" && id == "file_write" || tc.access == "write" && id == "outside_write") {
-						probability = 0.99
+						writes = true
 					}
-					answers[id] = map[string]any{"type": "noul", "noul": probability}
+					answers[id] = writes
 				}
 				if tc.decision == "incomplete" {
 					delete(answers, "outside_write")
 				}
-				_ = json.NewEncoder(w).Encode(map[string]any{"id": "test-decision", "answers": answers})
+				writeDecisionResult(w, "test-decision", answers)
 			}))
 			defer decisionServer.Close()
 			responseCalls := 0
@@ -98,7 +103,7 @@ func TestBuiltBinaryAccessAndJevGate(t *testing.T) {
 				writeCompleted(w, responseCalls, message("done"))
 			}))
 			defer responseServer.Close()
-			config := fmt.Sprintf("mode: unit\ndefault_model: coding\nmodels:\n  coding:\n    model: test-model\n    compact_threshold: 1000\nprovider:\n  url: %s\n  key: test-key\ndecision:\n  provider:\n    url: %s\n    key: decision-key\n  model: typesafe/jev-1.13\n", responseServer.URL, decisionServer.URL)
+			config := fmt.Sprintf("mode: unit\ndefault_model: coding\nmodels:\n  coding:\n    provider: default\n    model: test-model\n    compact_threshold: 1000\n  decision:\n    provider: checks\n    model: test-decision-model\n    compact_threshold: 1000\ndecision_model: decision\nproviders:\n  default:\n    url: %s\n    key: test-key\n  checks:\n    url: %s\n    key: decision-key\n", responseServer.URL, decisionServer.URL)
 			if err := os.WriteFile(filepath.Join(home, "config.yaml"), []byte(config), 0600); err != nil {
 				t.Fatal(err)
 			}
@@ -124,7 +129,7 @@ func TestBuiltBinaryAccessAndJevGate(t *testing.T) {
 				t.Fatalf("tool output = %s", toolOutput)
 			}
 			if tc.access == "full" && strings.Contains(toolOutput, `"decision_id"`) {
-				t.Fatalf("full access reported Jev decision: %s", toolOutput)
+				t.Fatalf("full access reported Decision decision: %s", toolOutput)
 			}
 			if _, err := os.Stat(filepath.Join(workspace, "marker")); err == nil && !tc.allowed {
 				t.Fatal("rejected command created marker")
@@ -175,7 +180,9 @@ func testNestedHorizonInheritsAccess(t *testing.T, childFlag string) {
 			State     map[string]string          `json:"state"`
 			Questions map[string]json.RawMessage `json:"questions"`
 		}
-		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		var err error
+		request.Questions, err = readDecisionState(r, &request.State)
+		if err != nil {
 			t.Error(err)
 		}
 		mu.Lock()
@@ -183,9 +190,9 @@ func testNestedHorizonInheritsAccess(t *testing.T, childFlag string) {
 		mu.Unlock()
 		answers := map[string]any{}
 		for id := range request.Questions {
-			answers[id] = map[string]any{"type": "noul", "noul": 0.01}
+			answers[id] = false
 		}
-		_ = json.NewEncoder(w).Encode(map[string]any{"id": "nested-decision", "answers": answers})
+		writeDecisionResult(w, "nested-decision", answers)
 	}))
 	defer decisionServer.Close()
 	var calls int
@@ -225,7 +232,7 @@ func testNestedHorizonInheritsAccess(t *testing.T, childFlag string) {
 		}
 	}))
 	defer responseServer.Close()
-	config := fmt.Sprintf("mode: unit\ndefault_model: coding\nmodels:\n  coding:\n    model: test-model\n    compact_threshold: 1000\nprovider:\n  url: %s\n  key: test-key\ndecision:\n  provider:\n    url: %s\n    key: decision-key\n  model: typesafe/jev-1.13\n", responseServer.URL, decisionServer.URL)
+	config := fmt.Sprintf("mode: unit\ndefault_model: coding\nmodels:\n  coding:\n    provider: default\n    model: test-model\n    compact_threshold: 1000\n  decision:\n    provider: checks\n    model: test-decision-model\n    compact_threshold: 1000\ndecision_model: decision\nproviders:\n  default:\n    url: %s\n    key: test-key\n  checks:\n    url: %s\n    key: decision-key\n", responseServer.URL, decisionServer.URL)
 	if err := os.WriteFile(filepath.Join(home, "config.yaml"), []byte(config), 0600); err != nil {
 		t.Fatal(err)
 	}

@@ -14,3 +14,6 @@ var skillTemplate []byte
 
 //go:embed assets/skills/filesystem/SKILL.md
 var filesystemSkillTemplate []byte
+
+//go:embed assets/skills/timers/SKILL.md
+var timerSkillTemplate []byte

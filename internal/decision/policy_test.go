@@ -9,7 +9,7 @@ import (
 
 type fakeDecider struct {
 	request Request
-	values  map[string]float64
+	values  map[string]bool
 	err     error
 	calls   int
 }
@@ -20,16 +20,16 @@ func (f *fakeDecider) Decide(_ context.Context, request Request) (Response, erro
 	if f.err != nil {
 		return Response{}, f.err
 	}
-	response := Response{ID: "decision-1", Answers: map[string]Answer{}}
+	response := Response{ID: "decision-1", Answers: map[string]*bool{}}
 	for name, value := range f.values {
 		copy := value
-		response.Answers[name] = Answer{Type: "noul", Noul: &copy}
+		response.Answers[name] = &copy
 	}
 	return response, nil
 }
 
 func TestCommandPolicySendsOnlyCommandAndWriteRoots(t *testing.T) {
-	fake := &fakeDecider{values: map[string]float64{"file_write": .04, "outside_write": .07}}
+	fake := &fakeDecider{values: map[string]bool{"file_write": false, "outside_write": false}}
 	policy := &CommandPolicy{Client: fake}
 	command := Command{Text: "codex --help", Workspace: "/workspace", Home: "/home/horizon", Access: "write"}
 	verdict, err := policy.Review(context.Background(), command)
@@ -41,34 +41,33 @@ func TestCommandPolicySendsOnlyCommandAndWriteRoots(t *testing.T) {
 		t.Fatalf("request=%+v", fake.request)
 	}
 	if _, found := state["access"]; found {
-		t.Fatalf("access leaked into Jev state: %+v", state)
+		t.Fatalf("access leaked into Decision state: %+v", state)
 	}
 }
 
 func TestCommandPolicyAppliesAccessModeLocally(t *testing.T) {
 	for _, test := range []struct {
 		name, access string
-		fileWrite    float64
-		outsideWrite float64
+		fileWrite    bool
+		outsideWrite bool
 		allowed      bool
 		reason       string
 	}{
-		{"read-only in read", "read", .04, .07, true, ""},
-		{"write in read", "read", .99, .04, false, "read mode"},
-		{"uncertain write in read", "read", .21, .04, false, "read mode"},
-		{"within roots in write", "write", .99, .04, true, ""},
-		{"outside roots in write", "write", .99, .97, false, "write mode"},
-		{"uncertain outside write", "write", .64, .21, false, "write mode"},
+		{"read-only in read", "read", false, false, true, ""},
+		{"inconsistent outside write in read", "read", false, true, false, "read mode"},
+		{"write in read", "read", true, false, false, "read mode"},
+		{"within roots in write", "write", true, false, true, ""},
+		{"outside roots in write", "write", true, true, false, "write mode"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			fake := &fakeDecider{values: map[string]float64{"file_write": test.fileWrite, "outside_write": test.outsideWrite}}
+			fake := &fakeDecider{values: map[string]bool{"file_write": test.fileWrite, "outside_write": test.outsideWrite}}
 			policy := &CommandPolicy{Client: fake}
 			verdict, err := policy.Review(context.Background(), Command{Text: "example", Workspace: "/workspace", Home: "/home/horizon", Access: test.access})
 			if err != nil || verdict.Allowed != test.allowed || !strings.Contains(verdict.Reason, test.reason) {
 				t.Fatalf("verdict=%+v err=%v", verdict, err)
 			}
 			if fake.calls != 1 {
-				t.Fatalf("Jev calls = %d", fake.calls)
+				t.Fatalf("Decision calls = %d", fake.calls)
 			}
 		})
 	}
@@ -105,7 +104,7 @@ func TestCommandPolicyFailsOnProviderAndMalformedAnswer(t *testing.T) {
 		t.Fatal("provider error accepted")
 	}
 	fake.err = nil
-	fake.values = map[string]float64{"file_write": .04}
+	fake.values = map[string]bool{"file_write": false}
 	if _, err := policy.Review(context.Background(), command); err == nil {
 		t.Fatal("incomplete answers accepted")
 	}
