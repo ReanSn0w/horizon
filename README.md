@@ -283,9 +283,11 @@ horizon --mode jsonl -m 'Проверь проект' > events.jsonl
 
 ```sh
 horizon sessions list
+horizon sessions list --all --since 24h --json
 horizon sessions create
 horizon resume --session SESSION_ID -m 'Продолжи задачу'
 horizon sessions read --id SESSION_ID --turns 4
+horizon sessions read --all --id SESSION_ID --turns 4
 horizon sessions create --fork SESSION_ID
 horizon sessions compact
 horizon sessions delete --id SESSION_ID
@@ -293,6 +295,13 @@ horizon sessions delete --id SESSION_ID
 
 История хранится в `~/.horizon/dialogs`. Каждый каталог проекта — отдельный
 workspace: Horizon использует текущий путь и не ищет корень Git.
+`sessions list --all` показывает сессии всех workspace выбранного home;
+`--since` фильтрует по времени последней активности, `--active` оставляет
+только выполняющиеся ходы, `--json` выдаёт структурированный список без
+содержимого сообщений. `--all` нельзя сочетать с `--workspace`.
+`sessions read --all` ищет ID во всём home и показывает историю независимо от
+текущего каталога. Локальный пользователь с доступом к home может таким
+образом прочитать и личные диалоги из других workspace.
 Сжатие уменьшает рабочий контекст, сохраняя историю. Если провайдер не вернул
 автоматическое сжатие после порога, Horizon пробует `/responses/compact` и,
 когда endpoint несовместим, создаёт краткое резюме отдельным запросом модели.
