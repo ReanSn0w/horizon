@@ -463,8 +463,9 @@ daemon и добавляет уточнения в активные ходы. [�
 
 Установите `horizon manager plugins install agent:timer` и добавьте `timer` в
 `plugins.agent.adapters`. Запустите daemon и поместите Markdown-расписания в
-`<home>/timers/`. Используйте `horizon agent timer validate [timer-id]` для
-проверки файлов и `horizon agent timer status [timer-id]` для проверки запусков.
+`<home>/timers/`. `horizon agent timer list [--json]` показывает все определения,
+включая неисправные и выключенные. `horizon agent timer validate [timer-id]`
+проверяет файлы, `horizon agent timer status [timer-id]` показывает запуски.
 Поручения выполняются в новых сессиях, состояние между запусками можно хранить
 в workspace. Формат расписания, окна и восстановление описаны в
 [README Timer](plugins/agent-timer/README.md).

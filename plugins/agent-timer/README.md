@@ -88,11 +88,14 @@ ID берётся из имени файла, допускает 1–64 стро
 
 ```sh
 horizon agent timer validate [timer-id]
+horizon agent timer list [--json]
 horizon agent timer status [timer-id]
 horizon agent timer unblock <timer-id>
 ```
 
-`validate` и `status` работают без демона и без обращения к провайдеру.
+`list`, `validate` и `status` работают без демона и без обращения к провайдеру.
+`list` показывает каждый Markdown-файл каталога, в том числе ошибку отдельного
+повреждённого определения; `--json` выдаёт массив объектов для скриптов.
 Состояние срабатываний хранится в `<home>/timer/state.json`. Если подтверждение
 submit потеряно, адаптер сначала ищет задачу по устойчивому operation ID.
 Неизвестный исход блокирует таймер. Проверьте записанный task ID и историю,
