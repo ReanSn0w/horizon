@@ -467,6 +467,8 @@ daemon и добавляет уточнения в активные ходы. [�
 включая неисправные и выключенные. `horizon agent timer validate [timer-id]`
 проверяет файлы, `horizon agent timer status [timer-id]` показывает запуски.
 `horizon agent timer enable|disable TIMER_ID` включает и выключает расписание.
+`horizon agent timer run TIMER_ID` ставит включённый таймер в очередь досрочно
+без изменения расписания и выводит ID задачи.
 Поручения выполняются в новых сессиях, состояние между запусками можно хранить
 в workspace. Формат расписания, окна и восстановление описаны в
 [README Timer](plugins/agent-timer/README.md).

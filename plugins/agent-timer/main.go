@@ -102,6 +102,7 @@ func admin(args []string, out, diag io.Writer, now func() time.Time) int {
 	parser.AddCommand("unblock", "Unblock a timer", "Allow future slots after an unknown outcome.", &unblockOptions)
 	parser.AddCommand("enable", "Enable a timer", "Enable a validated timer definition.", &unblockOptions)
 	parser.AddCommand("disable", "Disable a timer", "Disable future firings of a timer.", &unblockOptions)
+	parser.AddCommand("run", "Run a timer now", "Queue a fresh timer task without changing its schedule.", &unblockOptions)
 	if len(args) == 0 {
 		args = []string{"--help"}
 	}
@@ -124,7 +125,7 @@ func admin(args []string, out, diag io.Writer, now func() time.Time) int {
 	if args[0] == "status" {
 		id = statusOptions.Args.ID
 	}
-	if args[0] == "unblock" || args[0] == "enable" || args[0] == "disable" {
+	if args[0] == "unblock" || args[0] == "enable" || args[0] == "disable" || args[0] == "run" {
 		id = unblockOptions.Args.ID
 	}
 	if id != "" {
@@ -140,6 +141,21 @@ func admin(args []string, out, diag io.Writer, now func() time.Time) int {
 	}
 	if args[0] == "list" {
 		return list(home, listOptions.JSON, out, diag)
+	}
+	if args[0] == "run" {
+		if os.Getenv("HORIZON_INHERITED_ACCESS") == "read" {
+			fmt.Fprintln(diag, "running a timer requires write access")
+			return 1
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		taskID, err := timer.RunNow(ctx, home, args[1])
+		if err != nil {
+			fmt.Fprintln(diag, err)
+			return 1
+		}
+		fmt.Fprintln(out, taskID)
+		return 0
 	}
 	if args[0] == "enable" || args[0] == "disable" {
 		if os.Getenv("HORIZON_INHERITED_ACCESS") == "read" {
