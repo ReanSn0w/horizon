@@ -31,10 +31,20 @@ func installTimer(t *testing.T, home string) {
 	}
 }
 
+func installAgentCLI(t *testing.T, home string) {
+	t.Helper()
+	cmd := exec.Command("go", "build", "-o", filepath.Join(home, "bin", "horizon-agent"), "./plugins/agent")
+	cmd.Dir = "../.."
+	if output, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("build agent: %v %s", err, output)
+	}
+}
+
 func TestAgentTimerValidateOffline(t *testing.T) {
 	binary := buildBinary(t)
 	home, workspace := t.TempDir(), t.TempDir()
 	installTimer(t, home)
+	installAgentCLI(t, home)
 	var requests atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requests.Add(1)
@@ -43,6 +53,9 @@ func TestAgentTimerValidateOffline(t *testing.T) {
 	defer server.Close()
 	writeConfig(t, home, server.URL)
 	if err := os.Mkdir(filepath.Join(home, ".manager"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, ".manager", "maintenance.lock"), nil, 0600); err != nil {
 		t.Fatal(err)
 	}
 	dir := filepath.Join(home, "timers")
@@ -68,10 +81,14 @@ func TestAgentTimerValidateOffline(t *testing.T) {
 	if err != nil || (!strings.Contains(out, "horizon agent timer") || !strings.Contains(out, "Validate schedules")) || diag != "" {
 		t.Fatalf("help: stdout=%q stderr=%q err=%v", out, diag, err)
 	}
+	out, diag, err = run(binary, workspace, "", "--home", home, "agent", "-h")
+	if err != nil || !strings.Contains(out, "Installed inputs:") || !strings.Contains(out, "timer") || diag != "" {
+		t.Fatalf("agent help: %s %s %v", out, diag, err)
+	}
 	if requests.Load() != 0 {
 		t.Fatalf("provider calls = %d", requests.Load())
 	}
-	for _, path := range []string{"timer", "daemon", "run", "dialogs", ".manager/maintenance.lock"} {
+	for _, path := range []string{"timer", "daemon", "run", "dialogs"} {
 		if _, err := os.Stat(filepath.Join(home, path)); !os.IsNotExist(err) {
 			t.Fatalf("administrative command created %s: %v", path, err)
 		}
@@ -85,6 +102,8 @@ func TestAgentAdminForwardsOpaqueArgumentsAndStreams(t *testing.T) {
 	if err := os.Mkdir(bin, 0700); err != nil {
 		t.Fatal(err)
 	}
+	installAgentCLI(t, home)
+	writeConfig(t, home, "https://example.test/v1")
 	const script = `#!/bin/sh
 if [ "$1" = agent-plugin-metadata ]; then
   printf '%s\n' '{"protocol_version":1,"version":"test","description":"test","capabilities":["admin-cli"]}'

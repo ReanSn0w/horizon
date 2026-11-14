@@ -461,7 +461,8 @@ daemon и добавляет уточнения в активные ходы. [�
 
 ## Таймеры
 
-Установите `horizon manager plugins install agent:timer` и добавьте `timer` в
+Установите CLI-плагин `agent` (`horizon manager plugins install agent`) и
+адаптер timer (`horizon manager plugins install agent:timer`). Добавьте `timer` в
 `plugins.agent.adapters`. Запустите daemon и поместите Markdown-расписания в
 `<home>/timers/`. `horizon agent timer list [--json]` показывает все определения,
 включая неисправные и выключенные. `horizon agent timer validate [timer-id]`

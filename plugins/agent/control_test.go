@@ -117,3 +117,31 @@ func TestServiceRemoveDeletesOnlyDefaultFile(t *testing.T) {
 		t.Fatal("service file remains", err)
 	}
 }
+
+func TestPublicStartAndStopRequireInstalledService(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("HORIZON_EXECUTABLE", "/fixture/horizon")
+	home := t.TempDir()
+	t.Setenv("HORIZON_HOME", home)
+	if err := os.WriteFile(filepath.Join(home, "config.yaml"), []byte(`default_model: chatting
+models:
+  chatting:
+    provider: default
+    model: test-model
+    compact_threshold: 1000
+providers:
+  default:
+    url: https://example.test/v1
+    key: test-key
+`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	for _, command := range []string{"start", "stop"} {
+		var out, diag bytes.Buffer
+		code := run(context.Background(), []string{command}, &out, &diag)
+		if code != 1 || !strings.Contains(diag.String(), "run horizon agent service install") {
+			t.Fatalf("%s: %d %s %s", command, code, &out, &diag)
+		}
+	}
+}

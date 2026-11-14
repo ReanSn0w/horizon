@@ -41,7 +41,7 @@ func TestBuiltInCommands(t *testing.T) {
 		t.Fatal(err)
 	}
 	actual := commandNames(p)
-	expected := []string{"resume", "models", "sessions", "skills", "decision", "memory", "agent"}
+	expected := []string{"resume", "models", "sessions", "skills", "decision", "memory"}
 	slices.Sort(actual)
 	slices.Sort(expected)
 	if !reflect.DeepEqual(actual, expected) {

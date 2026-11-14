@@ -326,7 +326,9 @@ HORIZON_API_CHECK=1 go test ./internal/responses -run TestConfiguredEndpointComp
 ### Timer
 
 - `plugins/agent-timer` — один бинарник для supervised `agent-run` и
-  `horizon agent timer`. Ядро CLI проверяет adapter metadata и передаёт argv.
+  `horizon agent timer`. CLI-плагин `agent` проверяет adapter metadata и передаёт argv;
+  его справка перечисляет установленные адаптеры с `admin-cli`. В ядре `agent`
+  обнаруживается как обычный CLI-плагин, без встроенной команды.
 - `internal/timer` владеет файлами `<home>/timers/<id>.md`, расписанием и
   служебным учётом в `<home>/timer/`. Используй те же загрузчик и компилятор для
   планировщика и `validate`. Bootstrap сохраняет пользовательский навык `timers`.

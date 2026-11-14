@@ -6,7 +6,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 
 	"github.com/ReanSn0w/horizon/internal/buildinfo"
@@ -102,7 +101,7 @@ func (a *App) Run(args []string) int {
 		fmt.Fprintf(a.errOut, "horizon: initialize CLI: %v\n", err)
 		return ExitFailure
 	}
-	reserved := slices.DeleteFunc(commandNames(parser), func(name string) bool { return name == "agent" })
+	reserved := commandNames(parser)
 	a.reserved = reserved
 	if index, homeFlag, ok := pluginCommandIndex(args); ok {
 		home, err := config.ResolveHome(homeFlag)
@@ -111,9 +110,6 @@ func (a *App) Run(args []string) int {
 			return ExitUsage
 		}
 		name := args[index]
-		if name == "agent" {
-			return a.runAdapterAdmin(home, args[index+1:])
-		}
 		if parser.Find(name) == nil {
 			if name != "manager" && !(name == "telegram" && index+1 < len(args) && args[index+1] == "migrate") {
 				release, err := maintenance.Acquire(home, false)

@@ -309,13 +309,16 @@ See [Subagent](SUBAGENT.md) for schemas and unknown-outcome recovery.
 ## Adapter administrative commands
 
 Adapters with `admin-cli` in their `agent-plugin-metadata` capabilities can
-handle `horizon agent <name> [arguments...]`. Horizon verifies the installed
-`<home>/bin/agent-<name>` and invokes it as `agent-admin [arguments...]`.
+handle `horizon agent <name> [arguments...]`. The installed `agent` CLI plugin
+verifies `<home>/bin/agent-<name>` and invokes it as `agent-admin [arguments...]`.
 It forwards arguments directly, with the current directory, standard streams,
 selected `HORIZON_HOME` and inherited access. Administrative commands share
 the maintenance lock and receive no supervised adapter credential. Each adapter
-defines its own arguments and exit codes. The `agent` name is reserved for the
-built-in CLI route.
+defines its own arguments and exit codes. `agent` is an ordinary CLI plugin,
+listed only under `Installed plugins` in root help. `horizon agent -h` lists
+installed adapters with `admin-cli` under `Installed inputs`, regardless of
+whether they are enabled for supervised runs. Supervisor command names take
+precedence over adapter names. `horizon agent <name> -h` delegates help to the adapter.
 
 Пользовательские CLI плагинов используют `go-flags`; `--help` строится из описаний
 команд и параметров. Служебные JSON-команды метаданных и протокола расширений

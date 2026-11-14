@@ -40,7 +40,7 @@ func TestPluginRoutingAndStreams(t *testing.T) {
 	}
 }
 
-func TestAgentServiceCommandsKeepLegacyForegroundEntrypoint(t *testing.T) {
+func TestAgentPluginReceivesUnmodifiedCommands(t *testing.T) {
 	home := t.TempDir()
 	if err := os.WriteFile(filepath.Join(home, "config.yaml"), []byte("not parsed"), 0600); err != nil {
 		t.Fatal(err)
@@ -61,7 +61,7 @@ printf '%s\n' "$@"
 	for _, tc := range []struct {
 		args []string
 		want string
-	}{{[]string{"start"}, "service-start\n"}, {[]string{"stop"}, "service-stop\n"}, {[]string{"start", "--debug"}, "start\n--debug\n"}} {
+	}{{[]string{"start"}, "start\n"}, {[]string{"stop"}, "stop\n"}, {[]string{"start", "--debug"}, "start\n--debug\n"}, {[]string{"timer", "validate"}, "timer\nvalidate\n"}} {
 		args := append([]string{"--home", home, "agent"}, tc.args...)
 		code, out, diagnostic := runApp(t, "", args...)
 		if code != 0 || out != tc.want || diagnostic != "" {
@@ -219,5 +219,19 @@ func TestBareWordIsPluginNameNotResumeMessage(t *testing.T) {
 	code, output, diagnostic := runApp(t, "", "--home", home, "hello", "Ada")
 	if code != ExitOK || output != "plugin:Ada\n" || diagnostic != "" {
 		t.Fatalf("plugin: code=%d output=%q diagnostic=%q", code, output, diagnostic)
+	}
+}
+
+func TestAgentOnlyAppearsAsInstalledPlugin(t *testing.T) {
+	home := t.TempDir()
+	code, out, diag := runApp(t, "", "--home", home, "-h")
+	if code != 0 || strings.Contains(out, "Manage the supervisor") || diag != "" {
+		t.Fatalf("%d %s %s", code, out, diag)
+	}
+	pluginScript(t, home, "agent", "echo agent-help\n")
+	code, out, diag = runApp(t, "", "--home", home, "-h")
+	builtin, installed, ok := strings.Cut(out, "Installed plugins:")
+	if code != 0 || !ok || strings.Contains(builtin, "\n  agent ") || strings.Count(installed, "agent  Example") != 1 || diag != "" {
+		t.Fatalf("%d %s %s", code, out, diag)
 	}
 }

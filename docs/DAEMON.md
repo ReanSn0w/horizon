@@ -222,6 +222,8 @@ and recovery are documented in [Timer](../plugins/agent-timer/README.md).
 The public supervisor name is `agent`: binary `horizon-agent`, CLI
 `horizon agent start|stop|status|validate|logs|recover-input`, configuration
 `plugins.agent`.
+The root CLI discovers `agent` as an ordinary installed plugin. The plugin itself
+discovers administrative inputs and lists them in `horizon agent -h`.
 Adapter administration remains `horizon agent timer ...`. The supervisor command
 names are reserved in this shared namespace. See [Agent](../plugins/agent/README.md)
 for systemd/launchd installation and migration.

@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 
 	"github.com/ReanSn0w/horizon/internal/buildinfo"
@@ -67,6 +68,9 @@ func run(ctx context.Context, args []string, out, diag io.Writer) int {
 	serviceCommand, _ := parser.AddCommand("service", "Manage service files", "Install or remove a user service file.", &struct{}{})
 	serviceCommand.AddCommand("install", "Install service definition", "Create a new service file without starting it. Existing files are never overwritten.", &installOptions)
 	serviceCommand.AddCommand("remove", "Remove service definition", "Remove a stopped service file.", &struct{}{})
+	if len(args) > 0 && !strings.HasPrefix(args[0], "-") && parser.Find(args[0]) == nil {
+		return runAdapterAdmin(ctx, args, os.Stdin, out, diag)
+	}
 	if len(args) == 0 {
 		args = []string{"--help"}
 	}
@@ -75,6 +79,9 @@ func run(ctx context.Context, args []string, out, diag io.Writer) int {
 		var flagErr *flags.Error
 		if errors.As(err, &flagErr) && flagErr.Type == flags.ErrHelp {
 			fmt.Fprint(out, flagErr.Message)
+			if parser.Active == nil {
+				printInputHelp(ctx, parser, out, diag)
+			}
 			return 0
 		}
 		fmt.Fprintln(diag, err)
@@ -85,6 +92,13 @@ func run(ctx context.Context, args []string, out, diag io.Writer) int {
 		return 2
 	}
 	command := parser.Active.Name
+	// Existing service files invoke horizon-agent start directly. Horizon sets
+	// HORIZON_EXECUTABLE for CLI plugins, distinguishing the public service control.
+	if command == "start" && !debugStart.Debug && os.Getenv("HORIZON_EXECUTABLE") != "" {
+		command = "service-start"
+	} else if command == "stop" && os.Getenv("HORIZON_EXECUTABLE") != "" {
+		command = "service-stop"
+	}
 	home, err := config.ResolveHome("")
 	if err == nil {
 		home, err = session.NormalizeWorkspace(home)

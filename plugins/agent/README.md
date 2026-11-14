@@ -17,6 +17,10 @@ horizon agent stop
 работает без файла службы. Настройки находятся в `plugins.agent`; входящие
 адаптеры включаются списком `plugins.agent.adapters`. Администрирование таймеров
 остаётся доступным через `horizon agent timer validate|status|unblock`.
+`agent` отображается только в разделе `Installed plugins` справки `horizon -h`.
+`horizon agent -h` перечисляет установленные inputs с capability `admin-cli`
+в разделе `Installed inputs`, даже если они не включены в `plugins.agent.adapters`.
+`horizon agent timer -h` передаёт запрос справки самому timer.
 Команды `start`, `status`, `stop`, `validate`, `logs`, `recover-input`, `service` зарезервированы
 для управляющего процесса. [Контракт очереди и адаптеров](../../docs/DAEMON.md).
 
@@ -26,6 +30,10 @@ horizon agent stop
 без capability `validate` проходят только проверку метаданных.
 `recover-input TASK_ID` нужен только после разбора неизвестного исхода задачи:
 он разблокирует вход диалога без повторения операции.
+
+При вызове через Horizon `start` и `stop` управляют системной службой.
+Прямой `horizon-agent start` сохраняет foreground-поведение для существующих
+файлов служб; вызов из Horizon определяется по `HORIZON_EXECUTABLE`.
 
 ## Службы ОС
 
