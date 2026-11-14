@@ -46,6 +46,7 @@ type Conversation struct {
 func (c Conversation) Route() string { return strconv.FormatInt(c.Origin, 10) }
 
 type PendingInput struct {
+	Prepared  bool    `json:"prepared,omitempty"`
 	Message   *Entry  `json:"message,omitempty"`
 	Quote     *Entry  `json:"quote,omitempty"`
 	Recent    []Entry `json:"recent,omitempty"`
