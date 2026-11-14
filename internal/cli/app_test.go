@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/ReanSn0w/horizon/internal/session"
 )
@@ -429,5 +430,76 @@ func TestSessionCreatePersistsTimerOrigin(t *testing.T) {
 		if code != ExitUsage {
 			t.Fatal(argv, code)
 		}
+	}
+}
+
+func TestSessionListHidesTimersUnlessRequested(t *testing.T) {
+	home := testHome(t, "")
+	store := session.NewStore(home)
+	dir := t.TempDir()
+	workspace, _ := store.ResolveWorkspace(dir)
+	ordinary, err := store.Create(workspace)
+	if err != nil {
+		t.Fatal(err)
+	}
+	timed, err := store.CreateTimer(workspace, session.TimerOrigin{TimerID: "nap", TaskID: strings.Repeat("b", 32)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	locked, value, err := store.AcquireForResume(workspace, timed.SessionID, "task")
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	value.Turns = []session.Turn{{ID: "failed", Status: session.StatusFailed, StartedAt: now, CompletedAt: &now, Model: session.ModelProfile{Name: "fixture", Model: "fixture", CompactThreshold: 1000}}}
+	if err = locked.Save(value); err != nil {
+		t.Fatal(err)
+	}
+	locked.Close()
+	for _, scope := range [][]string{nil, {"--all"}, {"--workspace", dir}, {"--all", "--since", "24h"}} {
+		for _, include := range []bool{false, true} {
+			args := append([]string{"--home", home, "sessions", "list", "--json"}, scope...)
+			if include {
+				args = append(args, "--include-timers")
+			}
+			code, out, diag := runAppAt(t, dir, "", args...)
+			if code != 0 || diag != "" {
+				t.Fatalf("%d %s %s", code, out, diag)
+			}
+			if !strings.Contains(out, ordinary.SessionID) || strings.Contains(out, timed.SessionID) != include {
+				t.Fatal(args, out)
+			}
+			if include && !strings.Contains(out, `"timer_id":"nap"`) {
+				t.Fatal(out)
+			}
+		}
+	}
+	before, _ := store.ReadByID(timed.SessionID)
+	code, _, diag := runAppAt(t, dir, "", "--home", home, "sessions", "read", "--all", "--id", timed.SessionID)
+	if code != 0 || diag != "" {
+		t.Fatal(code, diag)
+	}
+	after, _ := store.ReadByID(timed.SessionID)
+	if !before.LastAccessedAt.Equal(after.LastAccessedAt) {
+		t.Fatal("read touched timer session")
+	}
+	lock, err := store.LockSession(workspace, timed.SessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, include := range []bool{false, true} {
+		args := []string{"--home", home, "sessions", "list", "--all", "--active", "--json"}
+		if include {
+			args = append(args, "--include-timers")
+		}
+		code, out, diag := runAppAt(t, dir, "", args...)
+		if code != 0 || diag != "" || strings.Contains(out, timed.SessionID) != include {
+			t.Fatal(code, out, diag)
+		}
+	}
+	lock.Close()
+	code, out, diag := runAppAt(t, dir, "", "--home", home, "sessions", "list", "--all", "--include-timers")
+	if code != 0 || diag != "" || !strings.Contains(out, "SOURCE") || !strings.Contains(out, "timer:nap") {
+		t.Fatal(code, out, diag)
 	}
 }
