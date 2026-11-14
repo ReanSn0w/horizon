@@ -42,7 +42,7 @@ func SetEnabled(home, id string, enabled bool) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	definition, err := parseFile(id, before)
+	definition, err := parseFile(home, id, before)
 	if err != nil {
 		return false, err
 	}
@@ -85,7 +85,7 @@ func SetEnabled(home, id string, enabled bool) (bool, error) {
 	} else {
 		updated = append(append([]byte("---\n"+line), header[4:]...), body...)
 	}
-	if _, err := parseFile(id, updated); err != nil {
+	if _, err := parseFile(home, id, updated); err != nil {
 		return false, fmt.Errorf("updated timer: %w", err)
 	}
 	temp, err := os.CreateTemp(dir.Name(), ".timer-edit-")
