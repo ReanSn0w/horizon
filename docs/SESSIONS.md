@@ -33,3 +33,19 @@ workspace in that home to the local user. Timer prompts should use `--json` for
 selection, skip active sessions and their own workspace, cap the number of
 histories read, and avoid copying secrets or raw tool results into memory or
 skills.
+
+Timer sessions carry optional `timer: {timer_id, task_id}` provenance, persisted
+in the initial session write by `sessions create`. Both scheduled and manual
+timer runs use it; forks retain it. The additive field keeps format version 1
+and is classification metadata, not authorization.
+
+List excludes marked timer sessions by default, including failed and active
+ones. `--all` only changes workspace scope. Add `--include-timers` to include
+them, together with any `--since`, `--active`, `--workspace` or JSON selection.
+JSON entries then expose the optional `timer` object; the text table adds a
+`SOURCE` column (`timer:ID`, or `-` for an unmarked session).
+
+Direct `sessions read --all --id ID` still reads a hidden timer session. Nothing
+is automatically deleted, and latest-session selection for `resume` is unchanged.
+Old sessions without provenance remain visible: there is no title/workspace
+heuristic migration, and missing provenance does not prove a human source.

@@ -239,3 +239,19 @@ for compatibility. Never rename or remove lock files to migrate an installation.
 Legacy `plugins.daemon` is accepted only when `plugins.agent` is absent; configuring
 both is an error. Manager stages the configuration rename and replaces the managed
 `horizon-daemon` with `horizon-agent` in the same rollback-capable transaction.
+
+Timer session creation passes internal `--timer-id` and `--timer-task-id`
+arguments to `horizon sessions create`, using the timer source key and daemon
+task ID. Session storage writes both in the initial atomic JSON as `timer`
+provenance; daemon never edits session JSON directly. The paired arguments
+cannot be combined with `--fork`. Forking later preserves the provenance.
+Scheduled and manual timer runs both receive a new marked session.
+
+Without an explicit timer workspace, the adapter resolves
+`<home>/workspace/<timer-file-id>` and prepares it only before submitting an
+eligible run. Files survive subsequent fresh sessions; workspace `AGENTS.md`
+is loaded at the next turn, other notes require explicit tool reads.
+Session histories survive success, failure and cancellation. Ordinary
+`sessions list` hides marked timers; `--all --include-timers` exposes them for
+diagnostics, and direct `sessions read --all --id ID` stays available.
+Old unmarked histories are not retrospectively classified.
