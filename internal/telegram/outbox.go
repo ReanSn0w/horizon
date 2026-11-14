@@ -23,6 +23,9 @@ type Part struct {
 }
 
 type delivery struct {
+	Kind        string    `json:"kind,omitempty"`
+	File        *SentFile `json:"file,omitempty"`
+	Snapshot    string    `json:"snapshot,omitempty"`
 	OperationID string    `json:"operation_id"`
 	ChatID      int64     `json:"chat_id"`
 	Origin      int64     `json:"origin"`
@@ -38,6 +41,8 @@ type PartResult struct {
 }
 
 type SendResult struct {
+	Kind        string       `json:"kind,omitempty"`
+	File        *SentFile    `json:"file,omitempty"`
 	OperationID string       `json:"operation_id"`
 	ChatID      int64        `json:"chat_id"`
 	State       string       `json:"state"`
@@ -47,7 +52,7 @@ type SendResult struct {
 }
 
 func (d delivery) result() SendResult {
-	result := SendResult{OperationID: d.OperationID, ChatID: d.ChatID, State: "confirmed", MessageIDs: []int64{}, FailureCode: d.FailureCode}
+	result := SendResult{Kind: d.Kind, File: d.File, OperationID: d.OperationID, ChatID: d.ChatID, State: "confirmed", MessageIDs: []int64{}, FailureCode: d.FailureCode}
 	for _, part := range d.Parts {
 		state := part.State
 		switch state {
@@ -125,10 +130,14 @@ func (s Store) Send(ctx context.Context, send Sender, chat Conversation, session
 		for _, part := range value.Parts {
 			texts = append(texts, part.Text)
 		}
-		if value.Origin != chat.Origin || value.Session != sessionID || value.OperationID != op || !slices.Equal(texts, parts) {
+		if value.File != nil || value.Kind != "" || value.Origin != chat.Origin || value.Session != sessionID || value.OperationID != op || !slices.Equal(texts, parts) {
 			return SendResult{}, errors.New("Telegram operation_id already exists with different contents")
 		}
 	}
+	return deliver(ctx, path, &value, chat, func(text string) (int64, error) { return send(ctx, value.ChatID, text) })
+}
+
+func deliver(ctx context.Context, path string, value *delivery, chat Conversation, send func(string) (int64, error)) (SendResult, error) {
 	for i := range value.Parts {
 		part := &value.Parts[i]
 		switch part.State {
@@ -147,7 +156,7 @@ func (s Store) Send(ctx context.Context, send Sender, chat Conversation, session
 		if err := saveJSON(path, value); err != nil {
 			return SendResult{}, err
 		}
-		id, err := send(ctx, value.ChatID, part.Text)
+		id, err := send(part.Text)
 		if err != nil || id <= 0 {
 			var rejection *APIError
 			if errors.As(err, &rejection) {
@@ -200,6 +209,9 @@ func (s Store) Confirmed(chat Conversation, recorded map[string]map[int64]bool, 
 		for _, part := range value.Parts {
 			if part.State == "confirmed" && !recorded[value.OperationID][part.MessageID] {
 				entry := Entry{ID: part.MessageID, Name: "Telegram bot", Time: value.Created.Unix(), Text: part.Text, Bot: true}
+				if value.File != nil {
+					entry.Attachments = []Attachment{{Kind: value.Kind, Name: value.File.Name, Size: value.File.Size, Checksum: value.File.Checksum, State: "sent"}}
+				}
 				recent = append(recent, ConfirmedMessage{Entry: entry, ChatID: value.ChatID, OperationID: value.OperationID})
 			}
 		}
