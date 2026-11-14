@@ -177,7 +177,7 @@ and validates both kinds before replacement; transaction rollback covers both.
 ## Telegram adapter
 
 Install `telegram` and `agent:telegram` with manager. Enable `telegram` in
-`plugins.agent.adapters`, `agent_plugins`, and `agent_communication`. The
+`plugins.agent.adapters` and `extensions.telegram`. The
 adapter submits active input with `channel: true` and a stable chat route.
 Daemon forwards that route only to the selected extension of the turn. The
 adapter advances Telegram offset once daemon confirms storage. Turn completion

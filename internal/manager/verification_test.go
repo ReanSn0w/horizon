@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -255,8 +256,8 @@ func TestLocalRepositoryInstallation(t *testing.T) {
 		}
 	}
 	enabled, err := enabledPlugins(home)
-	if err != nil || len(enabled) != 0 {
-		t.Fatal("plugins enabled automatically", enabled, err)
+	if err != nil || !slices.Contains(enabled, "browser") || !slices.Contains(enabled, "telegram") {
+		t.Fatal("installed extensions not enabled", enabled, err)
 	}
 	if err = runOperation(e, home, "update", ""); err != nil {
 		t.Fatal(err)

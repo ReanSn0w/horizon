@@ -37,10 +37,19 @@ func checkLegacyBusy(home string) error {
 	}
 	return nil
 }
-func prepareConfig(home, stage, source string, names []string, fresh, agentSupervisor bool) error {
+func prepareConfig(home, stage, source string, names []string, fresh, agentSupervisor bool, activate ...string) error {
 	if err := prepareCoreConfig(home, stage, source, fresh, agentSupervisor); err != nil {
 		return err
 	}
+	templateData, err := coreTemplate(source)
+	if err != nil {
+		return err
+	}
+	modern, err := extensionTemplate(templateData)
+	if err != nil {
+		return err
+	}
+	var extensions = map[string]config.ExtensionSettings{}
 	var templates []config.PluginTemplate
 	for _, name := range names {
 		if strings.HasPrefix(name, "agent:") {
@@ -55,6 +64,12 @@ func prepareConfig(home, stage, source string, names []string, fresh, agentSuper
 		if entry.Err != nil {
 			return fmt.Errorf("validate %s: %w", name, entry.Err)
 		}
+		if modern && entry.Metadata.AgentProtocolVersion != 0 {
+			if entry.Metadata.AgentProtocolVersion != plugins.AgentProtocolVersion && entry.Metadata.AgentProtocolVersion != plugins.ChannelProtocolVersion {
+				return fmt.Errorf("unsupported agent protocol for %s", name)
+			}
+			extensions[name] = config.ExtensionSettings{Enabled: slices.Contains(activate, name), Communication: slices.Contains(activate, name) && entry.Metadata.DefaultCommunication}
+		}
 		if entry.Metadata.ConfigProtocolVersion == 0 {
 			continue
 		}
@@ -68,8 +83,23 @@ func prepareConfig(home, stage, source string, names []string, fresh, agentSuper
 		templates = append(templates, template)
 	}
 	if len(templates) > 0 {
-		_, err := config.MergePluginTemplates(stage, templates)
-		return err
+		if _, err := config.MergePluginTemplates(stage, templates); err != nil {
+			return err
+		}
+	}
+	for _, name := range sortedKeys(extensions) {
+		if err := config.EnsureExtension(stage, name, extensions[name]); err != nil {
+			return err
+		}
+	}
+	if modern {
+		for _, name := range activate {
+			if strings.HasPrefix(name, "agent:") {
+				if err := config.AddAdapter(stage, strings.TrimPrefix(name, "agent:"), agentSupervisor); err != nil {
+					return err
+				}
+			}
+		}
 	}
 	return nil
 }
@@ -79,8 +109,9 @@ func enabledPlugins(home string) ([]string, error) {
 		return nil, err
 	}
 	var raw struct {
-		Names   []string `yaml:"agent_plugins"`
-		Plugins struct {
+		Names      []string                            `yaml:"agent_plugins"`
+		Extensions map[string]config.ExtensionSettings `yaml:"extensions"`
+		Plugins    struct {
 			Agent struct {
 				Adapters []string `yaml:"adapters"`
 			} `yaml:"agent"`
@@ -90,7 +121,12 @@ func enabledPlugins(home string) ([]string, error) {
 		} `yaml:"plugins"`
 	}
 	if err = yaml.Unmarshal(data, &raw); err != nil {
-		return nil, fmt.Errorf("cannot read agent_plugins from configuration")
+		return nil, fmt.Errorf("cannot read extension activation from configuration")
+	}
+	for name, settings := range raw.Extensions {
+		if settings.Enabled {
+			raw.Names = append(raw.Names, name)
+		}
 	}
 	for _, name := range append(raw.Plugins.Agent.Adapters, raw.Plugins.LegacyDaemon.Adapters...) {
 		raw.Names = append(raw.Names, "agent:"+name)
@@ -124,6 +160,9 @@ func listPlugins(home string, state State, out io.Writer) error {
 func disablePlugin(home, name string) error {
 	if strings.HasPrefix(name, "agent:") {
 		return disableAdapter(home, name)
+	}
+	if err := config.DisableExtension(home, name); err != nil {
+		return err
 	}
 	_, err := config.UpdateDocument(home, func(doc *yaml.Node) (bool, error) {
 		root := doc.Content[0]
@@ -190,7 +229,11 @@ func (e *Engine) changePlugin(ctx context.Context, o Options, state State, stage
 			return err
 		}
 		_, agentSupervisor := catalog["agent"]
-		if err = prepareConfig(o.Home, stage, filepath.Join(o.Home, "source"), []string{o.Name}, false, agentSupervisor); err != nil {
+		var activate []string
+		if !slices.Contains(state.Plugins, o.Name) && !slices.Contains(state.ConfiguredPlugins, o.Name) {
+			activate = []string{o.Name}
+		}
+		if err = prepareConfig(o.Home, stage, filepath.Join(o.Home, "source"), []string{o.Name}, false, agentSupervisor, activate...); err != nil {
 			return err
 		}
 		if o.Name == "agent:timer" {
@@ -203,6 +246,7 @@ func (e *Engine) changePlugin(ctx context.Context, o Options, state State, stage
 		}
 		slices.Sort(state.Plugins)
 	}
+	state.ConfiguredPlugins = configuredPlugins(state.ConfiguredPlugins, state.Plugins, []string{o.Name})
 	if err = writeJSON(filepath.Join(stage, ".manager", "state.json"), state); err != nil {
 		return err
 	}
@@ -222,5 +266,30 @@ func (e *Engine) changePlugin(ctx context.Context, o Options, state State, stage
 		return err
 	}
 	fmt.Fprintf(out, "%s: %s (plugin data and existing settings preserved)\n", o.Command, o.Name)
+	if !removing {
+		printPluginActivation(o.Home, o.Name, out)
+	}
 	return nil
+}
+
+func printPluginActivation(home, name string, out io.Writer) {
+	data, err := os.ReadFile(filepath.Join(home, "config.yaml"))
+	if err != nil {
+		return
+	}
+	var raw struct {
+		Extensions map[string]config.ExtensionSettings `yaml:"extensions"`
+	}
+	if yaml.Unmarshal(data, &raw) != nil {
+		return
+	}
+	if settings, ok := raw.Extensions[name]; ok {
+		fmt.Fprintf(out, "extensions.%s: enabled=%t, communication=%t\n", name, settings.Enabled, settings.Communication)
+	} else if strings.HasPrefix(name, "agent:") {
+		enabled, err := enabledPlugins(home)
+		if err != nil {
+			return
+		}
+		fmt.Fprintf(out, "plugins.agent.adapters: %s enabled=%t\n", strings.TrimPrefix(name, "agent:"), slices.Contains(enabled, name))
+	}
 }

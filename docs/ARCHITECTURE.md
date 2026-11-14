@@ -132,7 +132,7 @@ Daemon владеет долговечным буфером диалога и а
 ## Subagent
 
 Install with `horizon manager plugins install subagent`, start daemon explicitly,
-and add `subagent` to `agent_plugins`. `horizon subagent status` checks connectivity.
+which enables `extensions.subagent.enabled` on first installation. `horizon subagent status` checks connectivity.
 The `subagent__spawn/list/read/send/wait/cancel` tools manage separate child sessions
 in the shared workspace. Messages queue for the next turn; read access only permits
 reading and waiting. An unavailable explicitly enabled daemon fails preparation.

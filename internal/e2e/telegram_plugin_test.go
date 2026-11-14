@@ -235,8 +235,10 @@ models:
     provider: local
     model: review
     compact_threshold: 100000
-agent_plugins: [telegram]
-agent_communication: [telegram]
+extensions:
+  telegram:
+    enabled: true
+    communication: true
 plugins:
   telegram:
     bot_token: 99:fixture

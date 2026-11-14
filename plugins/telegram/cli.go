@@ -38,7 +38,7 @@ func cli(ctx context.Context, args []string, out, diag io.Writer) int {
 	parser.AddCommand("list", "List chats", "List known Telegram chats.", &list)
 	parser.AddCommand("read", "Read a delivery", "Read a delivery journal entry.", &read)
 	parser.AddCommand("check", "Check Telegram connection", "Validate bot identity and polling readiness without a model request or sending a message.", &struct{}{})
-	parser.AddCommand("send", "Send to the owner", "Send TEXT to the configured owner without a model request. This explicit diagnostic does not require agent_plugins; there are no automatic retries.", &send)
+	parser.AddCommand("send", "Send to the owner", "Send TEXT to the configured owner without a model request. This explicit diagnostic does not require extensions.telegram.enabled; there are no automatic retries.", &send)
 	parser.AddCommand("migrate", "Migrate legacy Telegram", "Stop the old polling process and supervisor before applying migration.", &migrate)
 	if len(args) == 0 {
 		args = []string{"--help"}

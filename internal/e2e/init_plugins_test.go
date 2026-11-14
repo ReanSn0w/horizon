@@ -31,7 +31,7 @@ func TestBuiltInitInstalledPlugins(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"browser:", "api_key:", "memory:", "threshold: 5", "telegram:", "bot_token:", "agent_plugins: []", "agent_communication: []"} {
+	for _, want := range []string{"browser:", "api_key:", "memory:", "threshold: 5", "telegram:", "bot_token:", "extensions: {}"} {
 		if !strings.Contains(string(data), want) {
 			t.Fatalf("missing %q: %s", want, data)
 		}

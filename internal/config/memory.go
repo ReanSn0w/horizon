@@ -102,47 +102,49 @@ func MigrateMemory(home string) (bool, error) {
 	if mappingValue(previewPlugins, "memory") == nil && !sequenceContains(mappingValue(previewRoot, "agent_plugins"), "memory") {
 		return false, nil
 	}
-	return UpdateDocument(home, func(document *yaml.Node) (bool, error) {
-		root := document.Content[0]
-		if mappingValue(root, "memory") != nil {
-			plugins := mappingValue(root, "plugins")
-			if plugins != nil && mappingValue(plugins, "memory") != nil || sequenceContains(mappingValue(root, "agent_plugins"), "memory") {
-				return false, errors.New("memory conflicts with legacy agent_plugins/plugins.memory; remove one definition before migration")
-			}
-			return false, nil
-		}
+	return UpdateDocument(home, migrateMemoryDocument)
+}
+
+func migrateMemoryDocument(document *yaml.Node) (bool, error) {
+	root := document.Content[0]
+	if mappingValue(root, "memory") != nil {
 		plugins := mappingValue(root, "plugins")
-		legacy := mappingValue(plugins, "memory")
-		agents := mappingValue(root, "agent_plugins")
-		enabled := sequenceContains(agents, "memory")
-		if legacy == nil && !enabled {
-			return false, nil
+		if plugins != nil && mappingValue(plugins, "memory") != nil || sequenceContains(mappingValue(root, "agent_plugins"), "memory") {
+			return false, errors.New("memory conflicts with legacy agent_plugins/plugins.memory; remove one definition before migration")
 		}
-		section := &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
-		key := &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "memory"}
-		if legacy != nil {
-			if legacy.Kind != yaml.MappingNode {
-				return false, errors.New("legacy plugins.memory must be a mapping")
+		return false, nil
+	}
+	plugins := mappingValue(root, "plugins")
+	legacy := mappingValue(plugins, "memory")
+	agents := mappingValue(root, "agent_plugins")
+	enabled := sequenceContains(agents, "memory")
+	if legacy == nil && !enabled {
+		return false, nil
+	}
+	section := &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
+	key := &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "memory"}
+	if legacy != nil {
+		if legacy.Kind != yaml.MappingNode {
+			return false, errors.New("legacy plugins.memory must be a mapping")
+		}
+		section = legacy
+		for i := 0; i < len(plugins.Content); i += 2 {
+			if plugins.Content[i].Value == "memory" {
+				key = plugins.Content[i]
+				break
 			}
-			section = legacy
-			for i := 0; i < len(plugins.Content); i += 2 {
-				if plugins.Content[i].Value == "memory" {
-					key = plugins.Content[i]
-					break
-				}
-			}
-			removeMapping(plugins, "memory")
 		}
-		if node := mappingValue(section, "enabled"); node != nil {
-			node.Kind, node.Tag, node.Value = yaml.ScalarNode, "!!bool", fmt.Sprint(enabled)
-			node.Content, node.Alias = nil, nil
-		} else {
-			appendMapping(section, "enabled", &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!bool", Value: fmt.Sprint(enabled)})
-		}
-		root.Content = append(root.Content, key, section)
-		removeSequenceValue(agents, "memory")
-		return true, nil
-	})
+		removeMapping(plugins, "memory")
+	}
+	if node := mappingValue(section, "enabled"); node != nil {
+		node.Kind, node.Tag, node.Value = yaml.ScalarNode, "!!bool", fmt.Sprint(enabled)
+		node.Content, node.Alias = nil, nil
+	} else {
+		appendMapping(section, "enabled", &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!bool", Value: fmt.Sprint(enabled)})
+	}
+	root.Content = append(root.Content, key, section)
+	removeSequenceValue(agents, "memory")
+	return true, nil
 }
 
 func removeMapping(node *yaml.Node, key string) {

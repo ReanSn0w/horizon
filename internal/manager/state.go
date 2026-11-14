@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 
 	"github.com/ReanSn0w/horizon/internal/config"
 )
@@ -16,11 +17,12 @@ var namePattern = regexp.MustCompile(`^[a-z][a-z0-9-]*$`)
 var commitPattern = regexp.MustCompile(`^[0-9a-f]{40,64}$`)
 
 type State struct {
-	Version int           `json:"version"`
-	Commit  string        `json:"commit"`
-	Ref     string        `json:"ref"`
-	Source  config.Source `json:"source"`
-	Plugins []string      `json:"plugins"`
+	Version           int           `json:"version"`
+	Commit            string        `json:"commit"`
+	Ref               string        `json:"ref"`
+	Source            config.Source `json:"source"`
+	Plugins           []string      `json:"plugins"`
+	ConfiguredPlugins []string      `json:"configured_plugins,omitempty"`
 }
 
 func ReadState(home string) (State, error) {
@@ -45,7 +47,27 @@ func ReadState(home string) (State, error) {
 		}
 		seen[name] = true
 	}
+	seen = map[string]bool{}
+	for _, name := range s.ConfiguredPlugins {
+		if !validManagedName(name) || name == "manager" || seen[name] {
+			return s, fmt.Errorf("invalid configured plugin name")
+		}
+		seen[name] = true
+	}
 	return s, nil
+}
+
+func configuredPlugins(groups ...[]string) []string {
+	var names []string
+	for _, group := range groups {
+		for _, name := range group {
+			if !slices.Contains(names, name) {
+				names = append(names, name)
+			}
+		}
+	}
+	slices.Sort(names)
+	return names
 }
 func writeJSON(path string, value any) error {
 	data, err := json.MarshalIndent(value, "", "  ")

@@ -53,7 +53,7 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 	}
 	parser := flags.NewParser(&struct{}{}, flags.HelpFlag|flags.PassDoubleDash)
 	parser.Name = "horizon browser"
-	parser.LongDescription = "Configure plugins.browser.api_key. Enable model tools with agent_plugins: [browser] and resume --access full."
+	parser.LongDescription = "Configure plugins.browser.api_key. Enable model tools with extensions.browser.enabled: true and resume --access full."
 	parser.AddCommand("list", "List browsers", "List active and orphaned browser sessions.", &struct{}{})
 	parser.AddCommand("close", "Close browsers", "Specify a browser ID or --stale.", &closeOptions)
 	protocolCall := len(args) == 1 && strings.HasPrefix(args[0], "horizon-plugin-agent-")

@@ -30,7 +30,7 @@ func run(ctx context.Context, args []string, in io.Reader, out, diag io.Writer) 
 	enc := json.NewEncoder(out)
 	switch args[0] {
 	case "horizon-plugin-metadata":
-		return encode(enc, plugins.Metadata{ProtocolVersion: 1, ConfigProtocolVersion: 1, AgentProtocolVersion: plugins.ChannelProtocolVersion, Version: buildinfo.Version, Description: "Explicit Telegram message delivery"})
+		return encode(enc, plugins.Metadata{ProtocolVersion: 1, ConfigProtocolVersion: 1, AgentProtocolVersion: plugins.ChannelProtocolVersion, DefaultCommunication: true, Version: buildinfo.Version, Description: "Explicit Telegram message delivery"})
 	case "horizon-plugin-config-template":
 		return encode(enc, map[string]any{"config_protocol_version": 1, "section": telegram.BotSettings{}})
 	}

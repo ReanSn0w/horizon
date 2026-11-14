@@ -109,7 +109,7 @@ func PrepareForTurn(ctx context.Context, home string, workspace session.Workspac
 		return nil, err
 	}
 	if channel != nil && !slices.Contains(policy.Communication, channel.Extension) {
-		return nil, fmt.Errorf("host channel %s requires that extension in agent_communication", channel.Extension)
+		return nil, fmt.Errorf("host channel %s requires communication: true in its extensions entry", channel.Extension)
 	}
 	if len(names) == 0 {
 		return nil, nil
@@ -146,7 +146,7 @@ func PrepareForTurn(ctx context.Context, home string, workspace session.Workspac
 		extension := Extension{Name: name, Path: entry.Path, Request: Request{Home: home, Workspace: workspace.Dir, WorkspaceID: workspace.ID, Access: access, OperationID: id}}
 		grant := (channel == nil || channel.Extension == name) && slices.Contains(policy.Communication, name)
 		if grant && version != ChannelProtocolVersion {
-			return nil, fmt.Errorf("agent_communication for %s requires agent protocol %d", name, ChannelProtocolVersion)
+			return nil, fmt.Errorf("extensions.%s.communication requires agent protocol %d", name, ChannelProtocolVersion)
 		}
 		if version == ChannelProtocolVersion {
 			extension.Request.Communication = grant

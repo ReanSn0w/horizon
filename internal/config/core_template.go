@@ -27,6 +27,9 @@ func MergeCoreTemplate(home string, data []byte) (bool, error) {
 	return UpdateDocument(home, func(doc *yaml.Node) (bool, error) {
 		root, defaults := doc.Content[0], template.Content[0]
 		changed := false
+		if mappingValue(root, "extensions") != nil && mappingValue(defaults, "extensions") == nil {
+			return false, errors.New("selected revision does not support extensions; migrate configuration before downgrading")
+		}
 		// mode is an explicitly retired core key, not inferred from plugin names.
 		if old := mappingValue(root, "mode"); old != nil && mappingValue(defaults, "mode") == nil {
 			if old.Kind != yaml.ScalarNode || old.Value != "unit" {
@@ -68,7 +71,7 @@ func MergeCoreTemplate(home string, data []byte) (bool, error) {
 		for i := 0; i < len(defaults.Content); i += 2 {
 			key, value := defaults.Content[i], defaults.Content[i+1]
 			switch key.Value {
-			case "installation", "models", "providers", "plugins", "mode":
+			case "installation", "models", "providers", "plugins", "extensions", "mode":
 				continue
 			case "default_model", "decision_model":
 				if mappingValue(root, key.Value) == nil && mappingValue(mappingValue(root, "models"), value.Value) == nil {

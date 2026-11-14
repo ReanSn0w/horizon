@@ -8,7 +8,9 @@
 Установите расширение командой `horizon manager plugins install telegram`.
 В `config.yaml` заполните `plugins.telegram.bot_token` и
 `plugins.telegram.owner_user_id`. Храните токен в приватном файле конфигурации.
-Добавьте `telegram` в оба списка `agent_plugins` и `agent_communication`.
+Manager при первой установке добавляет `extensions.telegram.enabled: true`
+и `extensions.telegram.communication: true`. Для отключения инструментов
+выставьте `enabled: false`, для запрета отправки — `communication: false`.
 Разрешение коммуникации действует в `read`, `write` и `full`. Файловые
 ограничения хода сохраняются. Для входящих сообщений установите также
 [адаптер](../agent-telegram/README.md).
@@ -36,7 +38,7 @@ horizon telegram read --operation-id ID
 подтверждает. `send TEXT` отправляет одно тестовое сообщение в личку
 `owner_user_id`; владелец должен предварительно открыть диалог с ботом.
 Текст — от 1 до 4096 символов. Эти команды не обращаются к модели и не требуют
-включения расширения в `agent_plugins` или `agent_communication`. При вызове
+включения расширения или коммуникации в `extensions.telegram`. При вызове
 из хода диагностическая отправка разрешена только в `full`.
 
 Тестовая отправка печатает ID сообщения, не создаёт запись в журнале

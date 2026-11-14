@@ -379,12 +379,14 @@ symlink в `<home>/bin/horizon-<имя>`; менеджер не присваив
 исполняет сторонний код с вашими правами. Протокол, лимиты и коды завершения —
 в [docs/PLUGINS.md](docs/PLUGINS.md).
 
-Установленные расширения агента включаются явно через `agent_plugins`
-в `<home>/config.yaml`. При каждом непустом
+Расширения модели подключаются через `extensions.<name>.enabled: true`
+в `<home>/config.yaml`. Первая явная установка через manager добавляет эту запись;
+обновления и повторные установки сохраняют выбор пользователя. При каждом непустом
 `resume` Horizon автоматически проверяет их метаданные, получает описание
 инструментов, выполняет разрешённое обслуживание и загружает контекст до первого
 запроса модели основного хода. Настройки `plugins.<name>` сами по себе расширение не включают.
-Следующий ход перечитывает конфигурацию; пустой список сохраняет прежний режим.
+Следующий ход перечитывает конфигурацию; пустая карта не подключает расширения.
+`extensions.<name>.communication` отдельно разрешает отправку сообщений.
 [Порядок подключения активных плагинов](docs/PLUGINS.md#активные-плагины-при-resume).
 
 ## Разработка
@@ -462,8 +464,8 @@ daemon и добавляет уточнения в активные ходы. [�
 ## Таймеры
 
 Установите CLI-плагин `agent` (`horizon manager plugins install agent`) и
-адаптер timer (`horizon manager plugins install agent:timer`). Добавьте `timer` в
-`plugins.agent.adapters`. Запустите daemon и поместите Markdown-расписания в
+адаптер timer (`horizon manager plugins install agent:timer`). Manager добавит `timer` в
+`plugins.agent.adapters` при первой установке. Запустите daemon и поместите Markdown-расписания в
 `<home>/timers/`. `horizon agent timer list [--json]` показывает все определения,
 включая неисправные и выключенные. `horizon agent timer validate [timer-id]`
 проверяет файлы, `horizon agent timer status [timer-id]` показывает запуски.
@@ -477,7 +479,7 @@ daemon и добавляет уточнения в активные ходы. [�
 ## Subagent
 
 Install with `horizon manager plugins install subagent`, start daemon explicitly,
-and add `subagent` to `agent_plugins`. `horizon subagent status` checks connectivity.
+which enables `extensions.subagent.enabled` on first installation. `horizon subagent status` checks connectivity.
 The `subagent__spawn/list/read/send/wait/cancel` tools manage separate child sessions
 in the shared workspace. Messages queue for the next turn; read access only permits
 reading and waiting. An unavailable explicitly enabled daemon fails preparation.

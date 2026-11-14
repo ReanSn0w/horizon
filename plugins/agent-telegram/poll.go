@@ -86,7 +86,7 @@ func validateSettings(home string) (telegram.BotSettings, telegram.AdapterSettin
 		return bot, settings, err
 	}
 	if !slices.Contains(cfg.AgentPlugins, "telegram") || !slices.Contains(cfg.AgentCommunication, "telegram") {
-		return bot, settings, errors.New("Telegram input requires telegram in agent_plugins and agent_communication")
+		return bot, settings, errors.New("Telegram input requires extensions.telegram.enabled and extensions.telegram.communication")
 	}
 	extension := plugins.Inspect(home, "telegram", nil)
 	if extension.Err != nil || extension.Metadata.AgentProtocolVersion != plugins.ChannelProtocolVersion {

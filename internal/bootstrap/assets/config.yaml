@@ -67,9 +67,9 @@ plugins:
     access: write
     reload_interval: 30s
 
-# Installed agent extensions, explicitly enabled in this order.
-agent_plugins: []
-
-# Installed agent extensions allowed to communicate with an external channel.
-# Each must also appear in agent_plugins. For Telegram, use [telegram].
-agent_communication: []
+# Model-facing extensions, connected in alphabetical order.
+# First explicit plugin installation adds enabled: true; updates preserve choices.
+# Set enabled: false to disconnect tools while retaining plugin settings.
+# communication grants external messaging independently of file access.
+# Example: telegram: {enabled: true, communication: true}
+extensions: {}

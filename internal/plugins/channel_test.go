@@ -15,7 +15,7 @@ func TestHostChannelRequiresExplicitExtension(t *testing.T) {
 		t.Fatalf("channel = %#v, error = %v", channel, err)
 	}
 	_, err = PrepareForTurn(context.Background(), t.TempDir(), session.Workspace{}, "read", nil, true, nil, TurnPolicy{Channel: channel})
-	if err == nil || !strings.Contains(err.Error(), "requires that extension") {
+	if err == nil || !strings.Contains(err.Error(), "requires enabled: true") {
 		t.Fatalf("missing extension error = %v", err)
 	}
 	if env := Environment([]string{TurnChannelEnvironment + "=secret"}, "/home", "horizon", "read"); len(env) != 3 {
@@ -43,7 +43,7 @@ func TestCommunicationPermissionIsIndependentOfFileAccess(t *testing.T) {
 	}
 	_, err := PrepareForTurn(context.Background(), t.TempDir(), session.Workspace{}, "read", []string{"telegram"}, true, nil,
 		TurnPolicy{Channel: &TurnChannel{Extension: "telegram", Route: "-10"}, Communication: []string{"other"}})
-	if err == nil || !strings.Contains(err.Error(), "agent_communication") {
+	if err == nil || !strings.Contains(err.Error(), "communication") {
 		t.Fatalf("ungranted route error = %v", err)
 	}
 }

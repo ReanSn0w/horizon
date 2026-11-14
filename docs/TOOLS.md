@@ -132,7 +132,7 @@ stdout/stderr с предыдущего успешного получения р
 
 ## Встроенная память и инструменты расширений агента
 
-Явно включённые `agent_plugins` добавляют `<plugin>__<tool>` в тот же реестр
+Включённые через `extensions.<name>.enabled` расширения добавляют `<plugin>__<tool>` в тот же реестр
 определений, валидации аргументов и исполнения. Вызовы сохраняются существующим
 журналом pending/known/unknown; ошибка записи pending не позволяет запуск,
 ошибка сохранения результата останавливает ход. Полная ограниченная диагностика
@@ -141,7 +141,7 @@ JSON-результатом инструмента и не печатается 
 
 Инструменты объявляют эффект `read`, `write_home`, `write_workspace`,
 `unrestricted` или `communicate`. Коммуникация требует отдельного разрешения
-в `agent_communication` при любом файловом доступе. Полная матрица приведена
+через `extensions.<name>.communication` при любом файловом доступе. Полная матрица приведена
 в [протоколе расширений](PLUGINS.md#расширения-агента-версии-1-и-2).
 Запрещённая операция получает access_denied до запуска процесса. Доверенный
 плагин запускается напрямую, без decision; shell_exec сохраняет прежнюю проверку.
@@ -193,7 +193,7 @@ Browser предоставляет `browser__navigate` с `{"url":"https://examp
 ## Subagent
 
 Install with `horizon manager plugins install subagent`, start daemon explicitly,
-and add `subagent` to `agent_plugins`. `horizon subagent status` checks connectivity.
+which enables `extensions.subagent.enabled` on first installation. `horizon subagent status` checks connectivity.
 The `subagent__spawn/list/read/send/wait/cancel` tools manage separate child sessions
 in the shared workspace. Messages queue for the next turn; read access only permits
 reading and waiting. An unavailable explicitly enabled daemon fails preparation.

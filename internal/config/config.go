@@ -21,6 +21,7 @@ const (
 )
 
 type Config struct {
+	Extensions         map[string]ExtensionSettings
 	Installation       *Installation
 	AgentCommunication []string
 	AgentPlugins       []string
@@ -69,6 +70,7 @@ type Limits struct {
 }
 
 type rawConfig struct {
+	Extensions         ExtensionMap         `yaml:"extensions"`
 	Installation       *Installation        `yaml:"installation"`
 	AgentCommunication []string             `yaml:"agent_communication"`
 	AgentPlugins       []string             `yaml:"agent_plugins"`
@@ -154,6 +156,17 @@ func Load(home string) (Config, error) {
 }
 
 func validate(raw rawConfig) (Config, error) {
+	if len(raw.Extensions) > 0 && (len(raw.AgentPlugins) > 0 || len(raw.AgentCommunication) > 0) {
+		return Config{}, errors.New("extensions conflicts with legacy agent_plugins/agent_communication")
+	}
+	if raw.Extensions != nil && len(raw.AgentPlugins) == 0 && len(raw.AgentCommunication) == 0 {
+		var err error
+		raw.AgentPlugins, raw.AgentCommunication, err = extensionLists(raw.Extensions)
+		if err != nil {
+			return Config{}, err
+		}
+	}
+
 	if raw.Installation != nil {
 		if err := raw.Installation.Source.Validate(); err != nil {
 			return Config{}, err
@@ -256,6 +269,7 @@ func validate(raw rawConfig) (Config, error) {
 	}
 	return Config{
 		Installation:       raw.Installation,
+		Extensions:         raw.Extensions,
 		Plugins:            raw.Plugins,
 		AgentPlugins:       agentPlugins,
 		AgentCommunication: raw.AgentCommunication,

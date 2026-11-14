@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 
 	"github.com/ReanSn0w/horizon/internal/config"
+	"gopkg.in/yaml.v3"
 )
 
 // The selected checkout, not the running bootstrap manager, owns core defaults.
@@ -45,6 +46,15 @@ func prepareCoreConfig(home, stage, source string, fresh, agentSupervisor bool) 
 	if _, err = config.MigrateMemory(stage); err != nil {
 		return fmt.Errorf("migrate memory configuration: %w", err)
 	}
+	modern, err := extensionTemplate(template)
+	if err != nil {
+		return err
+	}
+	if modern {
+		if _, err = config.MigrateExtensions(stage); err != nil {
+			return fmt.Errorf("migrate extensions: %w", err)
+		}
+	}
 	if _, err = config.MergeCoreTemplate(stage, template); err != nil {
 		return fmt.Errorf("update core configuration: %w", err)
 	}
@@ -61,4 +71,13 @@ func configurationChanged(home, stage string) (bool, error) {
 		return false, err
 	}
 	return !bytes.Equal(before, after), nil
+}
+
+func extensionTemplate(data []byte) (bool, error) {
+	var doc map[string]yaml.Node
+	if err := yaml.Unmarshal(data, &doc); err != nil {
+		return false, err
+	}
+	_, ok := doc["extensions"]
+	return ok, nil
 }

@@ -25,6 +25,7 @@ var ErrMetadataTimeout = errors.New("metadata command timed out")
 var validName = regexp.MustCompile(`^[a-z][a-z0-9-]*$`)
 
 type Metadata struct {
+	DefaultCommunication  bool   `json:"default_communication,omitempty"`
 	ProtocolVersion       int    `json:"protocol_version"`
 	AgentProtocolVersion  int    `json:"agent_protocol_version,omitempty"`
 	ConfigProtocolVersion int    `json:"config_protocol_version,omitempty"`
@@ -190,6 +191,9 @@ func readMetadata(path, home string, timeout time.Duration) (Metadata, error) {
 	var metadata Metadata
 	if err := json.Unmarshal(stdout.buffer.Bytes(), &metadata); err != nil {
 		return Metadata{}, fmt.Errorf("invalid metadata fields: %w", err)
+	}
+	if metadata.DefaultCommunication && metadata.AgentProtocolVersion != ChannelProtocolVersion {
+		return Metadata{}, fmt.Errorf("default_communication requires agent protocol %d", ChannelProtocolVersion)
 	}
 	if metadata.ProtocolVersion != 1 {
 		return Metadata{}, fmt.Errorf("unsupported protocol version %d", metadata.ProtocolVersion)

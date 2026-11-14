@@ -198,7 +198,7 @@ func (e *Engine) execute(ctx context.Context, o Options, in io.Reader, out io.Wr
 	if err = config.WriteInstallation(stage, config.Installation{Source: source}); err != nil {
 		return err
 	}
-	state := State{Version: stateVersion, Commit: commit, Ref: ref, Source: source, Plugins: names}
+	state := State{Version: stateVersion, Commit: commit, Ref: ref, Source: source, Plugins: names, ConfiguredPlugins: configuredPlugins(old.ConfiguredPlugins, old.Plugins, names)}
 	if err = writeJSON(filepath.Join(stage, ".manager", "state.json"), state); err != nil {
 		return err
 	}

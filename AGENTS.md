@@ -109,9 +109,9 @@ HORIZON_API_CHECK=1 go test ./internal/responses -run TestConfiguredEndpointComp
   плагина сохраняй протокол из `docs/PLUGINS.md`.
 - Настройки плагинов находятся в `plugins.<имя>` в config.yaml и проверяются
   самим плагином. `decision_model` выбирает профиль проверки из общей карты `models`.
-  `agent_plugins` явно включает установленные расширения агента; по умолчанию
-  список пуст. Контракт описан в `docs/PLUGINS.md`. Встроенная memory управляется
-  верхнеуровневой секцией `memory` и не входит в `agent_plugins`.
+  `extensions.<имя>.enabled` включает расширения модели; по умолчанию карта
+  пуста, порядок подключения алфавитный. Контракт описан в `docs/PLUGINS.md`. Встроенная memory управляется
+  верхнеуровневой секцией `memory` и не входит в `extensions`.
 - Внешняя команда возвращает собственный код выхода; Horizon сохраняет его.
   Исполняемые файлы запускаются с правами пользователя ОС, включая запрос
   метаданных для справки или перед запуском.
@@ -286,7 +286,11 @@ HORIZON_API_CHECK=1 go test ./internal/responses -run TestConfiguredEndpointComp
   а настройки плагинов — из шаблонов собранных бинарников. Подготовка идёт в staging;
   конфиг применяется в общей транзакции с rollback, сохраняет symlink и права.
   Неизменившийся файл не перезаписывается. Не добавляй примеры моделей/провайдеров
-  в существующие именованные карты и не включай память или расширения без согласия.
+  в существующие именованные карты. Первая явная установка плагина включает
+  расширение (`extensions.<имя>.enabled`) или input (`plugins.agent.adapters`);
+  `default_communication` в metadata v2 задаёт первоначальный communication.
+  Обновления и повторные установки сохраняют отключения; память не включается.
+  Старые agent_plugins/agent_communication мигрируют в extensions без новых разрешений.
   Отсутствующая memory сохраняет смысл «выключена», memory.model по умолчанию
   следует пользовательскому default_model. Неизвестные поля не удаляются молча.
 
@@ -297,14 +301,14 @@ HORIZON_API_CHECK=1 go test ./internal/responses -run TestConfiguredEndpointComp
 - `agent-*` — отдельный протокол адаптеров, только явное включение. Manager использует `agent:NAME`, отдельно от CLI `NAME`.
 - Работающая задача после аварии становится unknown без автоматического повторения; daemon не пишет напрямую в JSON-сессии и не убивает восстановленные PID.
 - Telegram принимает вход через `agent-telegram` и отправляет только явные
-  вызовы `telegram__send_message`. Разрешение `agent_communication` действует
+  вызовы `telegram__send_message`. Разрешение `extensions.telegram.communication` действует
   отдельно от файлового access. Маршрут задаёт daemon, обычный автономный ход
   обращается к личке владельца. Секрет хранится в `plugins.telegram`.
 - Перед миграцией Telegram останавливаются прежний polling и daemon. Очередь
   импортируется без записи в JSON сессий. Старые неизвестные отправки разбираются
   по журналу и истории Telegram.
 
-- `plugins/subagent` is a short-lived daemon client enabled via `agent_plugins`; it never starts daemon or Horizon itself. See `docs/SUBAGENT.md`.
+- `plugins/subagent` is a short-lived daemon client enabled via `extensions.subagent.enabled`; it never starts daemon or Horizon itself. See `docs/SUBAGENT.md`.
 - spawn/send/cancel use write_home; list/read/wait use read. Host context must not come from model arguments. Query by operation_id after outcome_unknown before retrying.
 
 

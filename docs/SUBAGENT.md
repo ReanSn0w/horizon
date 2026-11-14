@@ -5,7 +5,7 @@ process itself. Children run normal Horizon turns in separate sessions, in the
 parent's workspace. They receive an explicit task, not a copy of parent history.
 Files are shared: there is no automatic worktree, merge, sandbox or live steering.
 
-Enable with `agent_plugins: [subagent]` after installing daemon and subagent.
+Enable with `extensions.subagent.enabled: true` after installing the supervisor and subagent.
 Start daemon explicitly. An enabled but unavailable/incompatible daemon fails
 preparation, as for other broken explicit extensions; it is never started by
 metadata, describe, context, compact or help. Disabled extensions do not connect.
@@ -61,6 +61,6 @@ horizon agent start
 horizon subagent status
 ```
 
-Add `subagent` to the existing `agent_plugins` list in config.yaml. Installation
-never enables it automatically. `make install-subagent` is available for local
+First installation enables `extensions.subagent.enabled`. Updates and reinstalls
+preserve explicit disabling; use `enabled: false` to disconnect the extension. `make install-subagent` is available for local
 development. Use an isolated temporary home for tests. Stop daemon before updates.

@@ -32,7 +32,7 @@ func run(ctx context.Context, args []string, in io.Reader, out, diag io.Writer) 
 	if !strings.HasPrefix(args[0], "horizon-plugin-") {
 		parser := flags.NewParser(&struct{}{}, flags.HelpFlag|flags.PassDoubleDash)
 		parser.Name = "horizon subagent"
-		parser.LongDescription = "Install and start the agent supervisor, then enable agent_plugins: [subagent]. Children share the parent's workspace."
+		parser.LongDescription = "Install and start the agent supervisor, then enable extensions.subagent.enabled. Children share the parent's workspace."
 		parser.AddCommand("status", "Check supervisor connectivity", "Check the local supervisor without a model request.", &struct{}{})
 		remaining, err := parser.ParseArgs(args)
 		if err != nil {

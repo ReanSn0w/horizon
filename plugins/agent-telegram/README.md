@@ -7,11 +7,14 @@
 и сессии. Миграция группы в супергруппу сохраняет эту привязку.
 
 Установите `agent`, `telegram` и `agent:telegram` через
-`horizon manager plugins install <имя>`. В `config.yaml`:
+`horizon manager plugins install <имя>`. При первой установке manager включает
+расширение и input; токен и владельца заполните в `config.yaml`:
 
 ```yaml
-agent_plugins: [telegram]
-agent_communication: [telegram]
+extensions:
+  telegram:
+    enabled: true
+    communication: true
 plugins:
   telegram:
     bot_token: ""

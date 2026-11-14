@@ -43,5 +43,5 @@ func validateTurnChannel(channel *TurnChannel, names []string) error {
 			return nil
 		}
 	}
-	return fmt.Errorf("host channel %s requires that extension in agent_plugins", channel.Extension)
+	return fmt.Errorf("host channel %s requires enabled: true in its extensions entry", channel.Extension)
 }

@@ -465,7 +465,7 @@ func convertLegacyConfig(ctx context.Context, home, path, oldHash, key string, b
 			if existing != nil && adapter != nil && decodeSection(*existing, &current) == nil && current == bot {
 				var currentSettings AdapterSettings
 				if decodeSection(*adapter, &currentSettings) == nil && reflect.DeepEqual(currentSettings, settings) &&
-					hasYAML(root, "agent_plugins", "telegram") && hasYAML(root, "agent_communication", "telegram") &&
+					telegramExtensionEnabled(root) &&
 					hasYAML(yamlKey(p, "agent"), "adapters", "telegram") {
 					return false, nil
 				}
@@ -488,12 +488,19 @@ func convertLegacyConfig(ctx context.Context, home, path, oldHash, key string, b
 		}
 		setYAML(p, "telegram", botNode)
 		setYAML(p, "agent-telegram", adapterNode)
-		if err := appendYAML(root, "agent_plugins", "telegram"); err != nil {
+		if _, err := config.MigrateExtensionsDocument(doc); err != nil {
 			return false, err
 		}
-		if err := appendYAML(root, "agent_communication", "telegram"); err != nil {
+		extensions := yamlKey(root, "extensions")
+		if extensions == nil {
+			extensions = &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
+			setYAML(root, "extensions", extensions)
+		}
+		value := &yaml.Node{}
+		if err := value.Encode(config.ExtensionSettings{Enabled: true, Communication: true}); err != nil {
 			return false, err
 		}
+		setYAML(extensions, "telegram", value)
 		d := yamlKey(p, "agent")
 		if legacy := yamlKey(p, "daemon"); legacy != nil {
 			if d != nil {
@@ -587,4 +594,13 @@ func encodeLegacyInput(chatID int64, message Entry, recent []Entry) (string, err
 		}
 		value.Recent = value.Recent[1:]
 	}
+}
+
+func telegramExtensionEnabled(root *yaml.Node) bool {
+	n := yamlKey(yamlKey(root, "extensions"), "telegram")
+	if n != nil {
+		var s config.ExtensionSettings
+		return n.Decode(&s) == nil && s.Enabled && s.Communication
+	}
+	return hasYAML(root, "agent_plugins", "telegram") && hasYAML(root, "agent_communication", "telegram")
 }

@@ -93,8 +93,8 @@ func TestInstallTimerAdapterAndPreserveUserSkill(t *testing.T) {
 		t.Fatalf("managed state: %+v %v", state, err)
 	}
 	enabled, err := enabledPlugins(home)
-	if err != nil || slices.Contains(enabled, "agent:timer") {
-		t.Fatalf("installation enabled timer unexpectedly: %v %v", enabled, err)
+	if err != nil || !slices.Contains(enabled, "agent:timer") {
+		t.Fatalf("installation did not enable timer: %v %v", enabled, err)
 	}
 	data, err = os.ReadFile(configFile)
 	if err != nil || !strings.Contains(string(data), "agent-timer:") || !strings.Contains(string(data), "reload_interval: 30s") {
