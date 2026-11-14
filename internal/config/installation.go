@@ -1,7 +1,9 @@
 package config
 
 import (
+	"bytes"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -33,17 +35,42 @@ func (s Source) Validate() error {
 	return nil
 }
 func ReadInstallation(home string) (Installation, error) {
-	raw, _, err := readConfig(filepath.Join(home, "config.yaml"))
+	data, err := os.ReadFile(filepath.Join(home, "config.yaml"))
 	if os.IsNotExist(err) {
 		return Installation{Source: Source{Type: "release"}}, nil
 	}
 	if err != nil {
 		return Installation{}, err
 	}
-	if raw.Installation == nil {
+	// Bootstrap reads only the source selector. The selected manager owns
+	// validation and migration of the rest of the configuration.
+	var document map[string]yaml.Node
+	decoder := yaml.NewDecoder(bytes.NewReader(data))
+	if err := decoder.Decode(&document); err != nil {
+		return Installation{}, err
+	}
+	if document == nil {
+		return Installation{}, errors.New("configuration must be a YAML mapping")
+	}
+	var extra yaml.Node
+	if err := decoder.Decode(&extra); !errors.Is(err, io.EOF) {
+		return Installation{}, errors.New("configuration must contain exactly one YAML document")
+	}
+	node, exists := document["installation"]
+	if !exists || node.Tag == "!!null" {
 		return Installation{Source: Source{Type: "release"}}, nil
 	}
-	return *raw.Installation, raw.Installation.Source.Validate()
+	encoded, err := yaml.Marshal(&node)
+	if err != nil {
+		return Installation{}, err
+	}
+	var result Installation
+	selector := yaml.NewDecoder(bytes.NewReader(encoded))
+	selector.KnownFields(true)
+	if err := selector.Decode(&result); err != nil {
+		return Installation{}, err
+	}
+	return result, result.Source.Validate()
 }
 func WriteInstallation(home string, value Installation) error {
 	if err := value.Source.Validate(); err != nil {

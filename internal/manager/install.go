@@ -77,12 +77,12 @@ func (e *Engine) execute(ctx context.Context, o Options, in io.Reader, out io.Wr
 			return err
 		}
 	}
-	unlock, err := maintenance.Lock(filepath.Join(o.Home, ".manager", "operation.lock"), true)
+	operationLock, unlock, err := maintenance.LockHandle(filepath.Join(o.Home, ".manager", "operation.lock"), true)
 	if err != nil {
 		return err
 	}
 	defer unlock()
-	release, err := maintenance.Acquire(o.Home, o.Command != "plugins list")
+	maintenanceLock, release, err := maintenance.LockHandle(filepath.Join(o.Home, ".manager", "maintenance.lock"), o.Command != "plugins list")
 	if err != nil {
 		return err
 	}
@@ -146,7 +146,26 @@ func (e *Engine) execute(ctx context.Context, o Options, in io.Reader, out io.Wr
 	if o.Source != nil {
 		source = *o.Source
 	}
-	commit, ref, catalog, err := e.prepare(ctx, stage, source)
+	commit, ref, err := e.prepareSource(ctx, stage, source)
+	if err != nil {
+		return err
+	}
+	if o.Command == "update" {
+		prepared := preparedUpdate{Version: 1, Options: o, Stage: stage, Commit: commit, Ref: ref, Source: source, Repository: e.repository}
+		if err := e.buildBinary(ctx, filepath.Join(stage, "source"), "./plugins/manager", filepath.Join(stage, "horizon-manager-next")); err != nil {
+			return fmt.Errorf("build update manager: %w", err)
+		}
+		fmt.Fprintf(out, "Continuing update with manager from %s\n", commit)
+		if e.handoff != nil {
+			return e.handoff(ctx, prepared, []*os.File{operationLock, maintenanceLock}, in, out)
+		}
+		return launchPrepared(ctx, prepared, []*os.File{operationLock, maintenanceLock}, in, out)
+	}
+	return e.installPrepared(ctx, o, old, installed, stage, source, commit, ref, out)
+}
+
+func (e *Engine) installPrepared(ctx context.Context, o Options, old State, installed bool, stage string, source config.Source, commit, ref string, out io.Writer) error {
+	catalog, err := Catalog(filepath.Join(stage, "source"))
 	if err != nil {
 		return err
 	}
@@ -272,7 +291,13 @@ func (e *Engine) buildSet(ctx context.Context, source, stage string, catalog map
 	for _, name := range append([]string{"manager"}, names...) {
 		p := catalog[name]
 		path := filepath.Join(stage, "bin", p.Binary)
-		if err := e.buildBinary(ctx, source, p.Package, path); err != nil {
+		next := filepath.Join(stage, "horizon-manager-next")
+		if _, err := os.Stat(next); name == "manager" && err == nil {
+			// Deploy the exact manager which is performing this update.
+			if err := copyPrivate(next, path); err != nil {
+				return err
+			}
+		} else if err := e.buildBinary(ctx, source, p.Package, path); err != nil {
 			return err
 		}
 		if err := inspectManaged(stage, name); err != nil {

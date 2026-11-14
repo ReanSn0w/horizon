@@ -46,11 +46,8 @@ func acquire(home string, exclusive, create bool) (func(), error) {
 	return flock(f, false)
 }
 func Lock(path string, exclusive bool) (func(), error) {
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0600)
-	if err != nil {
-		return nil, err
-	}
-	return flock(f, exclusive)
+	_, release, err := LockHandle(path, exclusive)
+	return release, err
 }
 
 func flock(f *os.File, exclusive bool) (func(), error) {
@@ -66,4 +63,18 @@ func flock(f *os.File, exclusive bool) (func(), error) {
 		return nil, err
 	}
 	return func() { _ = syscall.Flock(int(f.Fd()), syscall.LOCK_UN); _ = f.Close() }, nil
+}
+
+// LockHandle exposes the locked descriptor for inheritance by a maintenance
+// subprocess. The caller retains the lock until that subprocess has exited.
+func LockHandle(path string, exclusive bool) (*os.File, func(), error) {
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0600)
+	if err != nil {
+		return nil, nil, err
+	}
+	release, err := flock(f, exclusive)
+	if err != nil {
+		return nil, nil, err
+	}
+	return f, release, nil
 }

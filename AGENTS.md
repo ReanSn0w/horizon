@@ -279,6 +279,14 @@ HORIZON_API_CHECK=1 go test ./internal/responses -run TestConfiguredEndpointComp
 - Home содержит `bin`, `source`, `.manager`, `dialogs`, `memory/workspaces`, навыки и начальные файлы. `horizon init` удалён.
 - `installation.source` выбирает release или branch; установленный commit и набор плагинов сохраняются отдельно в `.manager/state.json`.
 - Обновление собирает один commit, проверяет метаданные, заменяет набор с журналом и rollback. Source с локальными изменениями не перезаписывается.
+- `update` сначала собирает `plugins/manager` из закреплённого checkout и передаёт
+  ему продолжение по `manager-continue-update-v1`. Только свежий manager читает
+  каталог/полный конфиг, собирает остальные бинарники и выполняет транзакцию.
+  Родитель сохраняет обе блокировки до выхода дочернего процесса и передаёт
+  их через ExtraFiles; не вводи окно unlock/relock и повторный fetch.
+  Bootstrap читает только installation.source; неизвестные поля остального
+  конфига проверяет выбранная ревизия. Установленный manager меняется общей
+  транзакцией. Неподдерживаемый протокол не допускает fallback на старую логику.
 - Рабочие команды удерживают shared maintenance lock, manager — exclusive. Родительский `horizon manager`, metadata и config-template не должны мешать обслуживанию.
 - Тестируй manager на временных home, локальных Git fixtures и HTTP-серверах. Не меняй пользовательский home и shell-настройки. Вся настройка shell — только печатные команды.
 

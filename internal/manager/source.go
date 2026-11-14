@@ -25,6 +25,7 @@ type Engine struct {
 	http                   *http.Client
 	build                  func(context.Context, string, string, string) error
 	afterReplace           func(int) error
+	handoff                func(context.Context, preparedUpdate, []*os.File, io.Reader, io.Writer) error
 }
 
 func engine() *Engine {
@@ -139,38 +140,42 @@ func (e *Engine) checkCheckout(ctx context.Context, path, expectedCommit string)
 	return nil
 }
 func (e *Engine) prepare(ctx context.Context, staging string, source config.Source) (string, string, map[string]Plugin, error) {
-	ref, err := e.resolveRef(ctx, source)
+	commit, ref, err := e.prepareSource(ctx, staging, source)
 	if err != nil {
 		return "", "", nil, err
+	}
+	catalog, err := Catalog(filepath.Join(staging, "source"))
+	return commit, ref, catalog, err
+}
+func (e *Engine) prepareSource(ctx context.Context, staging string, source config.Source) (string, string, error) {
+	ref, err := e.resolveRef(ctx, source)
+	if err != nil {
+		return "", "", err
 	}
 	dest := filepath.Join(staging, "source")
 	if err = os.Mkdir(dest, 0700); err != nil {
-		return "", "", nil, err
+		return "", "", err
 	}
 	if _, err = command(ctx, "", "git", "init", "--quiet", dest); err != nil {
-		return "", "", nil, err
+		return "", "", err
 	}
 	if _, err = command(ctx, dest, "git", "remote", "add", "origin", e.repository); err != nil {
-		return "", "", nil, err
+		return "", "", err
 	}
 	if _, err = command(ctx, dest, "git", "fetch", "--depth=1", "origin", ref); err != nil {
-		return "", "", nil, err
+		return "", "", err
 	}
 	commit, err := command(ctx, dest, "git", "rev-parse", "FETCH_HEAD^{commit}")
 	if err != nil || !commitPattern.MatchString(commit) {
-		return "", "", nil, fmt.Errorf("cannot resolve source commit")
+		return "", "", fmt.Errorf("cannot resolve source commit")
 	}
 	if _, err = command(ctx, dest, "git", "checkout", "--quiet", "--detach", commit); err != nil {
-		return "", "", nil, err
-	}
-	catalog, err := Catalog(dest)
-	if err != nil {
-		return "", "", nil, err
+		return "", "", err
 	}
 	if err = checkGoVersion(ctx, dest); err != nil {
-		return "", "", nil, err
+		return "", "", err
 	}
-	return commit, ref, catalog, nil
+	return commit, ref, nil
 }
 func versionParts(s string) ([3]int, error) {
 	var v [3]int

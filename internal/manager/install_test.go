@@ -15,6 +15,13 @@ func fixtureEngine(t *testing.T) *Engine {
 	t.Helper()
 	e := engine()
 	e.repository = fixtureRepo(t)
+	e.handoff = func(ctx context.Context, p preparedUpdate, locks []*os.File, in io.Reader, out io.Writer) error {
+		old, err := ReadState(p.Options.Home)
+		if err != nil {
+			return err
+		}
+		return e.installPrepared(ctx, p.Options, old, true, p.Stage, p.Source, p.Commit, p.Ref, out)
+	}
 	e.build = func(_ context.Context, _, pkg, path string) error {
 		return os.WriteFile(path, []byte("#!/bin/sh\nprintf '%s\\n' '{\"protocol_version\":1,\"version\":\"test\",\"description\":\"test plugin\"}'\n"), 0700)
 	}

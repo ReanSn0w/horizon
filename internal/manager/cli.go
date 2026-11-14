@@ -98,6 +98,16 @@ func Parse(args []string) (Options, error) {
 	return o, err
 }
 func Run(ctx context.Context, args []string, in io.Reader, out, diag io.Writer, execute func(context.Context, Options, io.Reader, io.Writer) error) int {
+	if len(args) == 2 && args[0] == continueUpdate {
+		if err := resumePrepared(ctx, args[1], out); err != nil {
+			fmt.Fprintln(diag, "manager:", err)
+			if ctx.Err() != nil {
+				return 130
+			}
+			return 1
+		}
+		return 0
+	}
 	if len(args) == 1 && args[0] == "horizon-plugin-metadata" {
 		if err := json.NewEncoder(out).Encode(plugins.Metadata{ProtocolVersion: 1, Version: buildinfo.Version, Description: "Install and maintain Horizon from source"}); err != nil {
 			return 1

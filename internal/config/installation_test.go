@@ -63,3 +63,29 @@ func TestWriteInstallationPreservesSourceCommentsAndNoOp(t *testing.T) {
 		}
 	}
 }
+
+func TestInstallationSelectorDoesNotDecodeFutureCoreFields(t *testing.T) {
+	home := t.TempDir()
+	data := "unknown_future_setting: {version: 99}\ninstallation:\n  source:\n    type: branch\n    branch: next\n"
+	if err := os.WriteFile(filepath.Join(home, "config.yaml"), []byte(data), 0600); err != nil {
+		t.Fatal(err)
+	}
+	got, err := ReadInstallation(home)
+	if err != nil || got.Source.Branch != "next" {
+		t.Fatal(got, err)
+	}
+}
+
+func TestInstallationSelectorRejectsMalformedSource(t *testing.T) {
+	for _, data := range []string{"null", "[]", "{}\n---\n{}", "installation: {source: {type: branch, branch: main, typo: true}}", "installation: {source: {type: release, branch: main}}", "installation: {source: {type: other}}"} {
+		t.Run(data, func(t *testing.T) {
+			home := t.TempDir()
+			if err := os.WriteFile(filepath.Join(home, "config.yaml"), []byte(data), 0600); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := ReadInstallation(home); err == nil {
+				t.Fatal("accepted invalid source", data)
+			}
+		})
+	}
+}

@@ -138,10 +138,12 @@ func TestBuildFailureAndDisappearingPluginLeaveInstallation(t *testing.T) {
 		t.Fatal(err)
 	}
 	before, _ := os.ReadFile(filepath.Join(home, ".manager/state.json"))
+	originalBuild := e.build
 	e.build = func(context.Context, string, string, string) error { return errors.New("build error") }
 	if err := runOperation(e, home, "update", ""); err == nil {
 		t.Fatal("build failure ignored")
 	}
+	e.build = originalBuild
 	os.Remove(filepath.Join(e.repository, "plugins/browser/plugin.json"))
 	commitFixture(t, e.repository)
 	if err := runOperation(e, home, "update", ""); err == nil || !strings.Contains(err.Error(), "browser") {
