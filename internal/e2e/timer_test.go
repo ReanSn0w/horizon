@@ -15,6 +15,8 @@ import (
 	"time"
 
 	"github.com/ReanSn0w/horizon/internal/daemon"
+	"github.com/ReanSn0w/horizon/internal/responses"
+	"github.com/ReanSn0w/horizon/internal/session"
 	"github.com/ReanSn0w/horizon/internal/timer"
 )
 
@@ -43,6 +45,7 @@ func installAgentCLI(t *testing.T, home string) {
 func TestAgentTimerValidateOffline(t *testing.T) {
 	binary := buildBinary(t)
 	home, workspace := t.TempDir(), t.TempDir()
+	workspace, _ = filepath.EvalSymlinks(workspace)
 	installTimer(t, home)
 	installAgentCLI(t, home)
 	var requests atomic.Int32
@@ -70,11 +73,11 @@ func TestAgentTimerValidateOffline(t *testing.T) {
 	}
 	out, diag, err := run(binary, workspace, "unused input", "--home", home, "agent", "timer", "validate")
 	if exit, ok := err.(*exec.ExitError); !ok || exit.ExitCode() != 1 ||
-		out != "good: valid (disabled)\n" || !strings.Contains(diag, "bad:") {
+		out != "good: valid (disabled); workspace="+workspace+"\n" || !strings.Contains(diag, "bad:") {
 		t.Fatalf("validate: stdout=%q stderr=%q err=%v", out, diag, err)
 	}
 	out, diag, err = run(binary, workspace, "", "--home", home, "agent", "timer", "validate", "good")
-	if err != nil || out != "good: valid (disabled)\n" || diag != "" {
+	if err != nil || out != "good: valid (disabled); workspace="+workspace+"\n" || diag != "" {
 		t.Fatalf("validate good: stdout=%q stderr=%q err=%v", out, diag, err)
 	}
 	out, diag, err = run(binary, workspace, "", "--home", home, "agent", "timer", "--help")
@@ -147,17 +150,39 @@ printf '%s\n' '{"protocol_version":1,"version":"test","description":"test","capa
 }
 
 func TestAgentTimerRunsHorizonThroughDaemon(t *testing.T) {
-	home, workspace := daemonHome(t), t.TempDir()
+	home := daemonHome(t)
+	workspace := filepath.Join(home, "workspace", "reports")
 	installTestBinary(t, buildBinary(t), filepath.Join(home, "bin", "horizon"))
 	installTimer(t, home)
 	var calls atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch calls.Add(1) {
+		var req responses.Request
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Error(err)
+			return
+		}
+		step := calls.Add(1)
+		switch step {
 		case 1:
-			tool := json.RawMessage(`{"type":"function_call","call_id":"persist","name":"shell_exec","arguments":"{\"command\":\"printf 'scheduled' > timer-marker\",\"timeout_ms\":null,\"max_output_chars\":null}"}`)
-			writeCompleted(w, 1, []json.RawMessage{tool})
+			writeCompleted(w, int(step), []json.RawMessage{napTool(t, "persist", "shell_exec", map[string]any{
+				"command":    "printf 'scheduled' > timer-marker; printf 'persistent-note-42' > notes.md; printf 'workspace-rule-42: read notes.md' > AGENTS.md",
+				"timeout_ms": nil, "max_output_chars": nil,
+			})})
+		case 3:
+			if !strings.Contains(req.Instructions, "workspace-rule-42") || strings.Contains(req.Instructions, "persistent-note-42") {
+				t.Error("next turn must load AGENTS.md, but not automatically load notes.md")
+			}
+			writeCompleted(w, int(step), []json.RawMessage{napTool(t, "notes", "shell_exec", map[string]any{
+				"command": "cat notes.md", "timeout_ms": nil, "max_output_chars": nil,
+			})})
 		default:
-			writeCompleted(w, 2, message("scheduled result"))
+			if step == 4 {
+				data, _ := json.Marshal(req.Input)
+				if !strings.Contains(string(data), "persistent-note-42") {
+					t.Error("notes were not read on next run")
+				}
+			}
+			writeCompleted(w, int(step), message("scheduled result"))
 		}
 	}))
 	defer server.Close()
@@ -201,7 +226,7 @@ func TestAgentTimerRunsHorizonThroughDaemon(t *testing.T) {
 	// slot about four seconds away, without adding a short-period production knob.
 	target := time.Now().Add(4 * time.Second).UnixNano()
 	interval := target / (target / int64(2*time.Minute))
-	definition := fmt.Sprintf("---\nname: Reports\ndescription: Update state\nworkspace: %q\nschedule:\n  every: %dns\n  timezone: UTC\n---\nUpdate workspace state.\n", workspace, interval)
+	definition := fmt.Sprintf("---\nname: Reports\ndescription: Update state\nschedule:\n  every: %dns\n  timezone: UTC\n---\nUpdate workspace state.\n", interval)
 	dir := filepath.Join(home, "timers")
 	if err := os.Mkdir(dir, 0700); err != nil {
 		t.Fatal(err)
@@ -238,5 +263,34 @@ func TestAgentTimerRunsHorizonThroughDaemon(t *testing.T) {
 	task := stored.Tasks[taskID]
 	if task.Session == "" || task.Route != "" || task.Channel || task.Mode != daemon.FreshTask || task.Result != "scheduled result" {
 		t.Fatalf("unexpected timer task: %+v", task)
+	}
+	secondID, err := timer.RunNow(ctx, home, "reports")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var second daemon.Task
+	waitUntil(func() bool {
+		data, err := os.ReadFile(filepath.Join(home, "daemon", "state.json"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := json.Unmarshal(data, &stored); err != nil {
+			t.Fatal(err)
+		}
+		second = stored.Tasks[secondID]
+		return second.State == "succeeded"
+	})
+	if second.Session == "" || second.Session == task.Session || second.Workspace != task.Workspace || calls.Load() != 4 {
+		t.Fatalf("runs did not share workspace with distinct sessions: first=%+v second=%+v calls=%d", task, second, calls.Load())
+	}
+	store := session.NewStore(home)
+	for _, run := range []daemon.Task{task, second} {
+		value, err := store.ReadByID(run.Session)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if value.Timer == nil || value.Timer.TimerID != "reports" || value.Timer.TaskID != run.ID {
+			t.Fatalf("wrong provenance: %+v", value.Timer)
+		}
 	}
 }

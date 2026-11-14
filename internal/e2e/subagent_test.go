@@ -44,6 +44,8 @@ func TestBuiltSubagentModelDelegation(t *testing.T) {
 		parent := false
 		childID := ""
 		complete := false
+		childReady := false
+		var eventCursor uint64
 		for _, item := range req.Input {
 			var value struct {
 				Role    string          `json:"role"`
@@ -71,6 +73,22 @@ func TestBuiltSubagentModelDelegation(t *testing.T) {
 					json.Unmarshal(output.Data, &child)
 					childID = child.ID
 				}
+				if strings.HasPrefix(value.CallID, "wait-") {
+					var got struct {
+						Cursor uint64         `json:"cursor"`
+						Events []daemon.Event `json:"events"`
+					}
+					json.Unmarshal(output.Data, &got)
+					if got.Cursor > eventCursor {
+						eventCursor = got.Cursor
+					}
+					for _, event := range got.Events {
+						if event.TaskID == childID && event.State == "succeeded" {
+							childReady = true
+						}
+					}
+				}
+
 				if strings.HasPrefix(value.CallID, "read-") {
 					var got struct {
 						Task daemon.Task `json:"task"`
@@ -99,6 +117,14 @@ func TestBuiltSubagentModelDelegation(t *testing.T) {
 			id = fmt.Sprintf("read-%d", n)
 			args = map[string]any{"task_id": childID, "operation_id": "", "offset": 0}
 		}
+		// Wait for child events rather than consuming the model request budget
+		// with fast read polling while the child process is still starting.
+		if childID != "" && !childReady {
+			name = "subagent__wait"
+			id = fmt.Sprintf("wait-%d", n)
+			args = map[string]any{"cursor": eventCursor, "wait_ms": 10000}
+		}
+
 		a, _ := json.Marshal(args)
 		item, _ := json.Marshal(map[string]any{"type": "function_call", "call_id": id, "name": name, "arguments": string(a)})
 		writeCompleted(w, n, []json.RawMessage{item})

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"regexp"
 	"time"
 )
 
@@ -25,10 +26,27 @@ type Session struct {
 	Title          string              `json:"title"`
 	CreatedAt      time.Time           `json:"created_at"`
 	LastAccessedAt time.Time           `json:"last_accessed_at"`
+	Timer          *TimerOrigin        `json:"timer,omitempty"`
 	Fork           *ForkOrigin         `json:"fork,omitempty"`
 	Turns          []Turn              `json:"turns"`
 	Checkpoints    []ContextCheckpoint `json:"context_checkpoints,omitempty"`
 	Compactions    []Compaction        `json:"compactions,omitempty"`
+}
+
+// TimerOrigin identifies a diagnostic history created by a timer task.
+// It is provenance metadata, not authorization for any operation.
+type TimerOrigin struct {
+	TimerID string `json:"timer_id"`
+	TaskID  string `json:"task_id"`
+}
+
+var timerOriginID = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,63}$`)
+
+func (t TimerOrigin) Validate() error {
+	if !timerOriginID.MatchString(t.TimerID) || !validID(t.TaskID) {
+		return errors.New("timer origin requires a valid timer_id and task_id")
+	}
+	return nil
 }
 
 type ForkOrigin struct {
@@ -123,6 +141,11 @@ type Compaction struct {
 }
 
 func (s *Session) Validate() error {
+	if s.Timer != nil {
+		if err := s.Timer.Validate(); err != nil {
+			return err
+		}
+	}
 	if s.FormatVersion != FormatVersion {
 		return fmt.Errorf("unsupported session format version %d", s.FormatVersion)
 	}

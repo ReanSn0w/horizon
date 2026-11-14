@@ -281,6 +281,16 @@ func (r *runtime) submit(ctx context.Context, def Definition, slot Slot) {
 		r.finishRejected(def.ID, intent, "window_ended")
 		return
 	}
+	if err := prepareWorkspace(def); err != nil {
+		r.log.Printf("%s: workspace unavailable: %v", def.ID, err)
+		r.finishRejected(def.ID, intent, "workspace_unavailable")
+		return
+	}
+	now = r.now().Round(0)
+	if now.Before(slot.At) || now.Sub(slot.At) > slotTolerance || slot.Deadline != nil && !now.Before(*slot.Deadline) {
+		r.finishRejected(def.ID, intent, "window_elapsed_during_workspace_preparation")
+		return
+	}
 	data, err := r.requestAt(ctx, def.Workspace, daemon.Request{
 		Method: "submit", OperationID: intent.OperationID(def.ID), Mode: daemon.FreshTask,
 		SourceKey: def.ID, Deadline: slot.Deadline, Access: r.settings.Access, Message: def.Message,

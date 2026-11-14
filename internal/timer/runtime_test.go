@@ -353,3 +353,57 @@ func TestSchedulerDoesNotRevisitSlotsSkippedDuringSleep(t *testing.T) {
 		t.Fatal("timer did not resume at the next future slot")
 	}
 }
+
+func TestSchedulerCreatesDefaultWorkspaceOnlyForLiveSlot(t *testing.T) {
+	r, stub, now, _ := testRuntime(t)
+	body := "---\nname: Nap\ndescription: Job\nschedule:\n" + minutely + "\n---\nTask.\n"
+	putFile(t, r.home, "nap", body)
+	r.reload(*now)
+	def := r.timers["nap"].definition
+	if _, err := os.Stat(def.Workspace); !os.IsNotExist(err) {
+		t.Fatal("reload created workspace")
+	}
+	stale := Slot{At: now.Add(-time.Minute)}
+	r.submit(context.Background(), def, stale)
+	if _, err := os.Stat(def.Workspace); !os.IsNotExist(err) {
+		t.Fatal("stale slot created workspace")
+	}
+	live := Slot{At: *now}
+	r.submit(context.Background(), def, live)
+	info, err := os.Stat(def.Workspace)
+	if err != nil || info.Mode().Perm() != 0700 {
+		t.Fatal(info, err)
+	}
+	found := false
+	for _, req := range stub.submissions() {
+		if req.SourceKey == "nap" {
+			found = true
+			if req.Caller.Workspace != def.Workspace {
+				t.Fatal(req)
+			}
+		}
+	}
+	if !found {
+		t.Fatal("no nap submission")
+	}
+}
+
+func TestWorkspacePreparationFailureDoesNotSubmit(t *testing.T) {
+	r, stub, now, _ := testRuntime(t)
+	putFile(t, r.home, "nap", "---\nname: Nap\ndescription: Job\nschedule:\n"+minutely+"\n---\nTask.\n")
+	def, err := LoadFile(r.home, "nap")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(r.home, "workspace"), []byte("blocking file"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	r.submit(context.Background(), def, Slot{At: *now})
+	if len(stub.submissions()) != 0 {
+		t.Fatal("submitted despite invalid workspace")
+	}
+	record := timerRecord(t, r, "nap")
+	if record.Pending != nil {
+		t.Fatal("known failed preparation left uncertain intent")
+	}
+}

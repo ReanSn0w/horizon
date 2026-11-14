@@ -101,6 +101,12 @@ func runNow(ctx context.Context, home, id string, call daemonCall) (string, erro
 	if settings.Access == "read" {
 		return "", errors.New("manual timer run requires write or full timer access")
 	}
+	if intent.OperationID != "" && (intent.Revision != def.Revision || intent.Workspace != def.Workspace) {
+		return "", errors.New("timer changed since uncertain submission; inspect manual intent before retrying")
+	}
+	if err := prepareWorkspace(def); err != nil {
+		return "", err
+	}
 	if intent.OperationID == "" {
 		var random [16]byte
 		if _, err := rand.Read(random[:]); err != nil {
@@ -110,8 +116,6 @@ func runNow(ctx context.Context, home, id string, call daemonCall) (string, erro
 		if err := saveManualIntent(path, intent); err != nil {
 			return "", err
 		}
-	} else if intent.Revision != def.Revision || intent.Workspace != def.Workspace {
-		return "", errors.New("timer changed since uncertain submission; inspect manual intent before retrying")
 	}
 	response, err := call(ctx, home, daemon.Request{Method: "timer_run", Caller: daemon.Caller{Kind: "operator", Workspace: intent.Workspace}, OperationID: intent.OperationID, SourceKey: id, Access: intent.Access, Message: intent.Message})
 	if err != nil {

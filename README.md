@@ -476,6 +476,15 @@ daemon и добавляет уточнения в активные ходы. [�
 в workspace. Формат расписания, окна и восстановление описаны в
 [README Timer](plugins/agent-timer/README.md).
 
+Таймер без поля `workspace` использует постоянный `<home>/workspace/<имя-файла-без-.md>`.
+Каталог создаётся перед запуском, а `list` и `validate` только показывают путь.
+Каждый запуск получает новую сессию с меткой `timer`; истории сохраняются,
+но скрыты в обычном `sessions list`, включая `--all`. Для диагностики доступны
+`sessions list --all --include-timers --json` и `sessions read --all --id ID`.
+Старые истории без метки остаются видимыми. Подробности — в
+[описании сессий](docs/SESSIONS.md), готовый [nap](examples/timers/nap.md) и
+[инструкция установки и переноса заметок](plugins/agent-timer/README.md#nap-и-постоянные-заметки).
+
 ## Subagent
 
 Install with `horizon manager plugins install subagent`, start daemon explicitly,

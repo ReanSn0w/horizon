@@ -76,3 +76,28 @@ func TestAdminEnableDisableChecksAccess(t *testing.T) {
 		t.Fatalf("disable: %d %q", code, diag.String())
 	}
 }
+
+func TestDefaultWorkspaceInspectionDoesNotCreateDirectory(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HORIZON_HOME", home)
+	if err := os.Mkdir(filepath.Join(home, "timers"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	data := "---\nname: Nap\ndescription: Job\nschedule:\n  every: 1h\n  timezone: UTC\n---\nTask.\n"
+	if err := os.WriteFile(filepath.Join(home, "timers", "nap.md"), []byte(data), 0600); err != nil {
+		t.Fatal(err)
+	}
+	real, _ := filepath.EvalSymlinks(home)
+	for _, args := range [][]string{{"agent-admin", "validate", "nap"}, {"agent-admin", "list", "--json"}} {
+		var out, diag bytes.Buffer
+		if code := run(context.Background(), args, &out, &diag, time.Now); code != 0 || !strings.Contains(out.String(), filepath.Join(real, "workspace", "nap")) {
+			t.Fatalf("%d %s %s", code, &out, &diag)
+		}
+		if args[1] == "list" && !strings.Contains(out.String(), `"default_workspace":true`) {
+			t.Fatal(out.String())
+		}
+	}
+	if _, err := os.Stat(filepath.Join(home, "workspace")); !os.IsNotExist(err) {
+		t.Fatal("inspection created workspace")
+	}
+}

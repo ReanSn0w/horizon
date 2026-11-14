@@ -88,7 +88,7 @@ func TestTimerFileErrors(t *testing.T) {
 		{"Do the job.", "   ", "Markdown task is required"},
 	} {
 		t.Run(tc.error+"/"+tc.replacement, func(t *testing.T) {
-			_, err := parseFile("test", []byte(strings.Replace(base, tc.old, tc.replacement, 1)))
+			_, err := parseFile(t.TempDir(), "test", []byte(strings.Replace(base, tc.old, tc.replacement, 1)))
 			if err == nil || !strings.Contains(err.Error(), tc.error) {
 				t.Fatalf("wanted %q, got %v", tc.error, err)
 			}
@@ -117,5 +117,87 @@ func TestCatalogRejectsSymlinksAndOversizedFiles(t *testing.T) {
 	}
 	if _, err := LoadCatalog(other); err == nil {
 		t.Fatal("accepted a symlink catalog")
+	}
+}
+
+func TestDefaultWorkspaceUsesFileIDWithoutCreatingDirectory(t *testing.T) {
+	home := t.TempDir()
+	linked := filepath.Join(t.TempDir(), "home")
+	if err := os.Symlink(home, linked); err != nil {
+		t.Fatal(err)
+	}
+	body := "---\nname: Arbitrary title\ndescription: Job\nschedule:\n" + minutely + "\n---\nDo work.\n"
+	for _, id := range []string{"nap", "different"} {
+		putFile(t, home, id, body)
+		def, err := LoadFile(linked, id)
+		real, _ := filepath.EvalSymlinks(home)
+		if err != nil || !def.DefaultWorkspace || def.Workspace != filepath.Join(real, "workspace", id) {
+			t.Fatalf("%+v %v", def, err)
+		}
+	}
+	if _, err := LoadCatalog(linked); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := SetEnabled(linked, "nap", false); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(home, "workspace")); !os.IsNotExist(err) {
+		t.Fatal("loader/editor created workspace", err)
+	}
+	for _, value := range []string{"", "null", "42", "true", "''", "relative"} {
+		putFile(t, home, "invalid", strings.Replace(body, "schedule:", "workspace: "+value+"\nschedule:", 1))
+		if _, err := LoadFile(home, "invalid"); err == nil {
+			t.Fatal("accepted", value)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(home, "workspace"), []byte("file"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := LoadFile(home, "nap"); err == nil {
+		t.Fatal("accepted file parent")
+	}
+}
+
+func TestDefaultWorkspaceExistingSymlinkAndTitleChange(t *testing.T) {
+	home, workspace := t.TempDir(), t.TempDir()
+	if err := os.Symlink(workspace, filepath.Join(home, "workspace")); err != nil {
+		t.Fatal(err)
+	}
+	body := "---\nname: One\ndescription: Job\nschedule:\n" + minutely + "\n---\nWork.\n"
+	putFile(t, home, "nap", body)
+	first, err := LoadFile(home, "nap")
+	if err != nil {
+		t.Fatal(err)
+	}
+	real, _ := filepath.EvalSymlinks(workspace)
+	if first.Workspace != filepath.Join(real, "nap") {
+		t.Fatal(first.Workspace)
+	}
+	putFile(t, home, "nap", strings.Replace(body, "name: One", "name: Two", 1))
+	second, err := LoadFile(home, "nap")
+	if err != nil || first.Workspace != second.Workspace {
+		t.Fatal(second, err)
+	}
+}
+
+func TestNapExampleIsValidDisabledAndUsesDefaultWorkspace(t *testing.T) {
+	data, err := os.ReadFile("../../examples/timers/nap.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	home := t.TempDir()
+	putFile(t, home, "nap", string(data))
+	def, err := LoadFile(home, "nap")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if def.Enabled || !def.DefaultWorkspace {
+		t.Fatal("nap example must be disabled and use its default workspace")
+	}
+	if _, err := Compile(def.Schedule); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(home, "workspace")); !os.IsNotExist(err) {
+		t.Fatal("example validation created workspace")
 	}
 }

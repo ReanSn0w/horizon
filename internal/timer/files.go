@@ -24,14 +24,15 @@ const maxFileSize = 128 * 1024
 var idPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,63}$`)
 
 type Definition struct {
-	ID          string
-	Revision    [sha256.Size]byte
-	Name        string
-	Description string
-	Workspace   string
-	Schedule    ScheduleConfig
-	Message     string
-	Enabled     bool
+	ID               string
+	Revision         [sha256.Size]byte
+	Name             string
+	Description      string
+	Workspace        string
+	DefaultWorkspace bool
+	Schedule         ScheduleConfig
+	Message          string
+	Enabled          bool
 }
 
 type ScheduleConfig struct {
@@ -49,7 +50,7 @@ type WindowConfig struct {
 type frontmatter struct {
 	Name        string          `yaml:"name"`
 	Description string          `yaml:"description"`
-	Workspace   string          `yaml:"workspace"`
+	Workspace   *string         `yaml:"workspace"`
 	Schedule    *ScheduleConfig `yaml:"schedule"`
 	Enabled     bool            `yaml:"enabled"`
 }
@@ -140,10 +141,10 @@ func loadFile(dir *os.File, id string) (Definition, error) {
 	if len(data) > maxFileSize {
 		return Definition{}, fmt.Errorf("timer file exceeds %d bytes", maxFileSize)
 	}
-	return parseFile(id, data)
+	return parseFile(filepath.Dir(dir.Name()), id, data)
 }
 
-func parseFile(id string, data []byte) (Definition, error) {
+func parseFile(home, id string, data []byte) (Definition, error) {
 	if !utf8.Valid(data) {
 		return Definition{}, errors.New("timer file must be UTF-8")
 	}
@@ -182,10 +183,16 @@ func parseFile(id string, data []byte) (Definition, error) {
 	if strings.TrimSpace(fields.Description) == "" {
 		return Definition{}, errors.New("description is required")
 	}
-	if !filepath.IsAbs(fields.Workspace) {
-		return Definition{}, errors.New("workspace must be an absolute directory path")
+	var workspace string
+	var err error
+	if fields.Workspace == nil {
+		workspace, err = defaultWorkspace(home, id)
+	} else {
+		if !filepath.IsAbs(*fields.Workspace) {
+			return Definition{}, errors.New("workspace must be an absolute directory path")
+		}
+		workspace, err = session.NormalizeWorkspace(*fields.Workspace)
 	}
-	workspace, err := session.NormalizeWorkspace(fields.Workspace)
 	if err != nil {
 		return Definition{}, fmt.Errorf("workspace: %w", err)
 	}
@@ -198,7 +205,7 @@ func parseFile(id string, data []byte) (Definition, error) {
 	}
 	return Definition{
 		ID: id, Revision: sha256.Sum256(data), Name: fields.Name, Description: fields.Description,
-		Workspace: workspace, Schedule: *fields.Schedule, Message: message, Enabled: fields.Enabled,
+		Workspace: workspace, DefaultWorkspace: fields.Workspace == nil, Schedule: *fields.Schedule, Message: message, Enabled: fields.Enabled,
 	}, nil
 }
 
@@ -222,7 +229,7 @@ func checkYAML(node *yaml.Node, path string) error {
 				if value.Tag != "!!bool" {
 					return fmt.Errorf("line %d: enabled must be a boolean", value.Line)
 				}
-			case "schedule.every", "schedule.cron":
+			case "workspace", "schedule.every", "schedule.cron":
 				if value.Tag != "!!str" || strings.TrimSpace(value.Value) == "" {
 					return fmt.Errorf("line %d: %s must be a nonempty string", value.Line, field)
 				}
@@ -239,4 +246,36 @@ func checkYAML(node *yaml.Node, path string) error {
 		}
 	}
 	return nil
+}
+
+// defaultWorkspace resolves existing ancestors without creating any directories.
+func defaultWorkspace(home, id string) (string, error) {
+	if !ValidID(id) {
+		return "", invalidID(id)
+	}
+	path, err := filepath.Abs(filepath.Join(home, "workspace", id))
+	if err != nil {
+		return "", err
+	}
+	var missing []string
+	for {
+		if _, err := os.Lstat(path); err == nil {
+			resolved, err := session.NormalizeWorkspace(path)
+			if err != nil {
+				return "", err
+			}
+			for i := len(missing) - 1; i >= 0; i-- {
+				resolved = filepath.Join(resolved, missing[i])
+			}
+			return resolved, nil
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return "", err
+		}
+		parent := filepath.Dir(path)
+		if parent == path {
+			return "", fmt.Errorf("cannot resolve workspace parent %q", path)
+		}
+		missing = append(missing, filepath.Base(path))
+		path = parent
+	}
 }

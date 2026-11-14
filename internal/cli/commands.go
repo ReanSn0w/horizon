@@ -195,13 +195,14 @@ func (command *resumeCommand) Execute(args []string) error {
 }
 
 type sessionsListCommand struct {
-	app       *App
-	global    *globalOptions
-	Workspace string `long:"workspace" description:"filter by workspace directory"`
-	Active    bool   `long:"active" description:"show only sessions with an active turn"`
-	All       bool   `long:"all" description:"list sessions across all workspaces in this home"`
-	Since     string `long:"since" description:"include sessions accessed within this duration, e.g. 24h"`
-	JSON      bool   `long:"json" description:"print a JSON array"`
+	IncludeTimers bool `long:"include-timers" description:"include diagnostic timer sessions"`
+	app           *App
+	global        *globalOptions
+	Workspace     string `long:"workspace" description:"filter by workspace directory"`
+	Active        bool   `long:"active" description:"show only sessions with an active turn"`
+	All           bool   `long:"all" description:"list sessions across all workspaces in this home"`
+	Since         string `long:"since" description:"include sessions accessed within this duration, e.g. 24h"`
+	JSON          bool   `long:"json" description:"print a JSON array"`
 }
 
 func (command *sessionsListCommand) Execute(args []string) error {
@@ -252,42 +253,78 @@ func (command *sessionsListCommand) Execute(args []string) error {
 	if err != nil {
 		return failure(err.Error(), err)
 	}
+	if !command.IncludeTimers {
+		visible := make([]session.ListItem, 0, len(items))
+		for _, item := range items {
+			if item.Session.Timer == nil {
+				visible = append(visible, item)
+			}
+		}
+		items = visible
+	}
 	if command.JSON {
 		type row struct {
-			SessionID      string    `json:"session_id"`
-			Workspace      string    `json:"workspace"`
-			Title          string    `json:"title"`
-			CreatedAt      time.Time `json:"created_at"`
-			LastAccessedAt time.Time `json:"last_accessed_at"`
-			Active         bool      `json:"active"`
+			SessionID      string               `json:"session_id"`
+			Workspace      string               `json:"workspace"`
+			Title          string               `json:"title"`
+			CreatedAt      time.Time            `json:"created_at"`
+			LastAccessedAt time.Time            `json:"last_accessed_at"`
+			Active         bool                 `json:"active"`
+			Timer          *session.TimerOrigin `json:"timer,omitempty"`
 		}
 		rows := make([]row, 0, len(items))
 		for _, item := range items {
 			value := item.Session
-			rows = append(rows, row{value.SessionID, value.Workspace, value.Title, value.CreatedAt, value.LastAccessedAt, item.Active})
+			rows = append(rows, row{value.SessionID, value.Workspace, value.Title, value.CreatedAt, value.LastAccessedAt, item.Active, value.Timer})
 		}
 		return json.NewEncoder(command.app.out).Encode(rows)
 	}
 	writer := tabwriter.NewWriter(command.app.out, 0, 4, 2, ' ', 0)
+	header := "ID\tTITLE\tLAST ACCESSED\tACTIVE"
 	if command.All {
-		fmt.Fprintln(writer, "ID\tWORKSPACE\tTITLE\tLAST ACCESSED\tACTIVE")
-	} else {
-		fmt.Fprintln(writer, "ID\tTITLE\tLAST ACCESSED\tACTIVE")
+		header = "ID\tWORKSPACE\tTITLE\tLAST ACCESSED\tACTIVE"
 	}
+	if command.IncludeTimers {
+		header += "\tSOURCE"
+	}
+	fmt.Fprintln(writer, header)
 	for _, item := range items {
 		if command.All {
-			fmt.Fprintf(writer, "%s\t%s\t%s\t%s\t%t\n", item.Session.SessionID, item.Session.Workspace, item.Session.Title, item.Session.LastAccessedAt.Format(time.RFC3339), item.Active)
+			fmt.Fprintf(writer, "%s\t%s\t%s\t%s\t%t", item.Session.SessionID, item.Session.Workspace, item.Session.Title, item.Session.LastAccessedAt.Format(time.RFC3339), item.Active)
 		} else {
-			fmt.Fprintf(writer, "%s\t%s\t%s\t%t\n", item.Session.SessionID, item.Session.Title, item.Session.LastAccessedAt.Format(time.RFC3339), item.Active)
+			fmt.Fprintf(writer, "%s\t%s\t%s\t%t", item.Session.SessionID, item.Session.Title, item.Session.LastAccessedAt.Format(time.RFC3339), item.Active)
 		}
+		if command.IncludeTimers {
+			source := "-"
+			if item.Session.Timer != nil {
+				source = "timer:" + item.Session.Timer.TimerID
+			}
+			fmt.Fprintf(writer, "\t%s", source)
+		}
+		fmt.Fprintln(writer)
 	}
 	return writer.Flush()
 }
 
 type sessionsCreateCommand struct {
-	app    *App
-	global *globalOptions
-	Fork   string `long:"fork" description:"source session ID to fork"`
+	app         *App
+	global      *globalOptions
+	Fork        string `long:"fork" description:"source session ID to fork"`
+	TimerID     string `long:"timer-id" hidden:"true"`
+	TimerTaskID string `long:"timer-task-id" hidden:"true"`
+}
+
+func (command *sessionsCreateCommand) ValidateArgs() error {
+	if command.TimerID == "" && command.TimerTaskID == "" {
+		return nil
+	}
+	if command.Fork != "" {
+		return usage("--fork cannot be combined with timer provenance", nil)
+	}
+	if err := (session.TimerOrigin{TimerID: command.TimerID, TaskID: command.TimerTaskID}).Validate(); err != nil {
+		return usage(err.Error(), err)
+	}
+	return nil
 }
 
 func (command *sessionsCreateCommand) Execute(args []string) error {
@@ -306,7 +343,12 @@ func (command *sessionsCreateCommand) Execute(args []string) error {
 		fmt.Fprintln(command.app.out, created.SessionID)
 		return nil
 	}
-	created, err := store.Create(workspace)
+	var created *session.Session
+	if command.TimerID != "" {
+		created, err = store.CreateTimer(workspace, session.TimerOrigin{TimerID: command.TimerID, TaskID: command.TimerTaskID})
+	} else {
+		created, err = store.Create(workspace)
+	}
 	if err != nil {
 		return failure(err.Error(), err)
 	}

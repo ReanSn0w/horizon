@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -301,5 +302,48 @@ models:
 	}, func(string, string) {})
 	if !errors.Is(result.Err, errTimerWindowElapsed) {
 		t.Fatalf("runner attempted to start a process after deadline: %v", result.Err)
+	}
+}
+
+func TestHorizonRunnerPassesTimerOriginAtCreation(t *testing.T) {
+	for _, isTimer := range []bool{false, true} {
+		home, workspace := shortHome(t), t.TempDir()
+		cfg := "default_model: local\nproviders:\n  local:\n    url: http://127.0.0.1:1\n    key: fixture\nmodels:\n  local:\n    provider: local\n    model: local\n    compact_threshold: 10000\n"
+		if err := os.WriteFile(filepath.Join(home, "config.yaml"), []byte(cfg), 0600); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.MkdirAll(filepath.Join(home, "bin"), 0700); err != nil {
+			t.Fatal(err)
+		}
+		script := `#!/bin/sh
+if [ "$3" = sessions ]; then
+ printf '%s\n' "$@" > "$HORIZON_HOME/create-args"
+ echo aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+else
+ cat >/dev/null
+ echo '{"type":"turn_completed","data":{"text":"done"}}'
+fi
+`
+		if err := os.WriteFile(filepath.Join(home, "bin", "horizon"), []byte(script), 0700); err != nil {
+			t.Fatal(err)
+		}
+		task := Task{ID: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", Workspace: workspace, Access: "write", Message: "Task"}
+		if isTimer {
+			task.Owner = "adapter:timer"
+			task.Mode = FreshTask
+			task.SourceKey = "nap"
+		}
+		result := HorizonRunner(home)(context.Background(), task, func(string) error { return nil }, func(string, string) {})
+		if result.Err != nil || result.ExitCode != 0 {
+			t.Fatal(result)
+		}
+		args, err := os.ReadFile(filepath.Join(home, "create-args"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := "--timer-id\nnap\n--timer-task-id\n" + task.ID + "\n"
+		if strings.Contains(string(args), want) != isTimer {
+			t.Fatal(string(args))
+		}
 	}
 }
