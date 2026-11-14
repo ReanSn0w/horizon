@@ -43,6 +43,7 @@ func installAgentCLI(t *testing.T, home string) {
 func TestAgentTimerValidateOffline(t *testing.T) {
 	binary := buildBinary(t)
 	home, workspace := t.TempDir(), t.TempDir()
+	workspace, _ = filepath.EvalSymlinks(workspace)
 	installTimer(t, home)
 	installAgentCLI(t, home)
 	var requests atomic.Int32
@@ -70,11 +71,11 @@ func TestAgentTimerValidateOffline(t *testing.T) {
 	}
 	out, diag, err := run(binary, workspace, "unused input", "--home", home, "agent", "timer", "validate")
 	if exit, ok := err.(*exec.ExitError); !ok || exit.ExitCode() != 1 ||
-		out != "good: valid (disabled)\n" || !strings.Contains(diag, "bad:") {
+		out != "good: valid (disabled); workspace="+workspace+"\n" || !strings.Contains(diag, "bad:") {
 		t.Fatalf("validate: stdout=%q stderr=%q err=%v", out, diag, err)
 	}
 	out, diag, err = run(binary, workspace, "", "--home", home, "agent", "timer", "validate", "good")
-	if err != nil || out != "good: valid (disabled)\n" || diag != "" {
+	if err != nil || out != "good: valid (disabled); workspace="+workspace+"\n" || diag != "" {
 		t.Fatalf("validate good: stdout=%q stderr=%q err=%v", out, diag, err)
 	}
 	out, diag, err = run(binary, workspace, "", "--home", home, "agent", "timer", "--help")

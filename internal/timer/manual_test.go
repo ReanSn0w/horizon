@@ -75,3 +75,46 @@ func TestRunNowRejectsDisabledAndUnavailable(t *testing.T) {
 		t.Fatalf("unavailable: %v calls=%d", err, called)
 	}
 }
+
+func TestRunNowPreparesAndReusesDefaultWorkspace(t *testing.T) {
+	home := t.TempDir()
+	configuration := "default_model: coding\nmodels:\n  coding:\n    provider: default\n    model: example\n    compact_threshold: 100000\nproviders:\n  default:\n    url: https://example.test/v1\n    key: test\n"
+	if err := os.WriteFile(filepath.Join(home, "config.yaml"), []byte(configuration), 0600); err != nil {
+		t.Fatal(err)
+	}
+	putFile(t, home, "nap", "---\nname: Nap\ndescription: Job\nenabled: false\nschedule:\n"+minutely+"\n---\nTask.\n")
+	calls := 0
+	call := func(_ context.Context, _ string, req daemon.Request) (daemon.Response, error) {
+		calls++
+		marker := filepath.Join(req.Caller.Workspace, "notes.md")
+		if calls == 1 {
+			if err := os.WriteFile(marker, []byte("observation"), 0600); err != nil {
+				t.Fatal(err)
+			}
+		} else {
+			data, err := os.ReadFile(marker)
+			if err != nil || string(data) != "observation" {
+				t.Fatal(string(data), err)
+			}
+		}
+		data, _ := json.Marshal(daemon.Task{ID: "task-1", SourceKey: "nap"})
+		return daemon.Response{Data: data}, nil
+	}
+	if _, err := runNow(context.Background(), home, "nap", call); err == nil || calls != 0 {
+		t.Fatal("disabled timer submitted")
+	}
+	if _, err := os.Stat(filepath.Join(home, "workspace")); !os.IsNotExist(err) {
+		t.Fatal("disabled timer created workspace")
+	}
+	if _, err := SetEnabled(home, "nap", true); err != nil {
+		t.Fatal(err)
+	}
+	for range 2 {
+		if _, err := runNow(context.Background(), home, "nap", call); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if calls != 2 {
+		t.Fatal(calls)
+	}
+}

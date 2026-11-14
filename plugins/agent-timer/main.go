@@ -213,7 +213,7 @@ func admin(args []string, out, diag io.Writer, now func() time.Time) int {
 		if !result.Definition.Enabled {
 			status += " (disabled)"
 		}
-		fmt.Fprintf(out, "%s: %s\n", result.ID, status)
+		fmt.Fprintf(out, "%s: %s; workspace=%s\n", result.ID, status, result.Definition.Workspace)
 	}
 	return code
 }
@@ -225,12 +225,13 @@ func list(home string, asJSON bool, out, diag io.Writer) int {
 		return 1
 	}
 	type row struct {
-		ID        string                `json:"id"`
-		Name      string                `json:"name,omitempty"`
-		Enabled   bool                  `json:"enabled"`
-		Schedule  *timer.ScheduleConfig `json:"schedule,omitempty"`
-		Workspace string                `json:"workspace,omitempty"`
-		Error     string                `json:"error,omitempty"`
+		ID               string                `json:"id"`
+		Name             string                `json:"name,omitempty"`
+		Enabled          bool                  `json:"enabled"`
+		Schedule         *timer.ScheduleConfig `json:"schedule,omitempty"`
+		Workspace        string                `json:"workspace,omitempty"`
+		DefaultWorkspace bool                  `json:"default_workspace"`
+		Error            string                `json:"error,omitempty"`
 	}
 	rows := make([]row, 0, len(results))
 	for _, result := range results {
@@ -238,6 +239,7 @@ func list(home string, asJSON bool, out, diag io.Writer) int {
 		if result.Err != nil {
 			item.Error = result.Err.Error()
 		} else {
+			item.DefaultWorkspace = result.Definition.DefaultWorkspace
 			item.Name, item.Enabled, item.Schedule, item.Workspace = result.Definition.Name, result.Definition.Enabled, &result.Definition.Schedule, result.Definition.Workspace
 			compiled, compileErr := timer.Compile(result.Definition.Schedule)
 			if compileErr != nil {
