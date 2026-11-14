@@ -285,9 +285,24 @@ func (command *sessionsListCommand) Execute(args []string) error {
 }
 
 type sessionsCreateCommand struct {
-	app    *App
-	global *globalOptions
-	Fork   string `long:"fork" description:"source session ID to fork"`
+	app         *App
+	global      *globalOptions
+	Fork        string `long:"fork" description:"source session ID to fork"`
+	TimerID     string `long:"timer-id" hidden:"true"`
+	TimerTaskID string `long:"timer-task-id" hidden:"true"`
+}
+
+func (command *sessionsCreateCommand) ValidateArgs() error {
+	if command.TimerID == "" && command.TimerTaskID == "" {
+		return nil
+	}
+	if command.Fork != "" {
+		return usage("--fork cannot be combined with timer provenance", nil)
+	}
+	if err := (session.TimerOrigin{TimerID: command.TimerID, TaskID: command.TimerTaskID}).Validate(); err != nil {
+		return usage(err.Error(), err)
+	}
+	return nil
 }
 
 func (command *sessionsCreateCommand) Execute(args []string) error {
@@ -306,7 +321,12 @@ func (command *sessionsCreateCommand) Execute(args []string) error {
 		fmt.Fprintln(command.app.out, created.SessionID)
 		return nil
 	}
-	created, err := store.Create(workspace)
+	var created *session.Session
+	if command.TimerID != "" {
+		created, err = store.CreateTimer(workspace, session.TimerOrigin{TimerID: command.TimerID, TaskID: command.TimerTaskID})
+	} else {
+		created, err = store.Create(workspace)
+	}
 	if err != nil {
 		return failure(err.Error(), err)
 	}

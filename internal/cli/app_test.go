@@ -411,3 +411,23 @@ func TestImplicitResume(t *testing.T) {
 		}
 	}
 }
+
+func TestSessionCreatePersistsTimerOrigin(t *testing.T) {
+	home := testHome(t, "")
+	task := strings.Repeat("a", 32)
+	code, out, diag := runApp(t, "", "--home", home, "sessions", "create", "--timer-id", "nap", "--timer-task-id", task)
+	if code != 0 {
+		t.Fatalf("%d %s %s", code, out, diag)
+	}
+	value, err := session.NewStore(home).ReadByID(strings.TrimSpace(out))
+	if err != nil || value.Timer == nil || value.Timer.TimerID != "nap" || value.Timer.TaskID != task {
+		t.Fatal(value, err)
+	}
+	for _, args := range [][]string{{"--timer-id", "nap"}, {"--timer-task-id", task}, {"--timer-id", "nap", "--timer-task-id", task, "--fork", value.SessionID}} {
+		argv := append([]string{"--home", home, "sessions", "create"}, args...)
+		code, _, _ = runApp(t, "", argv...)
+		if code != ExitUsage {
+			t.Fatal(argv, code)
+		}
+	}
+}

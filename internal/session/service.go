@@ -55,9 +55,21 @@ func InitialTitle(message string) string {
 }
 
 func (s *Store) Create(workspace Workspace) (*Session, error) {
+	return s.create(workspace, nil)
+}
+
+// CreateTimer persists provenance in the first atomic session write.
+func (s *Store) CreateTimer(workspace Workspace, origin TimerOrigin) (*Session, error) {
+	if err := origin.Validate(); err != nil {
+		return nil, err
+	}
+	return s.create(workspace, &origin)
+}
+
+func (s *Store) create(workspace Workspace, origin *TimerOrigin) (*Session, error) {
 	var created *Session
 	err := s.withWorkspaceLock(workspace, func() error {
-		locked, value, err := s.createLocked(workspace, "Новый диалог")
+		locked, value, err := s.createLocked(workspace, "Новый диалог", origin)
 		if err != nil {
 			return err
 		}
@@ -101,7 +113,7 @@ func (s *Store) AcquireForResume(workspace Workspace, requestedID, message strin
 		}
 		if id == "" {
 			var err error
-			locked, value, err = s.createLocked(workspace, InitialTitle(message))
+			locked, value, err = s.createLocked(workspace, InitialTitle(message), nil)
 			return err
 		}
 		var err error
@@ -194,7 +206,7 @@ func (s *Store) AcquireForCompact(workspace Workspace, requestedID string) (*Loc
 	return locked, value, nil
 }
 
-func (s *Store) createLocked(workspace Workspace, title string) (*LockedSession, *Session, error) {
+func (s *Store) createLocked(workspace Workspace, title string, origin *TimerOrigin) (*LockedSession, *Session, error) {
 	id, err := NewID()
 	if err != nil {
 		return nil, nil, err
@@ -208,7 +220,7 @@ func (s *Store) createLocked(workspace Workspace, title string) (*LockedSession,
 		locked.Close()
 		return nil, nil, err
 	}
-	value := &Session{FormatVersion: FormatVersion, SessionID: id, Workspace: workspace.Dir, Title: title, CreatedAt: now, LastAccessedAt: now, Turns: []Turn{}}
+	value := &Session{Timer: origin, FormatVersion: FormatVersion, SessionID: id, Workspace: workspace.Dir, Title: title, CreatedAt: now, LastAccessedAt: now, Turns: []Turn{}}
 	if err := locked.Save(value); err != nil {
 		locked.Close()
 		return nil, nil, err

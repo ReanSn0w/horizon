@@ -125,7 +125,11 @@ func HorizonRunner(home string) Runner {
 			if t.timerExpired(time.Now()) {
 				return Outcome{Err: errTimerWindowElapsed}
 			}
-			code, err := processWithStderr(ctx, binary, []string{"--home", home, "sessions", "create"}, env, t.Workspace, "", out, os.Stderr, nil)
+			args := []string{"--home", home, "sessions", "create"}
+			if t.isTimer() {
+				args = append(args, "--timer-id", t.SourceKey, "--timer-task-id", t.ID)
+			}
+			code, err := processWithStderr(ctx, binary, args, env, t.Workspace, "", out, os.Stderr, nil)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "agent task %s: session creation failed (exit %d): %v\n", t.ID, code, err)
 				return Outcome{ExitCode: code, Err: err}
