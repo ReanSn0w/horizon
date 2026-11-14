@@ -186,6 +186,15 @@ Browser предоставляет `browser__navigate` с `{"url":"https://examp
 в результате вместе с `operation_id`, состоянием и подтверждёнными
 `message_ids`. Только `state: confirmed` подтверждает все части сообщения.
 
+`telegram__send_file` принимает `{"path":"reports/result.pdf","caption":"","as_photo":false}`.
+Все поля обязательны, дополнительные аргументы запрещены. Файл должен быть
+обычным файлом внутри workspace текущего хода; относительный путь разрешается
+от workspace. `as_photo: true` предназначен для JPEG/PNG, false сохраняет
+оригинал документом. Получатель и разрешение коммуникации определяются хостом
+так же, как у send_message. Перед отправкой фиксируется снимок файла; unknown
+нельзя повторять под новым operation_id. Пределы и журнал описаны в
+[README Telegram](../plugins/telegram/README.md#отправка-файлов-моделью).
+
 `telegram__read_send` принимает `{"operation_id":"..."}` и читает состояния
 частей в выбранном чате. После `unknown` сверяйте журнал и историю Telegram.
 Итог хода остаётся в Horizon. Подробности — в [README Telegram](../plugins/telegram/README.md).

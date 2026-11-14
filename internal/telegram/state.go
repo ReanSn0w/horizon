@@ -14,15 +14,17 @@ import (
 )
 
 type Entry struct {
-	ID      int64  `json:"id" yaml:"id"`
-	Author  int64  `json:"author" yaml:"author"`
-	Name    string `json:"name,omitempty" yaml:"name"`
-	Time    int64  `json:"time,omitempty" yaml:"time"`
-	Text    string `json:"text" yaml:"text"`
-	Thread  int64  `json:"thread,omitempty" yaml:"thread"`
-	Reply   int64  `json:"reply,omitempty" yaml:"reply"`
-	Bot     bool   `json:"bot,omitempty" yaml:"bot"`
-	Trigger bool   `json:"trigger,omitempty" yaml:"-"`
+	Attachments []Attachment `json:"attachments,omitempty" yaml:"attachments,omitempty"`
+	MediaGroup  string       `json:"media_group_id,omitempty" yaml:"media_group_id,omitempty"`
+	ID          int64        `json:"id" yaml:"id"`
+	Author      int64        `json:"author" yaml:"author"`
+	Name        string       `json:"name,omitempty" yaml:"name"`
+	Time        int64        `json:"time,omitempty" yaml:"time"`
+	Text        string       `json:"text" yaml:"text"`
+	Thread      int64        `json:"thread,omitempty" yaml:"thread"`
+	Reply       int64        `json:"reply,omitempty" yaml:"reply"`
+	Bot         bool         `json:"bot,omitempty" yaml:"bot"`
+	Trigger     bool         `json:"trigger,omitempty" yaml:"-"`
 }
 
 type Conversation struct {
@@ -44,12 +46,18 @@ type Conversation struct {
 func (c Conversation) Route() string { return strconv.FormatInt(c.Origin, 10) }
 
 type PendingInput struct {
-	UpdateID  int64  `json:"update_id"`
-	Route     string `json:"route"`
-	Workspace string `json:"workspace"`
-	Access    string `json:"access"`
-	Author    string `json:"author"`
-	Payload   string `json:"payload"`
+	Prepared  bool    `json:"prepared,omitempty"`
+	Message   *Entry  `json:"message,omitempty"`
+	Quote     *Entry  `json:"quote,omitempty"`
+	Recent    []Entry `json:"recent,omitempty"`
+	ChatID    int64   `json:"chat_id,omitempty"`
+	Origin    int64   `json:"origin,omitempty"`
+	UpdateID  int64   `json:"update_id"`
+	Route     string  `json:"route"`
+	Workspace string  `json:"workspace"`
+	Access    string  `json:"access"`
+	Author    string  `json:"author"`
+	Payload   string  `json:"payload"`
 }
 
 type Registry struct {

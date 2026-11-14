@@ -33,19 +33,40 @@ type Entity struct {
 	Offset int    `json:"offset"`
 	Length int    `json:"length"`
 }
+type File struct {
+	ID       string `json:"file_id"`
+	UniqueID string `json:"file_unique_id"`
+	Size     int64  `json:"file_size,omitempty"`
+	Path     string `json:"file_path,omitempty"`
+}
+type Document struct {
+	File
+	Name string `json:"file_name,omitempty"`
+	MIME string `json:"mime_type,omitempty"`
+}
+type PhotoSize struct {
+	File
+	Width  int `json:"width"`
+	Height int `json:"height"`
+}
 type Message struct {
-	ID          int64    `json:"message_id"`
-	From        *User    `json:"from"`
-	SenderChat  *Chat    `json:"sender_chat"`
-	Chat        Chat     `json:"chat"`
-	Date        int64    `json:"date"`
-	Text        string   `json:"text"`
-	Entities    []Entity `json:"entities"`
-	Thread      int64    `json:"message_thread_id"`
-	Reply       *Message `json:"reply_to_message"`
-	MigrateTo   int64    `json:"migrate_to_chat_id"`
-	MigrateFrom int64    `json:"migrate_from_chat_id"`
-	NewTitle    string   `json:"new_chat_title"`
+	Document        *Document   `json:"document,omitempty"`
+	Photos          []PhotoSize `json:"photo,omitempty"`
+	Caption         string      `json:"caption,omitempty"`
+	CaptionEntities []Entity    `json:"caption_entities,omitempty"`
+	MediaGroup      string      `json:"media_group_id,omitempty"`
+	ID              int64       `json:"message_id"`
+	From            *User       `json:"from"`
+	SenderChat      *Chat       `json:"sender_chat"`
+	Chat            Chat        `json:"chat"`
+	Date            int64       `json:"date"`
+	Text            string      `json:"text"`
+	Entities        []Entity    `json:"entities"`
+	Thread          int64       `json:"message_thread_id"`
+	Reply           *Message    `json:"reply_to_message"`
+	MigrateTo       int64       `json:"migrate_to_chat_id"`
+	MigrateFrom     int64       `json:"migrate_from_chat_id"`
+	NewTitle        string      `json:"new_chat_title"`
 }
 type Membership struct {
 	Chat   Chat `json:"chat"`
@@ -87,6 +108,10 @@ func (t *Client) call(ctx context.Context, method string, input, output any) err
 		return errors.New("invalid Telegram endpoint")
 	}
 	req.Header.Set("Content-Type", "application/json")
+	return t.request(req, output)
+}
+
+func (t *Client) request(req *http.Request, output any) error {
 	resp, err := t.http.Do(req)
 	if err != nil {
 		return errors.New("Telegram network error; request outcome may be unknown")
