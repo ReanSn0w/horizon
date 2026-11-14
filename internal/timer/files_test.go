@@ -179,3 +179,25 @@ func TestDefaultWorkspaceExistingSymlinkAndTitleChange(t *testing.T) {
 		t.Fatal(second, err)
 	}
 }
+
+func TestNapExampleIsValidDisabledAndUsesDefaultWorkspace(t *testing.T) {
+	data, err := os.ReadFile("../../examples/timers/nap.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	home := t.TempDir()
+	putFile(t, home, "nap", string(data))
+	def, err := LoadFile(home, "nap")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if def.Enabled || !def.DefaultWorkspace {
+		t.Fatal("nap example must be disabled and use its default workspace")
+	}
+	if _, err := Compile(def.Schedule); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(home, "workspace")); !os.IsNotExist(err) {
+		t.Fatal("example validation created workspace")
+	}
+}

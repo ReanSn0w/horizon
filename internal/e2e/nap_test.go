@@ -77,7 +77,7 @@ func TestNapTaskOfflinePlumbing(t *testing.T) {
 		t.Fatal(out, diag, err)
 	}
 	sessionID = out
-	template, err := os.ReadFile(filepath.Join("..", "..", "examples", "timers", "nap.md.tmpl"))
+	template, err := os.ReadFile(filepath.Join("..", "..", "examples", "timers", "nap.md"))
 	if err != nil {
 		t.Fatal(err)
 	}
