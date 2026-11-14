@@ -214,6 +214,9 @@ func (s Store) prepareAttachment(ctx context.Context, fetch AttachmentFetcher, p
 			if a.State == "staged" {
 				_ = root.Remove(a.Temp)
 			}
+			if err := syncAttachmentDirectory(root, a.Local); err != nil {
+				return err
+			}
 			a.State = "ready"
 			a.Path = filepath.Join(p.Workspace, a.Local)
 			a.Error = ""
@@ -273,6 +276,9 @@ func (s Store) prepareAttachment(ctx context.Context, fetch AttachmentFetcher, p
 			if n < 0 || n > DownloadLimit {
 				return fail("attachment download exceeded limit")
 			}
+			if err := syncAttachmentDirectory(root, a.Temp); err != nil {
+				return err
+			}
 			a.Size = n
 			a.Checksum = hex.EncodeToString(hash.Sum(nil))
 			a.State = "staged"
@@ -283,4 +289,13 @@ func (s Store) prepareAttachment(ctx context.Context, fetch AttachmentFetcher, p
 			return fail("invalid attachment preparation state")
 		}
 	}
+}
+
+func syncAttachmentDirectory(root *os.Root, name string) error {
+	dir, err := root.Open(filepath.Dir(name))
+	if err != nil {
+		return err
+	}
+	defer dir.Close()
+	return dir.Sync()
 }

@@ -309,7 +309,7 @@ HORIZON_API_CHECK=1 go test ./internal/responses -run TestConfiguredEndpointComp
 - `agent-*` — отдельный протокол адаптеров, только явное включение. Manager использует `agent:NAME`, отдельно от CLI `NAME`.
 - Работающая задача после аварии становится unknown без автоматического повторения; daemon не пишет напрямую в JSON-сессии и не убивает восстановленные PID.
 - Telegram принимает вход через `agent-telegram` и отправляет только явные
-  вызовы `telegram__send_message`. Разрешение `extensions.telegram.communication` действует
+  вызовы `telegram__send_message` и `telegram__send_file`. Разрешение `extensions.telegram.communication` действует
   отдельно от файлового access. Маршрут задаёт daemon, обычный автономный ход
   обращается к личке владельца. Секрет хранится в `plugins.telegram`.
 - Перед миграцией Telegram останавливаются прежний polling и daemon. Очередь
@@ -334,6 +334,20 @@ HORIZON_API_CHECK=1 go test ./internal/responses -run TestConfiguredEndpointComp
   `logs` читает журнал службы.
 - `horizon telegram check` проверяет API без отправки; `send TEXT` явно отправляет
   владельцу без модели и повторов. При вызове из хода отправка требует full.
+
+- `agent-telegram` сохраняет document/photo в workspace до submit, с durable
+  подготовкой в PendingInput. Готовый файл проверяется по checksum; failed не
+  содержит path. Download выполняется вне блокировки реестра. Повтор submit
+  использует неизменный payload и operation_id. Модель получает метаданные и
+  путь, а не image input; альбомы не собираются в один ход.
+- `telegram__send_file` принимает path/caption/as_photo и имеет эффект communicate.
+  Разрешение проверяется до чтения файла; read сам по себе не запрещает разрешённую
+  коммуникацию. Обычный исходник должен быть внутри host workspace. Для проверки
+  пути и открытия используй os.Root, не полагайся только на EvalSymlinks.
+  Исходник копируется в приватный снимок outbox до отправки; подтверждённые и
+  unknown операции не повторяются. read_send и восстановление контекста должны
+  поддерживать оба send-инструмента. Старые текстовые записи сохраняют смысл;
+  snapshots не чистятся автоматически и не выдаются как пиксели модели.
 
 ### Timer
 

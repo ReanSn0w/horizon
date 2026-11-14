@@ -485,6 +485,12 @@ daemon и добавляет уточнения в активные ходы. [�
 [описании сессий](docs/SESSIONS.md), готовый [nap](examples/timers/nap.md) и
 [инструкция установки и переноса заметок](plugins/agent-timer/README.md#nap-и-постоянные-заметки).
 
+Telegram поддерживает приём документов и фотографий в workspace диалога и
+отправку файлов моделью через `telegram__send_file`. Вход содержит описание
+вложения и локальный путь; путь к изображению сам по себе не включает визуальный
+анализ. Подробнее: [входящие вложения](plugins/agent-telegram/README.md#документы-и-фотографии)
+и [отправка файлов](plugins/telegram/README.md#отправка-файлов-моделью).
+
 ## Subagent
 
 Install with `horizon manager plugins install subagent`, start daemon explicitly,

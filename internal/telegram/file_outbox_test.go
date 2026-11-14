@@ -155,3 +155,31 @@ func TestUploadWorkspaceBoundary(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestFileOutboxRejectsInvalidPersistedState(t *testing.T) {
+	store := NewStore(t.TempDir(), 99)
+	workspace := t.TempDir()
+	if err := os.WriteFile(filepath.Join(workspace, "x"), []byte("content"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	chat := Conversation{ID: 42, Origin: 42}
+	if _, err := store.SendFile(context.Background(), nil, chat, "s", "op", workspace, "x", "", false); err != nil {
+		t.Fatal(err)
+	}
+	path, _ := store.operationPath("op")
+	var value delivery
+	if err := loadJSON(path, &value); err != nil {
+		t.Fatal(err)
+	}
+	value.Parts[0].State = "broken"
+	if err := saveJSON(path, value); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.SendFile(context.Background(), nil, chat, "s", "op", workspace, "x", "", false); err == nil {
+		t.Fatal("invalid state accepted as confirmed")
+	}
+	result, err := store.ReadSend("op", 42)
+	if err != nil || result.State != "unknown" {
+		t.Fatal(result, err)
+	}
+}

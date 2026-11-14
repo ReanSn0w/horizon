@@ -67,6 +67,9 @@ func (d delivery) result() SendResult {
 			}
 		case "confirmed":
 			result.MessageIDs = append(result.MessageIDs, part.MessageID)
+		default:
+			state = "unknown"
+			result.State = "unknown"
 		}
 		result.Parts = append(result.Parts, PartResult{State: state, MessageID: part.MessageID})
 	}

@@ -176,8 +176,12 @@ func (s Store) SendFile(ctx context.Context, send FileSender, chat Conversation,
 	if len(value.Parts) != 1 {
 		return SendResult{}, errors.New("invalid file delivery")
 	}
-	if value.Parts[0].State != "pending" {
+	switch value.Parts[0].State {
+	case "confirmed", "sending", "rejected":
 		return value.result(), nil
+	case "pending":
+	default:
+		return SendResult{}, errors.New("invalid file delivery state")
 	}
 	if filepath.Base(value.Snapshot) != value.Snapshot || !strings.HasPrefix(value.Snapshot, ".file-") {
 		return SendResult{}, errors.New("invalid file snapshot")

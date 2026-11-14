@@ -5,6 +5,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"image"
+	"image/png"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -19,6 +21,7 @@ import (
 	"time"
 
 	"github.com/ReanSn0w/horizon/internal/daemon"
+	"github.com/ReanSn0w/horizon/internal/responses"
 	"github.com/ReanSn0w/horizon/internal/session"
 	"github.com/ReanSn0w/horizon/internal/telegram"
 )
@@ -662,5 +665,249 @@ func TestTelegramDiagnosticCLIWithoutModel(t *testing.T) {
 	_, diag, err := run(binary, home, "", "--home", home, "telegram", "send", "hi!")
 	if err == nil || sent.Load() != 2 || !strings.Contains(diag, "inspect Telegram before retrying") {
 		t.Fatal(diag, err, sent.Load())
+	}
+}
+
+func TestBuiltTelegramFileTransfer(t *testing.T) {
+	for _, scenario := range []string{"document", "photo", "image-document", "unknown"} {
+		t.Run(scenario, func(t *testing.T) {
+			binary := buildBinary(t)
+			home := daemonHome(t)
+			data := []byte("inbound report contents")
+			if scenario == "photo" || scenario == "image-document" {
+				var b bytes.Buffer
+				if err := png.Encode(&b, image.NewGray(image.Rect(0, 0, 2, 2))); err != nil {
+					t.Fatal(err)
+				}
+				data = b.Bytes()
+			}
+			var requests, uploads, downloads atomic.Int32
+			var finished atomic.Bool
+			var operation string
+			// The provider only runs one task, but handlers are synchronized explicitly.
+			var providerMu sync.Mutex
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				switch r.URL.Path {
+				case "/responses":
+					providerMu.Lock()
+					defer providerMu.Unlock()
+					var req responses.Request
+					if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+						t.Error(err)
+						return
+					}
+					n := int(requests.Add(1))
+					raw, _ := json.Marshal(req.Input)
+					if strings.Contains(string(raw), "input_image") {
+						t.Error("attachment silently became visual input")
+					}
+					switch n {
+					case 1:
+						var attachment telegram.Attachment
+						for _, item := range req.Input {
+							var msg struct {
+								Role    string `json:"role"`
+								Content string `json:"content"`
+							}
+							if json.Unmarshal(item, &msg) != nil || msg.Role != "user" {
+								continue
+							}
+							start := strings.Index(msg.Content, "{")
+							if start < 0 {
+								continue
+							}
+							var payload struct {
+								Message telegram.Entry `json:"message"`
+							}
+							if json.Unmarshal([]byte(msg.Content[start:]), &payload) == nil && len(payload.Message.Attachments) == 1 {
+								attachment = payload.Message.Attachments[0]
+							}
+						}
+						content, err := os.ReadFile(attachment.Path)
+						if err != nil || attachment.State != "ready" || !bytes.Equal(content, data) {
+							t.Errorf("file not ready: %+v %v", attachment, err)
+							http.Error(w, "bad attachment", 400)
+							return
+						}
+						if scenario == "photo" && attachment.Kind != "photo" || scenario == "image-document" && attachment.Kind != "document" {
+							t.Error("wrong attachment kind", attachment.Kind)
+						}
+						command := "cp " + shellQuote(attachment.Path) + " result.bin && printf 'read attachment'"
+						if scenario == "document" {
+							command = "cat " + shellQuote(attachment.Path) + " && " + command
+						}
+						args, _ := json.Marshal(map[string]any{"command": command, "timeout_ms": nil, "max_output_chars": nil})
+						writeCompleted(w, n, []json.RawMessage{tgCall("file-read", "shell_exec", string(args))})
+					case 2:
+						if !strings.Contains(string(raw), "read attachment") {
+							t.Error("model did not receive shell result")
+						}
+						args, _ := json.Marshal(map[string]any{"path": "result.bin", "caption": "result", "as_photo": scenario == "photo"})
+						writeCompleted(w, n, []json.RawMessage{tgCall("file-send", "telegram__send_file", string(args))})
+					default:
+						var result telegram.SendResult
+						for _, item := range req.Input {
+							var value struct {
+								CallID string `json:"call_id"`
+								Output string `json:"output"`
+							}
+							if json.Unmarshal(item, &value) != nil || value.Output == "" || (value.CallID != "file-send" && value.CallID != "file-lookup") {
+								continue
+							}
+							var out struct {
+								OK   bool                `json:"ok"`
+								Data telegram.SendResult `json:"data"`
+							}
+							if err := json.Unmarshal([]byte(value.Output), &out); err != nil || !out.OK {
+								t.Errorf("file tool failed: %s", value.Output)
+							}
+							result = out.Data
+						}
+						want := "confirmed"
+						if scenario == "unknown" {
+							want = "unknown"
+						}
+						if result.State != want || result.ChatID != -20 || result.File == nil {
+							t.Errorf("unexpected send result: %+v", result)
+						}
+						if scenario == "unknown" && n == 3 {
+							operation = result.OperationID
+							args, _ := json.Marshal(map[string]string{"operation_id": operation})
+							writeCompleted(w, n, []json.RawMessage{tgCall("file-lookup", "telegram__read_send", string(args))})
+						} else {
+							finished.Store(true)
+							writeCompleted(w, n, message("file task done"))
+						}
+					}
+				case "/bot99:fixture/getMe":
+					fmt.Fprint(w, `{"ok":true,"result":{"id":99,"is_bot":true,"username":"test_bot"}}`)
+				case "/bot99:fixture/getWebhookInfo":
+					fmt.Fprint(w, `{"ok":true,"result":{"url":""}}`)
+				case "/bot99:fixture/getUpdates":
+					var args struct {
+						Offset int64 `json:"offset"`
+					}
+					json.NewDecoder(r.Body).Decode(&args)
+					updates := []any{}
+					if args.Offset <= 1 {
+						m := map[string]any{"message_id": 1, "chat": map[string]any{"id": -20, "type": "supergroup"}, "from": map[string]any{"id": 2, "first_name": "Fixture"}}
+						if scenario == "photo" {
+							m["photo"] = []any{map[string]any{"file_id": "f", "file_unique_id": "u", "width": 2, "height": 2, "file_size": len(data)}}
+						} else {
+							name, mime := "input.txt", "text/plain"
+							if scenario == "image-document" {
+								name, mime = "input.png", "image/png"
+							}
+							m["document"] = map[string]any{"file_id": "f", "file_unique_id": "u", "file_name": name, "mime_type": mime, "file_size": len(data)}
+							m["caption"] = "review attachment"
+						}
+						updates = append(updates, map[string]any{"update_id": 1, "message": m})
+					}
+					json.NewEncoder(w).Encode(map[string]any{"ok": true, "result": updates})
+				case "/bot99:fixture/getFile":
+					json.NewEncoder(w).Encode(map[string]any{"ok": true, "result": map[string]any{"file_id": "f", "file_path": "documents/f", "file_size": len(data)}})
+				case "/file/bot99:fixture/documents/f":
+					downloads.Add(1)
+					w.Write(data)
+				case "/bot99:fixture/sendChatAction":
+					fmt.Fprint(w, `{"ok":true,"result":true}`)
+				case "/bot99:fixture/sendDocument", "/bot99:fixture/sendPhoto":
+					uploads.Add(1)
+					field := "document"
+					if scenario == "photo" {
+						field = "photo"
+					}
+					if !strings.HasSuffix(r.URL.Path, map[string]string{"document": "sendDocument", "photo": "sendPhoto"}[field]) {
+						t.Error("wrong upload method")
+					}
+					if err := r.ParseMultipartForm(1024); err != nil {
+						t.Error(err)
+						return
+					}
+					defer r.MultipartForm.RemoveAll()
+					f, _, err := r.FormFile(field)
+					if err != nil {
+						t.Error(err)
+						return
+					}
+					defer f.Close()
+					b, _ := io.ReadAll(f)
+					if !bytes.Equal(b, data) || r.FormValue("chat_id") != "-20" || r.FormValue("caption") != "result" {
+						t.Error("wrong upload bytes or route")
+					}
+					if scenario == "unknown" {
+						conn, _, err := w.(http.Hijacker).Hijack()
+						if err != nil {
+							t.Error(err)
+							return
+						}
+						conn.Close()
+						return
+					}
+					fmt.Fprint(w, `{"ok":true,"result":{"message_id":77,"chat":{"id":-20}}}`)
+				default:
+					t.Error("unexpected endpoint", r.URL.Path)
+					http.NotFound(w, r)
+				}
+			}))
+			defer server.Close()
+			telegramBins(t, home, binary, server.URL)
+			cfg := fmt.Sprintf(`default_model: chat
+providers:
+  local: {url: %s, key: fixture}
+models:
+  chat: {provider: local, model: fixture, compact_threshold: 100000}
+extensions:
+  telegram: {enabled: true, communication: true}
+plugins:
+  telegram: {bot_token: "99:fixture", owner_user_id: 1}
+  agent: {adapters: [telegram]}
+  agent-telegram:
+    workspace_dir: chats
+    private_access: full
+    group_access: full
+    idle_compact_after: 0s
+    groups:
+      "-20": {owner_only: false, response_mode: conversation}
+limits: {max_model_requests: 10, max_turn_duration: 30s}
+`, server.URL)
+			if err := os.WriteFile(filepath.Join(home, "config.yaml"), []byte(cfg), 0600); err != nil {
+				t.Fatal(err)
+			}
+			t.Setenv("HORIZON_INHERITED_ACCESS", "full")
+			stop := startTelegramDaemon(t, binary, home, t.TempDir())
+			defer stop()
+			telegramEventually(t, "file task", func() bool { return finished.Load() })
+			// Wait for the host's successful session checkpoint, not only the HTTP response.
+			store := session.NewStore(home)
+			telegramEventually(t, "file task checkpoint", func() bool {
+				workspace, err := store.ResolveWorkspace(filepath.Join(home, "chats", "telegram_99_-20"))
+				if err != nil {
+					return false
+				}
+				items, err := store.List(workspace, false)
+				if err != nil || len(items) != 1 {
+					return false
+				}
+				_, ok := items[0].Session.LastCompletedTurn()
+				return ok
+			})
+			if uploads.Load() != 1 || downloads.Load() != 1 {
+				t.Fatal("duplicate transfer", uploads.Load(), downloads.Load())
+			}
+			if scenario == "unknown" {
+				providerMu.Lock()
+				op := operation
+				providerMu.Unlock()
+				result, err := telegram.NewStore(home, 99).ReadSend(op, -20)
+				if err != nil || result.State != "unknown" || result.File == nil {
+					t.Fatal(result, err)
+				}
+				files, err := filepath.Glob(filepath.Join(home, "gateway", "telegram-v2", "99", "outbox", ".file-*"))
+				if err != nil || len(files) != 1 {
+					t.Fatal("missing snapshot", files, err)
+				}
+			}
+		})
 	}
 }

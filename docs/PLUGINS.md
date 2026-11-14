@@ -334,3 +334,19 @@ precedence over adapter names. `horizon agent <name> -h` delegates help to the a
 Пользовательские CLI плагинов используют `go-flags`; `--help` строится из описаний
 команд и параметров. Служебные JSON-команды метаданных и протокола расширений
 обрабатываются отдельно и не выводят пользовательскую справку.
+
+### Telegram file delivery
+
+Telegram input prepares document/photo attachments in the dialog workspace
+before durable daemon submission. Entry attachments carry local paths only in
+ready state; failed downloads retain the message with an error. Internal staged
+paths and retry state are stripped from model input. Image paths are not visual
+Responses API input.
+
+The outgoing extension adds `telegram__send_file` with required path, caption
+and as_photo and effect `communicate`. It validates the host workspace, snapshots
+an ordinary file inside it, and uses the existing host-selected chat and delivery
+journal. Filesystem read access and communication permission remain independent.
+Both send tools are recognized when recovering unrecorded confirmed deliveries.
+Old text outbox records remain readable; no automatic downgrade or cleanup of
+file records is provided.
